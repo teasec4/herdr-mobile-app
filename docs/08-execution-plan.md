@@ -147,24 +147,42 @@ QR-пейн в живом TUI проверяется руками (открыв�
 
 ## Лупы клиента Flutter (`client/`)
 
-### C1. Каркас + onboarding
+### C1. Каркас + onboarding — ✅ код, гейт на устройстве впереди
 
 - Custom scheme `herdrelay://` (Info.plist / intent-filter), скан/вставка
   ссылки, сохранение конфига, коннект к WS, healthz-проверка.
+- Реализовано: `PairConfig` (парсинг/валидация ссылки, wsUri/healthUri),
+  `ConfigStore` (SharedPreferences), `PairPage` (mobile_scanner + ручной ввод),
+  deep link в `main.dart` (app_links), `RelayClient` — абстрактный контракт для
+  UI, реализация по WS `WsRelayClient` (автореконнект с бэкоффом,
+  request/response, события, ping/pong); клиент создаётся на уровне приложения
+  (`main.dart`) и раздаётся всему дереву через `provider`
+  (`Provider<RelayClient>.value` — один WS-канал на список и детали, виден и
+  push-роутам); в тестах — подмена фейком `FakeRelayClient` через тот же
+  `Provider.value`.
 
 Проверки C1:
 ```bash
-cd client && flutter run                # на телефоне в одной сети
+cd client && flutter analyze && flutter test   # зелёное (33 теста)
+cd client && flutter run                # на телефоне в одной сети — впереди
 # навести на QR (L4) -> приложение открылось и подключилось
 ```
 
-### C2. Список агентов
+### C2. Список агентов — ✅ код
 
-- Снимок + обновления по событиям, blocked сверху, pull-to-refresh.
+- Снимок + обновления по событиям (`pane.agent_status_changed` → переснапшот),
+  **blocked сверху** (сортировка `RelayAgent.sorted` + подсветка карточки),
+  pull-to-refresh.
 
-### C3. Терминал-детали
+### C3. Терминал-детали — ✅ код
 
-- output (текст, автоскролл), keys/prompt, Esc/Ctrl-C.
+- `AgentPage`: вывод терминала (`agent.output`, текст, автоскролл, обновление
+  по событиям агента), строка ввода (`agent.prompt`), быстрые клавиши Esc и
+  Ctrl-C (`agent.keys`). Один общий WS-клиент на список и детали.
+- Покрытие виджет-тестами (`test/agent_page_test.dart`, `test/home_page_test.dart`,
+  `test/fakes/fake_relay_client.dart`): рендер вывода, отправка промпта,
+  клавиши, обновление статуса по событию, сортировка blocked-сверху,
+  навигация в детали, экран ошибки.
 
 ### C4. Сквозной гейт MVP (телефон)
 
@@ -181,8 +199,8 @@ cd client && flutter run                # на телефоне в одной с
 
 ## Финальный гейт MVP
 
-- [ ] `go build ./... && go vet ./... && go test ./...` — зелёное.
-- [ ] `flutter analyze` — без ошибок.
+- [x] `go build ./... && go vet ./... && go test ./...` — зелёное.
+- [x] `flutter analyze` — без ошибок (24 unit-теста зелёные).
 - [ ] Лан (A) и tailnet (B1) пройдены с телефона (C4).
 - [ ] События blocked долетают мгновенно (плагин, не эмуляция).
 - [ ] Доки обновлены под фактическое поведение.

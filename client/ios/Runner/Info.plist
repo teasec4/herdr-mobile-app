@@ -66,5 +66,20 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<!-- Скан QR-кода пары. -->
+	<key>NSCameraUsageDescription</key>
+	<string>Скан QR-кода со ссылкой подключения к релею HerdRelay</string>
+	<!-- Deep link: herdrelay://pair?... (QR со ссылкой пары). -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>herdrelay.pair</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>herdrelay</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>
