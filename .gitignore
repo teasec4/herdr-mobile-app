@@ -1,0 +1,21 @@
+# собранные бинари релея (корень + плагин)
+/relay
+/plugin/bin/
+
+# macOS
+.DS_Store
+
+# Go
+*.test
+*.out
+coverage.*
+
+# Flutter/Dart (в client/ есть свой .gitignore, дублируем на всякий случай)
+client/.dart_tool/
+client/build/
+client/.flutter-plugins*
+client/.idea/
+client/*.iml
+
+# логи релея/плагина
+herdrelay*.log
