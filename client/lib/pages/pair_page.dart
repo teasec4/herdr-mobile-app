@@ -39,7 +39,7 @@ class _PairPageState extends State<PairPage> {
     } on FormatException catch (e) {
       if (mounted) setState(() => _error = e.message);
     } catch (e) {
-      if (mounted) setState(() => _error = 'Ошибка подключения: $e');
+      if (mounted) setState(() => _error = 'Connection error: $e');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -56,14 +56,14 @@ class _PairPageState extends State<PairPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Scaffold(
-      appBar: AppBar(title: const Text('Подключение к релею')),
+      appBar: AppBar(title: const Text('Connect to relay')),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
             Text(
-              'Отсканируйте QR-код, который показывает релей на компьютере '
-              '(команда `relay pair --qr`), или вставьте ссылку вручную.',
+              'Scan the QR code the relay shows on the computer '
+              '(command `relay pair --qr`), or paste the link manually.',
               style: theme.textTheme.bodyMedium,
             ),
             const SizedBox(height: 16),
@@ -72,7 +72,7 @@ class _PairPageState extends State<PairPage> {
             TextField(
               controller: _linkController,
               decoration: const InputDecoration(
-                labelText: 'Ссылка пары',
+                labelText: 'Pair link',
                 hintText: 'herdrelay://pair?host=...&token=...',
                 border: OutlineInputBorder(),
               ),
@@ -96,7 +96,7 @@ class _PairPageState extends State<PairPage> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.link),
-              label: const Text('Подключить'),
+              label: const Text('Connect'),
             ),
           ],
         ),
@@ -118,8 +118,8 @@ class _PairPageState extends State<PairPage> {
         onDetect: _onDetect,
         errorBuilder: (context, error) => Center(
           child: Text(
-            'Камера недоступна (${error.errorCode.name}). '
-            'Вставьте ссылку вручную.',
+            'Camera unavailable (${error.errorCode.name}). '
+            'Paste the link manually.',
             style: const TextStyle(color: Colors.white),
             textAlign: TextAlign.center,
           ),

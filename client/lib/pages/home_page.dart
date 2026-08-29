@@ -54,24 +54,45 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _onEvent(RelayEvent event) {
+    if (!mounted) return;
+
+    // DEBUG: log all events
+    print('[HomePage] Event received: ${event.name}');
+    if (event.data != null) {
+      print('[HomePage] Event data: ${event.data}');
+    }
+
     // The plugin fires this event on every agent status change —
     // re-read the snapshot so the list stays fresh.
     if (event.name == 'pane.agent_status_changed' || event.name == 'pane.updated') {
-      _refresh();
+      // Small delay to let herdr update its internal state before we snapshot
+      Future.delayed(const Duration(milliseconds: 150), () {
+        if (mounted) {
+          print('[HomePage] Refreshing after event ${event.name}');
+          _refresh();
+        }
+      });
     }
   }
 
   Future<void> _refresh() async {
     setState(() => _error = null);
     try {
+      print('[HomePage] Fetching snapshot...');
       final agents = await _client.snapshot();
+      print('[HomePage] Got ${agents.length} agents:');
+      for (final a in agents) {
+        print('[HomePage]   ${a.id}: ${a.agent} (${a.status})');
+      }
       if (mounted) {
         setState(() {
           _agents = RelayAgent.sorted(agents);
           _loaded = true;
         });
+        print('[HomePage] UI updated with ${_agents.length} agents');
       }
     } catch (e) {
+      print('[HomePage] Refresh error: $e');
       if (mounted) setState(() => _error = '$e');
     }
   }
@@ -104,9 +125,9 @@ class _HomePageState extends State<HomePage> {
                 const SizedBox(width: 6),
                 Text(
                   switch (_client.status.value) {
-                    RelayStatus.connected => 'в сети',
-                    RelayStatus.connecting => 'подключение…',
-                    RelayStatus.disconnected => 'нет связи',
+                    RelayStatus.connected => 'online',
+                    RelayStatus.connecting => 'connecting…',
+                    RelayStatus.disconnected => 'offline',
                   },
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
@@ -116,7 +137,7 @@ class _HomePageState extends State<HomePage> {
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: connected ? _refresh : null,
-            tooltip: 'Обновить',
+            tooltip: 'Refresh',
           ),
           PopupMenuButton<String>(
             onSelected: (v) {
@@ -125,7 +146,7 @@ class _HomePageState extends State<HomePage> {
             itemBuilder: (context) => const [
               PopupMenuItem(
                 value: 'disconnect',
-                child: Text('Отключить устройство'),
+                child: Text('Disconnect device'),
               ),
             ],
           ),
@@ -154,7 +175,7 @@ class _HomePageState extends State<HomePage> {
                 const SizedBox(height: 8),
                 Text(_error!, textAlign: TextAlign.center),
                 const SizedBox(height: 8),
-                TextButton(onPressed: _refresh, child: const Text('Повторить')),
+                TextButton(onPressed: _refresh, child: const Text('Retry')),
               ],
             ),
           ),
@@ -174,11 +195,11 @@ class _HomePageState extends State<HomePage> {
               children: [
                 const Icon(Icons.terminal, size: 40, color: Colors.grey),
                 const SizedBox(height: 8),
-                const Text('Агенты не найдены'),
+                const Text('No agents found'),
                 const SizedBox(height: 4),
                 Text(
-                  'Запустите агента (например, `herdr codex`) на компьютере '
-                  'или нажмите «Обновить».',
+                  'Start an agent (e.g. `herdr codex`) on the computer '
+                  'or press Refresh.',
                   style: Theme.of(context).textTheme.bodySmall,
                   textAlign: TextAlign.center,
                 ),

@@ -11,11 +11,10 @@ import '../widgets/ansi_terminal.dart';
 import '../widgets/status_chip.dart';
 
 /// Quick key metadata: label, icon, and the key sequence to send.
-class _QuickKey {
-  const _QuickKey(this.label, this.icon, this.keys);
+class _SuggestedAction {
+  const _SuggestedAction(this.label, this.response);
   final String label;
-  final IconData icon;
-  final List<String> keys;
+  final String response;
 }
 
 /// Agent details: live terminal output, sending a prompt, quick keys.
@@ -61,6 +60,9 @@ class _AgentPageState extends State<AgentPage> {
   final List<String> _commandHistory = [];
   int? _historyIndex;
   String? _historyTemp;
+
+  /// Suggested actions parsed from agent output.
+  List<_SuggestedAction> _suggestedActions = [];
 
   @override
   void initState() {
@@ -136,6 +138,7 @@ class _AgentPageState extends State<AgentPage> {
         _output = output;
         _loading = false;
         _error = null;
+        _parseSuggestedActions(output);
       });
       _scrollToBottom();
     } catch (e) {
@@ -208,7 +211,7 @@ class _AgentPageState extends State<AgentPage> {
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _loading ? null : () => _refresh(),
-            tooltip: 'Обновить вывод',
+            tooltip: 'Refresh output',
           ),
         ],
       ),
@@ -235,7 +238,7 @@ class _AgentPageState extends State<AgentPage> {
               const SizedBox(height: 8),
               Text(_error!, textAlign: TextAlign.center),
               const SizedBox(height: 8),
-              TextButton(onPressed: () => _refresh(), child: const Text('Повторить')),
+              TextButton(onPressed: () => _refresh(), child: const Text('Retry')),
             ],
           ),
         ),
@@ -246,7 +249,7 @@ class _AgentPageState extends State<AgentPage> {
     }
     return AnsiTerminal(
       controller: _scroll,
-      text: _output.isEmpty ? '(вывод пуст)' : _output,
+      text: _output.isEmpty ? '(no output)' : _output,
     );
   }
 
@@ -260,63 +263,41 @@ class _AgentPageState extends State<AgentPage> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Quick keys grouped by purpose
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              // Interrupt group (red-ish)
-              ..._buildQuickKeyGroup(
-                'Прервать',
-                [
-                  _QuickKey('Ctrl-C', Icons.stop, ['ctrl', 'c']),
-                  _QuickKey('Ctrl-Z', Icons.pause, ['ctrl', 'z']),
-                ],
-                Colors.red.shade100,
-                Colors.red.shade700,
-              ),
-              // Navigation group (neutral)
-              ..._buildQuickKeyGroup(
-                'Навигация',
-                [
-                  _QuickKey('Esc', Icons.keyboard_tab, ['esc']),
-                  _QuickKey('Ctrl-L', Icons.clear_all, ['ctrl', 'l']),
-                ],
-                Colors.grey.shade200,
-                Colors.grey.shade800,
-              ),
-              // Input group (green-ish)
-              ..._buildQuickKeyGroup(
-                'Ввод',
-                [
-                  _QuickKey('Enter', Icons.keyboard_return, ['enter']),
-                  _QuickKey('Ctrl-D', Icons.eject, ['ctrl', 'd']),
-                ],
-                Colors.green.shade100,
-                Colors.green.shade700,
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          // Quick commands menu
-          Row(
-            children: [
-              Expanded(
-                child: FilledButton.tonal(
-                  onPressed: _showQuickCommands,
+          // Suggested actions (dynamic based on agent output)
+          if (_suggestedActions.isNotEmpty) ...[
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _suggestedActions.map((action) {
+                return FilledButton.tonal(
+                  onPressed: () {
+                    _input.text = action.response;
+                    _send();
+                  },
                   style: FilledButton.styleFrom(
                     visualDensity: VisualDensity.compact,
+                    backgroundColor: Colors.blue.shade100,
+                    foregroundColor: Colors.blue.shade700,
                   ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.flash_on, size: 16),
-                      SizedBox(width: 4),
-                      Text('Быстрые команды'),
-                    ],
-                  ),
+                  child: Text(action.label),
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 8),
+          ],
+          // Control: only Ctrl-C
+          Row(
+            children: [
+              OutlinedButton.icon(
+                onPressed: () => _sendKeys(['ctrl', 'c']),
+                icon: const Icon(Icons.stop, size: 16),
+                label: const Text('Ctrl-C'),
+                style: OutlinedButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  foregroundColor: Colors.red.shade700,
                 ),
               ),
+              const Spacer(),
             ],
           ),
           const SizedBox(height: 8),
@@ -330,14 +311,14 @@ class _AgentPageState extends State<AgentPage> {
                   child: TextField(
                     controller: _input,
                     decoration: InputDecoration(
-                      hintText: 'Сообщение агенту…',
+                      hintText: 'Message agent…',
                       isDense: true,
                       border: const OutlineInputBorder(),
                       suffixIcon: (_historyIndex != null && _historyIndex! >= 0)
                           ? IconButton(
                               icon: const Icon(Icons.history, size: 18),
                               onPressed: _clearHistoryNavigation,
-                              tooltip: 'Сбросить навигацию',
+                              tooltip: 'Clear history',
                             )
                           : null,
                     ),
@@ -356,7 +337,7 @@ class _AgentPageState extends State<AgentPage> {
                       )
                     : const Icon(Icons.send),
                 onPressed: _sending ? null : _send,
-                tooltip: 'Отправить',
+                tooltip: 'Send',
               ),
             ],
           ),
@@ -431,87 +412,135 @@ class _AgentPageState extends State<AgentPage> {
   }
 
   // ─────────────────────────────────────────────────────────────────────
+  // Suggested actions parsing
+  // ─────────────────────────────────────────────────────────────────────
+
+  void _parseSuggestedActions(String output) {
+    _suggestedActions = [];
+
+    // Only suggest actions when agent is blocked
+    if (_agent.status != 'blocked') return;
+
+    // Parse last ~50 lines for context
+    final lines = output.split('\n');
+    final recentLines = lines.length > 50 ? lines.sublist(lines.length - 50) : lines;
+
+    // Find the last non-empty line (likely the prompt or question)
+    String? lastNonEmpty;
+    for (int i = recentLines.length - 1; i >= 0; i--) {
+      final stripped = recentLines[i].trim();
+      if (stripped.isNotEmpty && !stripped.startsWith('─') && !stripped.startsWith('⏵')) {
+        lastNonEmpty = stripped;
+        break;
+      }
+    }
+
+    if (lastNonEmpty == null) return;
+
+    // Strategy 1: Extract inline options from the last line
+    // Patterns: "(y/n)", "(yes/no)", "[y/n]", "yes/no", "accept/reject"
+    final inlinePatterns = [
+      RegExp(r'\(([^)]+)/([^)]+)\)'),           // (yes/no) or (y/n)
+      RegExp(r'\[([^\]]+)/([^\]]+)\]'),         // [yes/no] or [y/n]
+      RegExp(r'\b(\w+)\s*/\s*(\w+)\b'),         // yes/no or accept/reject
+    ];
+
+    for (final pattern in inlinePatterns) {
+      final match = pattern.firstMatch(lastNonEmpty);
+      if (match != null && match.groupCount >= 2) {
+        final opt1 = match.group(1)!.trim();
+        final opt2 = match.group(2)!.trim();
+
+        // Skip if options are too long (not real options)
+        if (opt1.length <= 15 && opt2.length <= 15) {
+          _suggestedActions.add(_SuggestedAction(_capitalize(opt1), opt1.toLowerCase()));
+          _suggestedActions.add(_SuggestedAction(_capitalize(opt2), opt2.toLowerCase()));
+          return;
+        }
+      }
+    }
+
+    // Strategy 2: Look for explicit questions with common keywords
+    final lastFewLines = recentLines.length > 10
+        ? recentLines.sublist(recentLines.length - 10).join('\n').toLowerCase()
+        : recentLines.join('\n').toLowerCase();
+
+    // "Would you like to...", "Do you want to...", "Should I..."
+    if (lastFewLines.contains(RegExp(r'\b(would you|do you want|should i|can i)\b'))) {
+      if (!_suggestedActions.any((a) => a.label == 'Yes')) {
+        _suggestedActions.add(const _SuggestedAction('Yes', 'yes'));
+        _suggestedActions.add(const _SuggestedAction('No', 'no'));
+        return;
+      }
+    }
+
+    // Strategy 3: Look for numbered options
+    // "1. Option one"  "2. Option two"  or  "1) Option"
+    final numberedPattern = RegExp(r'^\s*(\d+)[.)]\s+(.+)$', multiLine: true);
+    final matches = numberedPattern.allMatches(recentLines.join('\n'));
+
+    if (matches.length >= 2 && matches.length <= 6) {
+      final options = <_SuggestedAction>[];
+      for (final match in matches.take(6)) {
+        final number = match.group(1)!;
+        final text = match.group(2)!.trim();
+
+        // Clean up the text: remove ANSI, keep first 40 chars
+        final cleaned = text.replaceAll(RegExp(r'\x1B\[[0-9;]*[a-zA-Z]'), '');
+        final label = cleaned.length > 40 ? '${cleaned.substring(0, 37)}...' : cleaned;
+
+        options.add(_SuggestedAction(label, number));
+      }
+
+      if (options.isNotEmpty) {
+        _suggestedActions = options;
+        return;
+      }
+    }
+
+    // Strategy 4: Look for checkbox lists with actions
+    // "◻ Do something"  "◼ Already done"
+    final checkboxPattern = RegExp(r'^[◻◼☐☑]\s+(.+)$', multiLine: true);
+    final checkMatches = checkboxPattern.allMatches(recentLines.join('\n'));
+
+    if (checkMatches.length >= 2 && checkMatches.length <= 5) {
+      // This looks like a task list, not options. Skip.
+      return;
+    }
+
+    // Strategy 5: Common action keywords in the last line
+    final actionKeywords = {
+      'proceed': 'proceed',
+      'continue': 'continue',
+      'skip': 'skip',
+      'retry': 'retry',
+      'cancel': 'cancel',
+      'approve': 'approve',
+      'reject': 'reject',
+      'accept': 'accept',
+      'decline': 'decline',
+    };
+
+    final foundActions = <_SuggestedAction>[];
+    for (final entry in actionKeywords.entries) {
+      if (lastFewLines.contains(entry.key)) {
+        foundActions.add(_SuggestedAction(_capitalize(entry.key), entry.value));
+      }
+    }
+
+    if (foundActions.length >= 2 && foundActions.length <= 4) {
+      _suggestedActions = foundActions;
+      return;
+    }
+  }
+
+  String _capitalize(String s) {
+    if (s.isEmpty) return s;
+    return s[0].toUpperCase() + s.substring(1).toLowerCase();
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
   // Quick keys and commands
   // ─────────────────────────────────────────────────────────────────────
 
-  List<Widget> _buildQuickKeyGroup(
-    String groupLabel,
-    List<_QuickKey> keys,
-    Color bgColor,
-    Color fgColor,
-  ) {
-    return [
-      Padding(
-        padding: const EdgeInsets.only(right: 4),
-        child: Text(
-          groupLabel,
-          style: TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-            color: Colors.grey.shade600,
-          ),
-        ),
-      ),
-      ...keys.map((key) => ActionChip(
-            label: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(key.icon, size: 16),
-                const SizedBox(width: 4),
-                Text(key.label, style: const TextStyle(fontSize: 12)),
-              ],
-            ),
-            backgroundColor: bgColor,
-            labelStyle: TextStyle(color: fgColor),
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            visualDensity: VisualDensity.compact,
-            onPressed: () => _sendKeys(key.keys),
-          )),
-    ];
-  }
-
-  void _showQuickCommands() {
-    showModalBottomSheet(
-      context: context,
-      builder: (context) => Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              'Быстрые команды',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _buildCommandButton('status', Icons.info_outline),
-                _buildCommandButton('continue', Icons.play_arrow),
-                _buildCommandButton('skip', Icons.skip_next),
-                _buildCommandButton('yes', Icons.check),
-                _buildCommandButton('no', Icons.close),
-                _buildCommandButton('help', Icons.help_outline),
-                _buildCommandButton('quit', Icons.exit_to_app),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCommandButton(String command, IconData icon) {
-    return OutlinedButton.icon(
-      icon: Icon(icon, size: 18),
-      label: Text(command),
-      onPressed: () {
-        Navigator.of(context).pop();
-        _input.text = command;
-        _send();
-      },
-    );
-  }
 }

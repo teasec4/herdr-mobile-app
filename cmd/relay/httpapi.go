@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -134,6 +135,7 @@ func (s *Server) handlePluginEvent(w http.ResponseWriter, r *http.Request, name 
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing data"})
 		return
 	}
+	log.Printf("[relay] Broadcasting event %s to %d clients: %s", name, len(s.hub.clients), string(ev.Data))
 	s.hub.broadcast(mustJSON(frame{Type: "event", Event: name, Data: ev.Data}))
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }

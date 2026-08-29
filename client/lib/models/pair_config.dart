@@ -39,19 +39,19 @@ class PairConfig {
   factory PairConfig.fromLink(String link) {
     final uri = Uri.tryParse(link.trim());
     if (uri == null) {
-      throw const FormatException('Некорректная ссылка');
+      throw const FormatException('Invalid link');
     }
     return PairConfig.fromUri(uri);
   }
 
   factory PairConfig.fromUri(Uri uri) {
     if (uri.scheme != _scheme || uri.host != _pairHost) {
-      throw FormatException('Ожидается ссылка вида $_scheme://$_pairHost?host=...');
+      throw FormatException('Expected a link like $_scheme://$_pairHost?host=...');
     }
 
     final host = uri.queryParameters['host']?.trim();
     if (host == null || host.isEmpty) {
-      throw const FormatException('В ссылке не указан host');
+      throw const FormatException('Link is missing a host');
     }
 
     final portRaw = uri.queryParameters['port'];
@@ -61,22 +61,22 @@ class PairConfig {
     } else {
       final parsed = int.tryParse(portRaw);
       if (parsed == null) {
-        throw FormatException('Некорректный port: $portRaw');
+        throw FormatException('Invalid port: $portRaw');
       }
       port = parsed;
     }
     if (port <= 0 || port > 65535) {
-      throw FormatException('Некорректный port: $portRaw');
+      throw FormatException('Invalid port: $portRaw');
     }
 
     final token = uri.queryParameters['token'] ?? '';
     if (token.length < _minTokenLength) {
-      throw const FormatException('Слишком короткий токен — ссылка повреждена');
+      throw const FormatException('Token too short — corrupted link');
     }
 
     final mode = uri.queryParameters['mode'] ?? defaultMode;
     if (mode.isEmpty || mode.contains(' ')) {
-      throw FormatException('Некорректный mode: $mode');
+      throw FormatException('Invalid mode: $mode');
     }
 
     return PairConfig(host: host, port: port, mode: mode, token: token);

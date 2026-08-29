@@ -57,20 +57,63 @@ void main() {
     expect(find.text('первый\n'), findsNothing);
   });
 
-  testWidgets('кнопки Esc и Ctrl-C шлют agent.keys', (tester) async {
+  testWidgets('кнопка Ctrl-C шлёт agent.keys', (tester) async {
     await pumpAgent(tester);
 
-    // Find ActionChips by their label text
-    await tester.tap(find.text('Esc'));
-    await tester.pump();
-    await tester.tap(find.text('Ctrl-C'));
+    await tester.tap(find.widgetWithText(OutlinedButton, 'Ctrl-C'));
     await tester.pump();
 
-    expect(client.keysCalls.length, 2);
+    expect(client.keysCalls.length, 1);
     expect(client.keysCalls[0].$1, agent.id);
-    expect(client.keysCalls[0].$2, ['esc']);
-    expect(client.keysCalls[1].$1, agent.id);
-    expect(client.keysCalls[1].$2, ['ctrl', 'c']);
+    expect(client.keysCalls[0].$2, ['ctrl', 'c']);
+  });
+
+  testWidgets('предложенные действия появляются когда агент blocked с yes/no', (tester) async {
+    client.outputText = 'Do you want to approve this? (y/n)\n';
+    agent = RelayAgent.fromJson({
+      'pane_id': 'wG:p1',
+      'agent': 'codex',
+      'agent_status': 'blocked',
+      'cwd': '/Users/me/proj',
+    });
+    await pumpAgent(tester);
+
+    // Should show Y and N buttons (parsed from (y/n))
+    expect(find.text('Y'), findsOneWidget);
+    expect(find.text('N'), findsOneWidget);
+
+    // Tap Y should send 'y'
+    await tester.tap(find.text('Y'));
+    await tester.pumpAndSettle();
+
+    expect(client.prompts, [(agent.id, 'y')]);
+  });
+
+  testWidgets('предложенные действия парсят нумерованные варианты', (tester) async {
+    client.outputText = '''
+Please choose an option:
+1. Create new file
+2. Update existing
+3. Skip this step
+''';
+    agent = RelayAgent.fromJson({
+      'pane_id': 'wG:p1',
+      'agent': 'codex',
+      'agent_status': 'blocked',
+      'cwd': '/Users/me/proj',
+    });
+    await pumpAgent(tester);
+
+    // Should show numbered options
+    expect(find.text('Create new file'), findsOneWidget);
+    expect(find.text('Update existing'), findsOneWidget);
+    expect(find.text('Skip this step'), findsOneWidget);
+
+    // Tap should send the number
+    await tester.tap(find.text('Update existing'));
+    await tester.pumpAndSettle();
+
+    expect(client.prompts, [(agent.id, '2')]);
   });
 
   testWidgets('событие pane.agent_status_changed обновляет статус агента', (tester) async {

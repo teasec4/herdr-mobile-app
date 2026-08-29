@@ -44,7 +44,7 @@ void main() {
 
   testWidgets('пустой список — заглушка «Агенты не найдены»', (tester) async {
     await pumpHome(tester);
-    expect(find.text('Агенты не найдены'), findsOneWidget);
+    expect(find.text('No agents found'), findsOneWidget);
   });
 
   testWidgets('blocked-агент отображается первым', (tester) async {
@@ -75,11 +75,11 @@ void main() {
   testWidgets('ошибка снимка показывает «Повторить», повторный тап чинит', (tester) async {
     client.snapshotError = true;
     await pumpHome(tester);
-    expect(find.text('Повторить'), findsOneWidget);
+    expect(find.text('Retry'), findsOneWidget);
 
     client.snapshotError = false;
     client.agents = [agent('p:alice', 'alice', 'done')];
-    await tester.tap(find.text('Повторить'));
+    await tester.tap(find.text('Retry'));
     await tester.pumpAndSettle();
 
     expect(find.text('alice'), findsOneWidget);

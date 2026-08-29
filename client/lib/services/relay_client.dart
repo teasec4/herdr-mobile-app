@@ -193,6 +193,12 @@ class WsRelayClient implements RelayClient {
     } catch (_) {
       return;
     }
+
+    // DEBUG: log incoming frames
+    if (frame['type'] == 'event') {
+      print('[RelayClient] WS event: ${frame['event']}');
+    }
+
     switch (frame['type']) {
       case 'response':
         _onResponse(frame);
@@ -216,14 +222,14 @@ class WsRelayClient implements RelayClient {
     } else {
       final err = frame['error'];
       final code = err is Map ? '${err['code']}' : 'error';
-      final message = err is Map ? '${err['message'] ?? ''}' : 'ошибка релея';
+      final message = err is Map ? '${err['message'] ?? ''}' : 'relay error';
       completer.completeError(RelayException(code, message.isNotEmpty ? message : code));
     }
   }
 
   void _onDisconnect() {
     if (_closed) return;
-    lastError ??= 'Соединение с релеем разорвано';
+    lastError ??= 'Relay connection lost';
     _sub?.cancel();
     _sub = null;
     _channel?.sink.close();
@@ -263,7 +269,7 @@ class WsRelayClient implements RelayClient {
   }
 
   void _failPending() {
-    const err = RelayException('disconnected', 'Соединение с релеем разорвано');
+    const err = RelayException('disconnected', 'Relay connection lost');
     for (final c in _pending.values) {
       if (!c.isCompleted) c.completeError(err);
     }
@@ -278,7 +284,7 @@ class WsRelayClient implements RelayClient {
       // the first operation instantly. After the wait, surface the real reason.
       await _waitForConnected();
       if (status.value != RelayStatus.connected) {
-        throw RelayException('not_connected', lastError ?? 'Нет соединения с релеем');
+        throw RelayException('not_connected', lastError ?? 'No connection to relay');
       }
     }
     final id = _nextId++;
@@ -287,7 +293,7 @@ class WsRelayClient implements RelayClient {
     _sendFrame({'type': 'request', 'id': id, 'method': method, 'params': params});
     final timer = Timer(_requestTimeout, () {
       if (_pending.remove(id) != null) {
-        completer.completeError(const RelayException('timeout', 'Релей не ответил'));
+        completer.completeError(const RelayException('timeout', 'Relay did not respond'));
       }
     });
     try {

@@ -23,6 +23,9 @@ set -eu
 RAW="${HERDR_PLUGIN_EVENT_JSON:-}"
 [ -n "$RAW" ] || exit 0
 
+# DEBUG: log events (comment out in production)
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] Event: $RAW" >> /tmp/herdr-relay-events.log
+
 # Token to authenticate against the relay — the same one the relay puts into
 # the pairing QR link (written next to the herdr config on install). Without
 # the token the relay would answer 401.
