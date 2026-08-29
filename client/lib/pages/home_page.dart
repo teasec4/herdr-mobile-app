@@ -116,6 +116,26 @@ class _HomePageState extends State<HomePage> {
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: Row(
               children: [
+                // Connection mode badge
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: _modeColor(widget.config.mode).withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(
+                      color: _modeColor(widget.config.mode).withOpacity(0.5),
+                      width: 1,
+                    ),
+                  ),
+                  child: Text(
+                    widget.config.mode.toUpperCase(),
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: _modeColor(widget.config.mode),
+                          fontWeight: FontWeight.bold,
+                        ),
+                  ),
+                ),
+                const SizedBox(width: 8),
                 Icon(
                   connected ? Icons.circle : Icons.circle_outlined,
                   size: 12,
@@ -235,6 +255,15 @@ class _HomePageState extends State<HomePage> {
         builder: (_) => AgentPage(agent: agent),
       ),
     );
+  }
+
+  Color _modeColor(String mode) {
+    return switch (mode) {
+      'lan' => Colors.blue,
+      'tailscale' => Colors.purple,
+      'funnel' => Colors.orange,
+      _ => Colors.grey,
+    };
   }
 }
 
