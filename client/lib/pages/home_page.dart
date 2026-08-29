@@ -6,6 +6,8 @@ import 'package:provider/provider.dart';
 import '../models/pair_config.dart';
 import '../models/relay_agent.dart';
 import '../services/relay_client.dart';
+import '../utils/async_value.dart';
+import '../utils/toast_service.dart';
 import '../widgets/status_chip.dart';
 import 'agent_page.dart';
 
@@ -25,9 +27,7 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   late final RelayClient _client;
   StreamSubscription<RelayEvent>? _eventSubscription;
-  List<RelayAgent> _agents = const [];
-  bool _loaded = false;
-  String? _error;
+  AsyncValue<List<RelayAgent>> _agentsState = const AsyncIdle();
 
   @override
   void initState() {
@@ -48,8 +48,8 @@ class _HomePageState extends State<HomePage> {
 
   void _onStatusChanged() {
     if (!mounted) return;
-    // On reconnect, drop the stale error and reload the list by itself.
-    if (_client.status.value == RelayStatus.connected && _error != null) {
+    // On reconnect, reload the list
+    if (_client.status.value == RelayStatus.connected && _agentsState.hasError) {
       _refresh();
     } else {
       setState(() {});
@@ -79,7 +79,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _refresh() async {
-    setState(() => _error = null);
+    setState(() => _agentsState = const AsyncLoading());
     try {
       print('[HomePage] Fetching snapshot...');
       final agents = await _client.snapshot();
@@ -89,14 +89,16 @@ class _HomePageState extends State<HomePage> {
       }
       if (mounted) {
         setState(() {
-          _agents = RelayAgent.sorted(agents);
-          _loaded = true;
+          _agentsState = AsyncData(RelayAgent.sorted(agents));
         });
-        print('[HomePage] UI updated with ${_agents.length} agents');
+        print('[HomePage] UI updated with ${agents.length} agents');
       }
     } catch (e) {
       print('[HomePage] Refresh error: $e');
-      if (mounted) setState(() => _error = '$e');
+      if (mounted) {
+        setState(() => _agentsState = AsyncError(e));
+        ToastService.showError(context, e);
+      }
     }
   }
 
@@ -166,35 +168,31 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildBody(bool connected) {
-    if (_error != null) {
-      return ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              children: [
-                Icon(Icons.error_outline, size: 40, color: Theme.of(context).colorScheme.error),
-                const SizedBox(height: 8),
-                Text(_error!, textAlign: TextAlign.center),
-                const SizedBox(height: 8),
-                TextButton(onPressed: _refresh, child: const Text('Retry')),
-              ],
+    return switch (_agentsState) {
+      AsyncIdle() || AsyncLoading() => const Center(child: CircularProgressIndicator()),
+      AsyncError(:final error) => ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                children: [
+                  Icon(Icons.error_outline, size: 40, color: Theme.of(context).colorScheme.error),
+                  const SizedBox(height: 8),
+                  Text('$error', textAlign: TextAlign.center),
+                  const SizedBox(height: 8),
+                  TextButton(onPressed: _refresh, child: const Text('Retry')),
+                ],
+              ),
             ),
-          ),
-        ],
-      );
-    }
-    if (!_loaded) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    if (_agents.isEmpty) {
-      return ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
+          ],
+        ),
+      AsyncData(:final data) when data.isEmpty => ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
               children: [
                 const Icon(Icons.terminal, size: 40, color: Colors.grey),
                 const SizedBox(height: 8),
@@ -210,27 +208,27 @@ class _HomePageState extends State<HomePage> {
             ),
           ),
         ],
-      );
-    }
-    return ListView.separated(
-      physics: const AlwaysScrollableScrollPhysics(),
-      itemCount: _agents.length + 1,
-      separatorBuilder: (_, _) => const Divider(height: 1),
-      itemBuilder: (context, i) {
-        if (i == _agents.length) {
-          return Padding(
-            padding: const EdgeInsets.all(12),
-            child: Text(
-              '${widget.config.mode} · ${widget.config.host}:${widget.config.port}',
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          );
-        }
-        final agent = _agents[i];
-        return _AgentTile(agent: agent, onTap: () => _openAgent(agent));
-      },
-    );
+      ),
+      AsyncData(:final data) => ListView.separated(
+          physics: const AlwaysScrollableScrollPhysics(),
+          itemCount: data.length + 1,
+          separatorBuilder: (_, __) => const Divider(height: 1),
+          itemBuilder: (context, i) {
+            if (i == data.length) {
+              return Padding(
+                padding: const EdgeInsets.all(12),
+                child: Text(
+                  '${widget.config.mode} · ${widget.config.host}:${widget.config.port}',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              );
+            }
+            final agent = data[i];
+            return _AgentTile(agent: agent, onTap: () => _openAgent(agent));
+          },
+        ),
+    };
   }
 
   void _openAgent(RelayAgent agent) {

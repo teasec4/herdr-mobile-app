@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../models/pair_config.dart';
+import '../utils/toast_service.dart';
 
 /// Onboarding: scan a QR with the relay pair link or paste a link manually.
 class PairPage extends StatefulWidget {
@@ -18,7 +19,6 @@ class _PairPageState extends State<PairPage> {
   final MobileScannerController _scanner = MobileScannerController();
   final TextEditingController _linkController = TextEditingController();
   bool _busy = false;
-  String? _error;
 
   @override
   void dispose() {
@@ -29,17 +29,14 @@ class _PairPageState extends State<PairPage> {
 
   Future<void> _connect(String link) async {
     if (_busy) return;
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
+    setState(() => _busy = true);
     try {
       final config = PairConfig.fromLink(link);
       await widget.onPaired(config);
     } on FormatException catch (e) {
-      if (mounted) setState(() => _error = e.message);
+      if (mounted) ToastService.showError(context, e.message);
     } catch (e) {
-      if (mounted) setState(() => _error = 'Connection error: $e');
+      if (mounted) ToastService.showError(context, 'Connection error: $e');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -80,11 +77,6 @@ class _PairPageState extends State<PairPage> {
               onSubmitted: _connect,
             ),
             const SizedBox(height: 12),
-            if (_error != null)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Text(_error!, style: TextStyle(color: theme.colorScheme.error)),
-              ),
             FilledButton.icon(
               onPressed: _busy
                   ? null

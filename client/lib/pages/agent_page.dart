@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/relay_agent.dart';
 import '../services/relay_client.dart';
+import '../utils/toast_service.dart';
 import '../widgets/ansi_terminal.dart';
 import '../widgets/status_chip.dart';
 
@@ -41,7 +42,6 @@ class _AgentPageState extends State<AgentPage> {
 
   String _output = '';
   bool _loading = true;
-  String? _error;
   bool _sending = false;
 
   /// Whether the view should follow new output; the user scrolling up turns
@@ -128,10 +128,7 @@ class _AgentPageState extends State<AgentPage> {
   /// event will retry.
   Future<void> _refresh({bool silent = false}) async {
     if (!silent) {
-      setState(() {
-        _loading = true;
-        _error = null;
-      });
+      setState(() => _loading = true);
     }
     try {
       final output = await _client.output(_agent.id, lines: 500, format: 'ansi');
@@ -139,16 +136,15 @@ class _AgentPageState extends State<AgentPage> {
       setState(() {
         _output = output;
         _loading = false;
-        _error = null;
         _parseSuggestedActions(output);
       });
       _scrollToBottom();
     } catch (e) {
       if (!mounted || silent) return;
       setState(() {
-        _error = '$e';
         _loading = false;
       });
+      ToastService.showError(context, e);
     }
   }
 
@@ -182,7 +178,7 @@ class _AgentPageState extends State<AgentPage> {
       // after sending, re-read the output: the agent has started working
       await _refresh();
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      if (mounted) ToastService.showError(context, e);
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -192,7 +188,7 @@ class _AgentPageState extends State<AgentPage> {
     try {
       await _client.keys(_agent.id, keys);
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      if (mounted) ToastService.showError(context, e);
     }
   }
 
@@ -229,23 +225,6 @@ class _AgentPageState extends State<AgentPage> {
   }
 
   Widget _buildOutput(ThemeData theme) {
-    if (_error != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.error_outline, size: 40, color: theme.colorScheme.error),
-              const SizedBox(height: 8),
-              Text(_error!, textAlign: TextAlign.center),
-              const SizedBox(height: 8),
-              TextButton(onPressed: () => _refresh(), child: const Text('Retry')),
-            ],
-          ),
-        ),
-      );
-    }
     if (_loading && _output.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
