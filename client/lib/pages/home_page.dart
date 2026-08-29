@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -22,6 +24,7 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   late final RelayClient _client;
+  StreamSubscription<RelayEvent>? _eventSubscription;
   List<RelayAgent> _agents = const [];
   bool _loaded = false;
   String? _error;
@@ -32,14 +35,14 @@ class _HomePageState extends State<HomePage> {
     // The relay client is shared app-wide (see main.dart).
     _client = context.read<RelayClient>();
     _client.status.addListener(_onStatusChanged);
-    _client.events.listen(_onEvent);
+    _eventSubscription = _client.events.listen(_onEvent);
     _refresh();
   }
 
   @override
   void dispose() {
     _client.status.removeListener(_onStatusChanged);
-    _client.close();
+    _eventSubscription?.cancel();
     super.dispose();
   }
 

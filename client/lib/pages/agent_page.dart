@@ -33,6 +33,7 @@ class AgentPage extends StatefulWidget {
 
 class _AgentPageState extends State<AgentPage> {
   late final RelayClient _client;
+  StreamSubscription<RelayEvent>? _eventSubscription;
   late RelayAgent _agent;
   late final TextEditingController _input = TextEditingController();
   final ScrollController _scroll = ScrollController();
@@ -70,13 +71,14 @@ class _AgentPageState extends State<AgentPage> {
     _client = context.read<RelayClient>();
     _agent = widget.agent;
     _scroll.addListener(_onScroll);
-    _client.events.listen(_onEvent);
+    _eventSubscription = _client.events.listen(_onEvent);
     _loadCommandHistory();
     _refresh();
   }
 
   @override
   void dispose() {
+    _eventSubscription?.cancel();
     _scroll.removeListener(_onScroll);
     _input.dispose();
     _scroll.dispose();
