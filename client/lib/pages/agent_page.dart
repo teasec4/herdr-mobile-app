@@ -66,6 +66,7 @@ class _AgentPageState extends State<AgentPage> {
     _historyService = getIt<CommandHistoryService>();
     _parserService = getIt<ActionParserService>();
     _agent = widget.agent;
+    print('[AgentPage] Initialized with agent: id=${_agent.id}, status=${_agent.status}, agent=${_agent.agent}');
     _scroll.addListener(_onScroll);
     _eventSubscription = _repository.events.listen(_onEvent);
     _loadCommandHistory();
@@ -108,6 +109,7 @@ class _AgentPageState extends State<AgentPage> {
 
     // Agent status changed: update agent state and refresh
     if (event is AgentStatusChanged) {
+      print('[AgentPage] AgentStatusChanged event: paneId=${event.paneId}, status=${event.status}, myId=${_agent.id}');
       if (event.paneId != _agent.id) return;
       setState(() {
         _agent = RelayAgent(
@@ -118,6 +120,7 @@ class _AgentPageState extends State<AgentPage> {
           cwd: _agent.cwd,
         );
       });
+      print('[AgentPage] Updated agent status to: ${_agent.status}');
       _refresh();
     }
   }
@@ -131,6 +134,11 @@ class _AgentPageState extends State<AgentPage> {
       setState(() => _loading = true);
     }
     try {
+      // Also refresh agent metadata from snapshot to get current status
+      if (!silent) {
+        await _refreshAgentFromSnapshot();
+      }
+
       final output = await _repository.getOutput(_agent.id, lines: 500);
       if (!mounted) return;
       setState(() {
@@ -143,6 +151,23 @@ class _AgentPageState extends State<AgentPage> {
       if (!mounted || silent) return;
       setState(() => _loading = false);
       ToastService.showError(context, e);
+    }
+  }
+
+  /// Refresh agent metadata (status, etc.) from current snapshot
+  Future<void> _refreshAgentFromSnapshot() async {
+    try {
+      final agents = await _repository.getAgents();
+      final current = agents.where((a) => a.id == _agent.id).firstOrNull;
+      if (current != null && mounted) {
+        setState(() {
+          _agent = current;
+        });
+        print('[AgentPage] Refreshed agent from snapshot: status=${_agent.status}');
+      }
+    } catch (e) {
+      print('[AgentPage] Failed to refresh agent from snapshot: $e');
+      // Ignore error - keep current agent state
     }
   }
 
