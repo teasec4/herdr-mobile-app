@@ -10,8 +10,8 @@ import (
 )
 
 type pairMode struct {
-	URL  string `json:"url"`  // ws/wss адрес для подключения
-	Link string `json:"link"` // custom-scheme ссылка herdrelay://pair?...
+	URL  string `json:"url"`  // ws/wss endpoint to connect to
+	Link string `json:"link"` // custom-scheme herdrelay://pair?... link
 }
 
 type pairInfo struct {
@@ -29,7 +29,7 @@ func listenPort(cfg Config) string {
 	return port
 }
 
-// pairInfo собирает доступные режимы подключения (см. docs/07-onboarding.md).
+// pairInfo collects the available connection modes (see docs/07-onboarding.md).
 func (s *Server) pairInfo() pairInfo {
 	port := listenPort(s.cfg)
 	urls := map[string]pairMode{}
@@ -66,7 +66,7 @@ func pairLink(mode string, params map[string]string, token string) string {
 	return "herdrelay://pair?" + q.Encode()
 }
 
-// detectLANIP возвращает приватный IPv4 машины для режима lan.
+// detectLANIP returns the machine's private IPv4 for the lan mode.
 func detectLANIP() string {
 	switch runtime.GOOS {
 	case "darwin":
@@ -80,7 +80,7 @@ func detectLANIP() string {
 	case "linux":
 		if out, err := exec.Command("hostname", "-I").Output(); err == nil {
 			for _, ip := range strings.Fields(string(out)) {
-				if !strings.Contains(ip, ":") { // только IPv4
+				if !strings.Contains(ip, ":") { // IPv4 only
 					return ip
 				}
 			}
@@ -93,7 +93,7 @@ type tailscaleInfoT struct {
 	DNSName string
 }
 
-// tailscaleInfo возвращает MagicDNS-имя машины, если Tailscale запущен.
+// tailscaleInfo returns the machine's MagicDNS name if Tailscale is running.
 func tailscaleInfo() *tailscaleInfoT {
 	out, err := exec.Command("tailscale", "status", "--json").Output()
 	if err != nil {

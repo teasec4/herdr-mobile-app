@@ -4,10 +4,10 @@ import 'package:client/models/relay_agent.dart';
 import 'package:client/services/relay_client.dart';
 import 'package:flutter/foundation.dart';
 
-/// Фейк клиента релея для виджет-тестов: без сети, с контролем из теста.
+/// Fake relay client for widget tests: no network, controlled from the test.
 ///
-/// Отвечает из заранее заданных полей и записывает вызовы (`prompts`,
-/// `keysCalls`), чтобы тест мог проверить, что UI действительно ходит в релей.
+/// Serves from preset fields and records calls (`prompts`, `keysCalls`) so
+/// tests can verify the UI actually talks to the relay.
 class FakeRelayClient implements RelayClient {
   @override
   final ValueNotifier<RelayStatus> status =
@@ -18,19 +18,19 @@ class FakeRelayClient implements RelayClient {
   @override
   Stream<RelayEvent> get events => _events.stream;
 
-  /// Снимок, который вернёт `snapshot()`.
+  /// Snapshot that `snapshot()` will return.
   List<RelayAgent> agents = const [];
 
-  /// Текст, который вернёт `output()` для любого агента.
+  /// Text that `output()` returns for any agent.
   String outputText = '';
 
-  /// Если true, `snapshot()` бросает [RelayException].
+  /// When true, `snapshot()` throws [RelayException].
   bool snapshotError = false;
 
-  /// Записанные вызовы `prompt(target, text)`.
+  /// Recorded `prompt(target, text)` calls.
   final List<(String, String)> prompts = [];
 
-  /// Записанные вызовы `keys(target, keys)`.
+  /// Recorded `keys(target, keys)` calls.
   final List<(String, List<String>)> keysCalls = [];
 
   @override
@@ -62,6 +62,6 @@ class FakeRelayClient implements RelayClient {
   @override
   Future<void> close() async {}
 
-  /// Эмитит событие так, как оно пришло бы по WS.
+  /// Emits an event the way it would arrive over WS.
   void emit(RelayEvent event) => _events.add(event);
 }

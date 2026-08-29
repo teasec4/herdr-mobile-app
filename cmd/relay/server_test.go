@@ -10,7 +10,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// stubHerdr — фейк AgentAPI для тестов (herdr subprocess не нужен).
+// stubHerdr is a fake AgentAPI for tests (no herdr subprocess needed).
 type stubHerdr struct{}
 
 func (stubHerdr) Snapshot() (*Snapshot, error) {
@@ -91,7 +91,7 @@ func TestWSRequestResponse(t *testing.T) {
 		t.Fatalf("expected pong, got %s", raw)
 	}
 
-	// request agents.snapshot -> response с тем же id
+	// request agents.snapshot -> response with the same id
 	if err := conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"request","id":7,"method":"agents.snapshot","params":{}}`)); err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +120,7 @@ func TestEventBroadcast(t *testing.T) {
 	}
 	defer conn.Close()
 
-	// эмуляция события плагина
+	// emulate a plugin event
 	body := strings.NewReader(`{"event":"agent_status_changed","data":{"agent":"codex","status":"blocked"}}`)
 	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/events?token=secret-token", body)
 	resp, err := http.DefaultClient.Do(req)
@@ -142,8 +142,8 @@ func TestEventBroadcast(t *testing.T) {
 	}
 }
 
-// TestHerdrEventBroadcast — сырой HERDR_PLUGIN_EVENT_JSON с хука herdr
-// нормализуется в pane.agent_status_changed и доходит до WS-клиента.
+// TestHerdrEventBroadcast verifies a raw HERDR_PLUGIN_EVENT_JSON payload from a
+// herdr hook is normalized to pane.agent_status_changed and reaches the WS client.
 func TestHerdrEventBroadcast(t *testing.T) {
 	ts := testServer(t, "secret-token")
 	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws?token=secret-token"
@@ -173,7 +173,7 @@ func TestHerdrEventBroadcast(t *testing.T) {
 	if ev.Type != "event" || ev.Event != "pane.agent_status_changed" {
 		t.Fatalf("unexpected event: %s", raw)
 	}
-	// data должен быть валидным JSON-объектом с agent_status
+	// data must be a valid JSON object with agent_status
 	data, ok := ev.Data.(map[string]any)
 	if !ok || data["agent_status"] != "blocked" {
 		t.Fatalf("unexpected data: %v", ev.Data)

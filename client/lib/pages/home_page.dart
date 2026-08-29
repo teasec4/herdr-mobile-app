@@ -56,7 +56,7 @@ class _HomePageState extends State<HomePage> {
   void _onEvent(RelayEvent event) {
     // The plugin fires this event on every agent status change —
     // re-read the snapshot so the list stays fresh.
-    if (event.name == 'pane.agent_status_changed') {
+    if (event.name == 'pane.agent_status_changed' || event.name == 'pane.updated') {
       _refresh();
     }
   }
@@ -131,9 +131,12 @@ class _HomePageState extends State<HomePage> {
           ),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: _refresh,
-        child: _buildBody(connected),
+      body: SafeArea(
+        top: false,
+        child: RefreshIndicator(
+          onRefresh: _refresh,
+          child: _buildBody(connected),
+        ),
       ),
     );
   }

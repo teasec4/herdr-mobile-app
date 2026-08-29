@@ -4,6 +4,7 @@ import 'package:client/services/relay_client.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'fakes/fake_relay_client.dart';
 
@@ -12,6 +13,7 @@ void main() {
   late RelayAgent agent;
 
   setUp(() {
+    SharedPreferences.setMockInitialValues({});
     client = FakeRelayClient();
     agent = RelayAgent.fromJson({
       'pane_id': 'wG:p1',
@@ -58,9 +60,10 @@ void main() {
   testWidgets('кнопки Esc и Ctrl-C шлют agent.keys', (tester) async {
     await pumpAgent(tester);
 
-    await tester.tap(find.byTooltip('Esc'));
+    // Find ActionChips by their label text
+    await tester.tap(find.text('Esc'));
     await tester.pump();
-    await tester.tap(find.byTooltip('Ctrl-C (прервать)'));
+    await tester.tap(find.text('Ctrl-C'));
     await tester.pump();
 
     expect(client.keysCalls.length, 2);

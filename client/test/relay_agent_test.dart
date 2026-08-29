@@ -65,7 +65,7 @@ void main() {
         agent('p:blocked-1', 'blocked'),
       ]);
       expect(sorted.map((a) => a.status).toList(), ['blocked', 'blocked', 'done']);
-      // внутри группы blocked — по имени
+      // within a blocked group — by name
       expect(sorted[0].id, 'p:blocked-1');
       expect(sorted[1].id, 'p:blocked-2');
     });

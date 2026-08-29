@@ -8,7 +8,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// frame — JSON-конверт протокола (см. docs/01-architecture.md).
+// frame is the protocol JSON envelope (see docs/01-architecture.md).
 type frame struct {
 	Type   string          `json:"type"`
 	ID     any             `json:"id,omitempty"`
@@ -43,8 +43,8 @@ func mustJSON(v any) []byte {
 	return b
 }
 
-// Client — одно WS-соединение телефона. Пишем из разных горутин (ответы и
-// события), поэтому запись под мьютексом.
+// Client is a single WS connection from the phone. Writes come from different
+// goroutines (responses and events), so writes are guarded by a mutex.
 type Client struct {
 	conn *websocket.Conn
 	mu   sync.Mutex
@@ -56,7 +56,7 @@ func (c *Client) write(b []byte) error {
 	return c.conn.WriteMessage(websocket.TextMessage, b)
 }
 
-// Hub — множество подключённых клиентов; события рассылаются всем.
+// Hub tracks the connected clients; events are broadcast to all of them.
 type Hub struct {
 	mu      sync.Mutex
 	clients map[*Client]struct{}
@@ -121,7 +121,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// dispatch выполняет метод протокола и возвращает frame-ответ.
+// dispatch runs a protocol method and returns the response frame.
 func (s *Server) dispatch(f frame) frame {
 	switch f.Method {
 	case "agents.snapshot":

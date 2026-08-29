@@ -9,8 +9,9 @@ import (
 	"strings"
 )
 
-// AgentAPI — то, что релею нужно от herdr. Реализация — subprocess CLI (v1),
-// позже можно заменить на прямой JSON-RPC в сокет без смены API.
+// AgentAPI is what the relay needs from herdr. Implemented via the subprocess
+// CLI (v1); later it can be swapped for direct JSON-RPC over the socket without
+// changing the API.
 type AgentAPI interface {
 	Snapshot() (*Snapshot, error)
 	Read(target string, lines int, format string) (string, error)
@@ -18,7 +19,7 @@ type AgentAPI interface {
 	Prompt(target, text string) error
 }
 
-// Herdr — subprocess-обёртка над CLI herdr.
+// Herdr is a subprocess wrapper around the herdr CLI.
 type Herdr struct {
 	Bin    string
 	Socket string

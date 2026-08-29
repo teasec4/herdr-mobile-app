@@ -11,8 +11,8 @@ import (
 	"github.com/mdp/qrterminal/v3"
 )
 
-// runPairCmd — `herdrelay pair [--qr]`: печатает ссылку пары с локальным
-// релеем для телефона. Используется экшеном плагина «показать QR».
+// runPairCmd implements `herdrelay pair [--qr]`: prints the pairing link for
+// the local relay so the phone can connect. Used by the plugin's show-QR action.
 func runPairCmd(args []string) int {
 	qr := false
 	for _, a := range args {

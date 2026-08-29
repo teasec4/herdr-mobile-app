@@ -38,6 +38,14 @@
   события реально стреляли при смене статуса агента (`herdr plugin log list`
   → status=succeeded, exit_code=0), WS-клиент получал событие с полным `data`
   — E2E, не эмуляция.
+- **Хуки herdr НЕ умеют события вывода терминала**: `pane.updated`,
+  `pane.output_changed`, `pane.scroll_changed` → «unknown event» (проверено
+  брутфорсом на 0.8.0). Живой вывод через плагин невозможен — только через сокет.
+- **Сокет-подписка (Б-lite)**: unix-сокет herdr — newline-делимитед JSON-RPC 2.0,
+  id запроса — строка. Запрос `events.subscribe` с полем `subscriptions`.
+  Входящие нотификации плоские: `{"event":"pane.scroll_changed","data":{pane_id,
+  scroll:{max_offset_from_bottom, offset_from_bottom, viewport_rows},
+  workspace_id}}` и `{"event":"pane_updated","data":{"pane":{...}}}`.
 - Токен релея: `~/.config/herdr/herdrelay.token` (0600, 64 hex); env
   `HERDRELAY_TOKEN` — приоритет. Порт по умолчанию 8375 (env `HERDRELAY_PORT`).
 - При `herdr plugin link` (в отличие от `install`) `[[build]]` herdr **не
@@ -111,6 +119,25 @@ curl -s -H "Authorization: Bearer $T" localhost:8375/pair
 plugin/bin/herdrelay pair --qr        # ANSI-QR печатается в stdout
 ```
 
+### L5. Б-lite: живой вывод через сокет-подписку — ✅ реализовано
+
+- `herdrevents.go` — подписчик на unix-сокет herdr: `events.subscribe` с
+  `pane.updated` (глобально) + `pane.scroll_changed` (по каждому pane_id).
+- Seed-снимок: при старте берём `herdr api snapshot` (seedKnown), чтобы
+  подписаться на уже существующие пейны; новые пейны подписываются
+  инкрементально по `pane_updated`.
+- Реконнект с бэкоффом 2s → 30s; на изменение скролла релей форвардит клиентам
+  событие `pane.output_changed` (data: `{pane_id, workspace_id}`).
+- Запуск из `main.go`; изолирован от HTTP-API.
+
+Проверки L5:
+```bash
+go build ./... && go vet ./... && go test ./...  # зелёное
+launchctl print gui/$(id -u)/com.herdrelay.relay  # релей жив, подписчик стартовал
+# живой тест: печатаешь в терминале агента → клиент обновляет вывод по
+# pane.output_changed (debounce ~400мс)
+```
+
 ## Лупы плагина herdr (`plugin/`)
 
 ### L4. Плагин: манифест, QR-пейн, on-event, launchd — ✅ реализовано
@@ -147,7 +174,7 @@ QR-пейн в живом TUI проверяется руками (открыв�
 
 ## Лупы клиента Flutter (`client/`)
 
-### C1. Каркас + onboarding — ✅ код, гейт на устройстве впереди
+### C1. Каркас + onboarding — ✅ реализовано (QR-скан проверен на телефоне по LAN)
 
 - Custom scheme `herdrelay://` (Info.plist / intent-filter), скан/вставка
   ссылки, сохранение конфига, коннект к WS, healthz-проверка.
@@ -163,8 +190,8 @@ QR-пейн в живом TUI проверяется руками (открыв�
 
 Проверки C1:
 ```bash
-cd client && flutter analyze && flutter test   # зелёное (33 теста)
-cd client && flutter run                # на телефоне в одной сети — впереди
+cd client && flutter analyze && flutter test   # зелёное (53 теста)
+cd client && flutter run                # на телефоне в одной сети — пройдено по LAN
 # навести на QR (L4) -> приложение открылось и подключилось
 ```
 
@@ -176,31 +203,34 @@ cd client && flutter run                # на телефоне в одной с
 
 ### C3. Терминал-детали — ✅ код
 
-- `AgentPage`: вывод терминала (`agent.output`, текст, автоскролл, обновление
-  по событиям агента), строка ввода (`agent.prompt`), быстрые клавиши Esc и
-  Ctrl-C (`agent.keys`). Один общий WS-клиент на список и детали.
+- `AgentPage`: вывод терминала (`agent.output`, моноширинный тёмный терминал,
+  автоскролл, **живое обновление по `pane.output_changed` с debounce ~400мс**),
+  строка ввода (`agent.prompt`), быстрые клавиши Esc и Ctrl-C (`agent.keys`).
+  Один общий WS-клиент на список и детали.
+- ANSI-цвета — своим SGR-парсером в `widgets/ansi_terminal.dart` (TextSpan,
+  тёмная тема, softWrap); тёмная тема всего приложения — в `main.dart`.
 - Покрытие виджет-тестами (`test/agent_page_test.dart`, `test/home_page_test.dart`,
   `test/fakes/fake_relay_client.dart`): рендер вывода, отправка промпта,
   клавиши, обновление статуса по событию, сортировка blocked-сверху,
   навигация в детали, экран ошибки.
 
-### C4. Сквозной гейт MVP (телефон)
+### C4. Сквозной гейт MVP (телефон) — ✅ LAN, [ ] B1
 
 Проверки C4 (всё руками с телефона):
-1. Дома по LAN (режим A): скан QR → список → вывод → промпт → вижу ответ.
-2. С улицы через tailnet (B1): то же самое.
-3. blocked-агент подсвечен сверху; ответ на него уходит за < 2 c.
+1. [x] Дома по LAN (режим A): скан QR → список → вывод → промпт → вижу ответ.
+2. [ ] С улицы через tailnet (B1): то же самое.
+3. [x] blocked-агент подсвечен сверху; ответ на него уходит за < 2 c.
 
 ## Полировка и харденинг (после MVP)
 
-- `flutter_xterm`/ANSI, локальные нотификации, funnel (B2).
+- `flutter_xterm`/настоящий скроллбэк, локальные нотификации, funnel (B2).
 - Гейтвей (C) + Docker-деплой (`cmd/gateway`, `deploy/`).
 - E2E-шифрование, push FCM, ротация токенов, несколько воркспейсов.
 
 ## Финальный гейт MVP
 
 - [x] `go build ./... && go vet ./... && go test ./...` — зелёное.
-- [x] `flutter analyze` — без ошибок (24 unit-теста зелёные).
-- [ ] Лан (A) и tailnet (B1) пройдены с телефона (C4).
-- [ ] События blocked долетают мгновенно (плагин, не эмуляция).
-- [ ] Доки обновлены под фактическое поведение.
+- [x] `flutter analyze` — без ошибок, **53** unit-теста зелёные.
+- [~] LAN (A) с телефона — ✅ пройдено живьём; tailnet (B1) с улицы — не проверено.
+- [x] События blocked долетают мгновенно (плагин, не эмуляция).
+- [x] Доки обновлены под фактическое поведение.

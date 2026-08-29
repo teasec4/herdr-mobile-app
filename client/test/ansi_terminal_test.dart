@@ -56,7 +56,7 @@ void main() {
 
   group('AnsiTerminalParser: carriage return', () {
     test('\\r перематывает в начало строки и перезаписывает ячейки', () {
-      // «ABCDE» затем «\rXY» — остаётся «XYCDE», как в терминале.
+      // "ABCDE" then "\rXY" leaves "XYCDE", as in a terminal.
       final spans = AnsiTerminalParser('ABCDE\rXY', baseStyle: _base).parse();
       expect(_plain(spans), 'XYCDE');
     });
@@ -92,7 +92,7 @@ void main() {
     });
 
     test('256-цвет (38;5;n)', () {
-      // 196 — ярко-красный в кубе xterm: r=255, g=0, b=0.
+      // 196 is bright red in the xterm cube: r=255, g=0, b=0.
       final spans = AnsiTerminalParser('\x1b[38;5;196mX', baseStyle: _base).parse();
       expect(_textSpans(spans).single.style!.color, const Color(0xFFFF0000));
     });
@@ -103,16 +103,16 @@ void main() {
     });
 
     test('colon-SGR (4:3 — волнистое подчёркивание) не оставляет мусора', () {
-      // Современные терминалы шлют подчёркивания в виде 4:3; двоеточие бьётся
-      // как разделитель, а неизвестный код игнорируется.
+      // Modern terminals emit underline as 4:3; the colon is treated as a
+      // separator and the unknown code is ignored.
       final spans = AnsiTerminalParser('\x1b[4:3mX', baseStyle: _base).parse();
       expect(_plain(spans), 'X');
       expect(_textSpans(spans).single.style!.decoration, TextDecoration.underline);
     });
 
     test('невалидная CSI-команда (22_) ведёт себя как в xterm — без падения', () {
-      // `\x1b[22_m` в xterm трактуется как неизвестная команда с финальным
-      // символом `_` (игнорируется), а `m` печатается как обычный текст.
+      // In xterm, `\x1b[22_m` is an unknown command with a final `_` character
+      // (ignored), so `m` is printed as plain text.
       final spans = AnsiTerminalParser('\x1b[22_mX', baseStyle: _base).parse();
       expect(_plain(spans), 'mX');
     });
@@ -125,7 +125,7 @@ void main() {
     });
 
     test('K (erase in line) вычищает хвост строки', () {
-      // 12 символов, затем \r и «x» + EL(0) — остаётся «x`.
+      // 12 chars, then \r and "x" + EL(0) leaves "x".
       final spans = AnsiTerminalParser('0123456789ab\rx\x1b[K', baseStyle: _base).parse();
       expect(_plain(spans), 'x');
     });

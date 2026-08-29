@@ -1,6 +1,6 @@
 package main
 
-// Agent — данные агента из herdr snapshot (поля, которые нужны клиенту).
+// Agent holds the agent data from the herdr snapshot (fields the client needs).
 type Agent struct {
 	Agent                 string `json:"agent"`
 	AgentStatus           string `json:"agent_status"`
@@ -14,7 +14,7 @@ type Agent struct {
 	WorkspaceID           string `json:"workspace_id"`
 }
 
-// Snapshot — весь видимый клиенту срез herdr.
+// Snapshot is the whole herdr view exposed to the client.
 type Snapshot struct {
 	Agents []Agent `json:"agents"`
 }

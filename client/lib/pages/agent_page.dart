@@ -1,12 +1,22 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/relay_agent.dart';
 import '../services/relay_client.dart';
 import '../widgets/ansi_terminal.dart';
 import '../widgets/status_chip.dart';
+
+/// Quick key metadata: label, icon, and the key sequence to send.
+class _QuickKey {
+  const _QuickKey(this.label, this.icon, this.keys);
+  final String label;
+  final IconData icon;
+  final List<String> keys;
+}
 
 /// Agent details: live terminal output, sending a prompt, quick keys.
 ///
@@ -27,6 +37,7 @@ class _AgentPageState extends State<AgentPage> {
   late RelayAgent _agent;
   late final TextEditingController _input = TextEditingController();
   final ScrollController _scroll = ScrollController();
+  final FocusNode _inputFocusNode = FocusNode();
 
   String _output = '';
   bool _loading = true;
@@ -46,6 +57,11 @@ class _AgentPageState extends State<AgentPage> {
   /// revisions are ignored (out-of-order delivery safety).
   int? _lastRevision;
 
+  /// Command history and navigation state.
+  final List<String> _commandHistory = [];
+  int? _historyIndex;
+  String? _historyTemp;
+
   @override
   void initState() {
     super.initState();
@@ -53,6 +69,7 @@ class _AgentPageState extends State<AgentPage> {
     _agent = widget.agent;
     _scroll.addListener(_onScroll);
     _client.events.listen(_onEvent);
+    _loadCommandHistory();
     _refresh();
   }
 
@@ -61,6 +78,7 @@ class _AgentPageState extends State<AgentPage> {
     _scroll.removeListener(_onScroll);
     _input.dispose();
     _scroll.dispose();
+    _inputFocusNode.dispose();
     _outputDebounce?.cancel();
     super.dispose();
   }
@@ -143,7 +161,19 @@ class _AgentPageState extends State<AgentPage> {
     setState(() => _sending = true);
     try {
       await _client.prompt(_agent.id, text);
+
+      // Add to command history (avoid duplicates)
+      if (_commandHistory.isEmpty || _commandHistory.last != text) {
+        _commandHistory.add(text);
+        // Keep last 100 commands
+        if (_commandHistory.length > 100) {
+          _commandHistory.removeAt(0);
+        }
+        await _saveCommandHistory();
+      }
+
       _input.clear();
+      _clearHistoryNavigation();
       // after sending, re-read the output: the agent has started working
       await _refresh();
     } catch (e) {
@@ -230,35 +260,90 @@ class _AgentPageState extends State<AgentPage> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Row(
+          // Quick keys grouped by purpose
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
             children: [
-              // Quick keys: Esc and Ctrl-C are sent via agent.keys.
-              IconButton(
-                icon: const Icon(Icons.keyboard_tab, size: 20),
-                onPressed: () => _sendKeys(const ['esc']),
-                tooltip: 'Esc',
-                visualDensity: VisualDensity.compact,
+              // Interrupt group (red-ish)
+              ..._buildQuickKeyGroup(
+                'Прервать',
+                [
+                  _QuickKey('Ctrl-C', Icons.stop, ['ctrl', 'c']),
+                  _QuickKey('Ctrl-Z', Icons.pause, ['ctrl', 'z']),
+                ],
+                Colors.red.shade100,
+                Colors.red.shade700,
               ),
-              IconButton(
-                icon: const Icon(Icons.stop_circle_outlined, size: 20),
-                onPressed: () => _sendKeys(const ['ctrl', 'c']),
-                tooltip: 'Ctrl-C (прервать)',
-                visualDensity: VisualDensity.compact,
+              // Navigation group (neutral)
+              ..._buildQuickKeyGroup(
+                'Навигация',
+                [
+                  _QuickKey('Esc', Icons.keyboard_tab, ['esc']),
+                  _QuickKey('Ctrl-L', Icons.clear_all, ['ctrl', 'l']),
+                ],
+                Colors.grey.shade200,
+                Colors.grey.shade800,
+              ),
+              // Input group (green-ish)
+              ..._buildQuickKeyGroup(
+                'Ввод',
+                [
+                  _QuickKey('Enter', Icons.keyboard_return, ['enter']),
+                  _QuickKey('Ctrl-D', Icons.eject, ['ctrl', 'd']),
+                ],
+                Colors.green.shade100,
+                Colors.green.shade700,
               ),
             ],
           ),
+          const SizedBox(height: 8),
+          // Quick commands menu
           Row(
             children: [
               Expanded(
-                child: TextField(
-                  controller: _input,
-                  decoration: const InputDecoration(
-                    hintText: 'Сообщение агенту…',
-                    isDense: true,
-                    border: OutlineInputBorder(),
+                child: FilledButton.tonal(
+                  onPressed: _showQuickCommands,
+                  style: FilledButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
                   ),
-                  textInputAction: TextInputAction.send,
-                  onSubmitted: (_) => _send(),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.flash_on, size: 16),
+                      SizedBox(width: 4),
+                      Text('Быстрые команды'),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          // Text input with history navigation
+          Row(
+            children: [
+              Expanded(
+                child: KeyboardListener(
+                  focusNode: _inputFocusNode,
+                  onKeyEvent: _handleKeyEvent,
+                  child: TextField(
+                    controller: _input,
+                    decoration: InputDecoration(
+                      hintText: 'Сообщение агенту…',
+                      isDense: true,
+                      border: const OutlineInputBorder(),
+                      suffixIcon: (_historyIndex != null && _historyIndex! >= 0)
+                          ? IconButton(
+                              icon: const Icon(Icons.history, size: 18),
+                              onPressed: _clearHistoryNavigation,
+                              tooltip: 'Сбросить навигацию',
+                            )
+                          : null,
+                    ),
+                    textInputAction: TextInputAction.send,
+                    onSubmitted: (_) => _send(),
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
@@ -277,6 +362,156 @@ class _AgentPageState extends State<AgentPage> {
           ),
         ],
       ),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Command history
+  // ─────────────────────────────────────────────────────────────────────
+
+  Future<void> _loadCommandHistory() async {
+    final prefs = await SharedPreferences.getInstance();
+    final history = prefs.getStringList('command_history_${_agent.id}') ?? [];
+    if (!mounted) return;
+    setState(() {
+      _commandHistory.clear();
+      _commandHistory.addAll(history);
+    });
+  }
+
+  Future<void> _saveCommandHistory() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList('command_history_${_agent.id}', _commandHistory);
+  }
+
+  void _handleKeyEvent(KeyEvent event) {
+    if (event is! KeyDownEvent) return;
+
+    if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+      _navigateHistory(-1);
+    } else if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+      _navigateHistory(1);
+    }
+  }
+
+  void _navigateHistory(int direction) {
+    if (_commandHistory.isEmpty) return;
+
+    setState(() {
+      if (_historyIndex == null) {
+        // First navigation: save current input and start from the end
+        _historyTemp = _input.text;
+        _historyIndex = _commandHistory.length;
+      }
+
+      _historyIndex = (_historyIndex! + direction)
+          .clamp(0, _commandHistory.length);
+
+      if (_historyIndex == _commandHistory.length) {
+        // Back to the original input
+        _input.text = _historyTemp ?? '';
+      } else {
+        _input.text = _commandHistory[_historyIndex!];
+      }
+
+      // Move cursor to the end
+      _input.selection = TextSelection.fromPosition(
+        TextPosition(offset: _input.text.length),
+      );
+    });
+  }
+
+  void _clearHistoryNavigation() {
+    // Only exit history mode; keep the current text (e.g. when the user taps
+    // the reset icon while browsing history). _send clears the input itself.
+    setState(() {
+      _historyIndex = null;
+      _historyTemp = null;
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Quick keys and commands
+  // ─────────────────────────────────────────────────────────────────────
+
+  List<Widget> _buildQuickKeyGroup(
+    String groupLabel,
+    List<_QuickKey> keys,
+    Color bgColor,
+    Color fgColor,
+  ) {
+    return [
+      Padding(
+        padding: const EdgeInsets.only(right: 4),
+        child: Text(
+          groupLabel,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            color: Colors.grey.shade600,
+          ),
+        ),
+      ),
+      ...keys.map((key) => ActionChip(
+            label: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(key.icon, size: 16),
+                const SizedBox(width: 4),
+                Text(key.label, style: const TextStyle(fontSize: 12)),
+              ],
+            ),
+            backgroundColor: bgColor,
+            labelStyle: TextStyle(color: fgColor),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            visualDensity: VisualDensity.compact,
+            onPressed: () => _sendKeys(key.keys),
+          )),
+    ];
+  }
+
+  void _showQuickCommands() {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Быстрые команды',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _buildCommandButton('status', Icons.info_outline),
+                _buildCommandButton('continue', Icons.play_arrow),
+                _buildCommandButton('skip', Icons.skip_next),
+                _buildCommandButton('yes', Icons.check),
+                _buildCommandButton('no', Icons.close),
+                _buildCommandButton('help', Icons.help_outline),
+                _buildCommandButton('quit', Icons.exit_to_app),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCommandButton(String command, IconData icon) {
+    return OutlinedButton.icon(
+      icon: Icon(icon, size: 18),
+      label: Text(command),
+      onPressed: () {
+        Navigator.of(context).pop();
+        _input.text = command;
+        _send();
+      },
     );
   }
 }

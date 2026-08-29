@@ -99,6 +99,9 @@ func (h *herdrSubscriber) runOnce() error {
 			// its debounce collapses bursts.
 			h.hub.broadcast(mustJSON(frame{Type: "event", Event: "pane.output_changed", Data: n.Data}))
 		case "pane_updated":
+			// Broadcast to clients so they can refresh the agent list when a
+			// new agent is created or an existing pane updates.
+			h.hub.broadcast(mustJSON(frame{Type: "event", Event: "pane.updated", Data: n.Data}))
 			h.handlePaneUpdated(conn, n.Data)
 		}
 	}

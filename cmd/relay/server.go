@@ -7,7 +7,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// Server — HTTP/WS-сервер релея для телефона.
+// Server is the relay's HTTP/WS server for the phone.
 type Server struct {
 	cfg   Config
 	token string
@@ -32,8 +32,8 @@ func (s *Server) routes() http.Handler {
 	return logRequests(mux)
 }
 
-// verify принимает токен в Authorization: Bearer или в query-параметре token
-// (query нужен для WS, где веб-клиент не всегда может ставить заголовки).
+// verify accepts the token from the Authorization: Bearer header or the token
+// query parameter (query is needed for WS, where web clients may not set headers).
 func (s *Server) verify(r *http.Request) bool {
 	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") && h[len("Bearer "):] == s.token {
 		return true
@@ -52,6 +52,6 @@ func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 }
 
 var upgrader = websocket.Upgrader{
-	// Релей служит только паре «телефон ↔ ноут»; доступ без токена невозможен.
+	// The relay serves a single phone↔laptop pair; no access without a token.
 	CheckOrigin: func(r *http.Request) bool { return true },
 }

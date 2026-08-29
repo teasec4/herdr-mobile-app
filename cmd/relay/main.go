@@ -7,7 +7,7 @@ import (
 )
 
 func main() {
-	// `herdrelay pair [--qr]` — клиентская команда пары, без сервера.
+	// `herdrelay pair [--qr]` is the client-side pairing command, no server.
 	if len(os.Args) > 1 && os.Args[1] == "pair" {
 		os.Exit(runPairCmd(os.Args[2:]))
 	}

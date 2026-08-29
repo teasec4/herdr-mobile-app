@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// loadToken возвращает токен пары: env > файл; при первом запуске создаёт файл.
+// loadToken returns the pairing token: env > file; creates the file on first run.
 func loadToken(cfg Config) (string, error) {
 	if cfg.Token != "" {
 		return cfg.Token, nil

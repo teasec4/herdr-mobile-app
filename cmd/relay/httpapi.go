@@ -89,8 +89,8 @@ func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleEvent принимает событие от плагина herdr (или эмуляцию) и рассылает
-// его всем подключённым WS-клиентам.
+// handleEvent accepts an event from the herdr plugin (or an emulation) and
+// broadcasts it to every connected WS client.
 func (s *Server) handleEvent(w http.ResponseWriter, r *http.Request) {
 	var ev struct {
 		Event string `json:"event"`

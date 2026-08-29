@@ -8,10 +8,10 @@ import (
 	"net/http"
 )
 
-// statusWriter фиксирует код ответа, чтобы логгер мог его вывести после
-// завершения обработки запроса. Обязан делегировать интерфейсы ResponseWriter,
-// которые использует gorilla/websocket при апгрейде: без Hijack() WS-апгрейд
-// падает с 500.
+// statusWriter records the response code so the logger can print it after the
+// request completes. It must forward the ResponseWriter interfaces that
+// gorilla/websocket uses when upgrading: without Hijack() the WS upgrade fails
+// with 500.
 type statusWriter struct {
 	http.ResponseWriter
 	code int
@@ -22,8 +22,8 @@ func (w *statusWriter) WriteHeader(code int) {
 	w.ResponseWriter.WriteHeader(code)
 }
 
-// Hijack передаёт управление соединением нижележащему writer'у — требует
-// gorilla/websocket для апгрейда HTTP → WS.
+// Hijack hands the connection to the underlying writer — required by
+// gorilla/websocket for the HTTP → WS upgrade.
 func (w *statusWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	hj, ok := w.ResponseWriter.(http.Hijacker)
 	if !ok {
@@ -32,17 +32,17 @@ func (w *statusWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return hj.Hijack()
 }
 
-// Flush передаёт сброс буфера нижележащему writer'у.
+// Flush forwards the buffer flush to the underlying writer.
 func (w *statusWriter) Flush() {
 	if f, ok := w.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}
 }
 
-// logRequests — диагностическая обёртка над всем HTTP/WS-трафиком. Каждый
-// запрос пишется в лог с методом, путём, адресом клиента и кодом ответа.
-// Служит единственным местом, где видно живые подключения телефона:
-// успешный handshake /ws даёт статус 101, отказ авторизации — 401.
+// logRequests is a diagnostic wrapper around all HTTP/WS traffic. Each request
+// is logged with its method, path, client address and response code. It is the
+// only place where live phone connections are visible: a successful /ws
+// handshake logs 101, an auth rejection logs 401.
 func logRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rw := &statusWriter{ResponseWriter: w, code: http.StatusOK}

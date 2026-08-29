@@ -1,5 +1,6 @@
 import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import 'models/pair_config.dart';
@@ -10,6 +11,18 @@ import 'services/relay_client.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  // Draw behind the system bars and match them to the dark theme; otherwise the
+  // white system navigation/status bar shows as a light band under the app.
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.light,
+      statusBarBrightness: Brightness.dark,
+      systemNavigationBarColor: Colors.transparent,
+      systemNavigationBarIconBrightness: Brightness.light,
+    ),
+  );
   runApp(const HerdRelayApp());
 }
 
@@ -136,6 +149,7 @@ class _HerdRelayAppState extends State<HerdRelayApp> {
   Widget _app(Widget home) {
     return MaterialApp(
       title: 'HerdRelay',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
           seedColor: Colors.teal,

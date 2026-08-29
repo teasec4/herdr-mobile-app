@@ -5,14 +5,14 @@ import (
 	"path/filepath"
 )
 
-// Config — параметры релея из env (см. docs/03-relay.md).
+// Config holds the relay's env parameters (see docs/03-relay.md).
 type Config struct {
 	Mode       string // lan | tailscale | funnel | gateway
-	Listen     string // адрес HTTP-сервера
-	GatewayURL string // только для режима gateway
-	Token      string // env-токен (приоритет над файлом); может быть пустым
+	Listen     string // HTTP listen address
+	GatewayURL string // gateway mode only
+	Token      string // env token (wins over file); may be empty
 	TokenFile  string
-	Socket     string // unix-сокет herdr
+	Socket     string // herdr unix socket
 	HerdrBin   string
 }
 
@@ -55,7 +55,7 @@ func loadConfig() (Config, error) {
 	return cfg, nil
 }
 
-// firstNonEmpty возвращает первый непустой аргумент (последний — дефолт).
+// firstNonEmpty returns the first non-empty argument (last one is the default).
 func firstNonEmpty(vals ...string) string {
 	for _, v := range vals {
 		if v != "" {
