@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-/// Палитра статусов агента для списка и деталей.
+/// Color palette for agent statuses in the list and details.
 ///
-/// Словарь статусов — `idle / working / blocked / done / unknown`
-/// (см. docs/01-architecture.md). Неизвестные статусы терпим.
+/// Status vocabulary — `idle / working / blocked / done / unknown`
+/// (see docs/01-architecture.md). Unknown statuses are tolerated.
 Color statusColor(ThemeData theme, String status) {
   final s = status.toLowerCase();
   if (s == 'done' || s == 'success' || s == 'idle') return Colors.green;
@@ -15,7 +15,7 @@ Color statusColor(ThemeData theme, String status) {
   return Colors.blueGrey;
 }
 
-/// Компактный чип со статусом агента.
+/// Compact chip with the agent's status.
 class StatusChip extends StatelessWidget {
   const StatusChip({super.key, required this.status});
 

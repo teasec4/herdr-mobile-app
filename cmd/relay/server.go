@@ -27,8 +27,9 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/api/agents/", s.auth(s.handleAgent))
 	mux.HandleFunc("/api/events", s.auth(s.handleEvent))
 	mux.HandleFunc("/api/events/herdr", s.auth(s.handleHerdrEvent))
+	mux.HandleFunc("/api/events/output", s.auth(s.handleOutputEvent))
 	mux.HandleFunc("/ws", s.auth(s.handleWS))
-	return mux
+	return logRequests(mux)
 }
 
 // verify принимает токен в Authorization: Bearer или в query-параметре token

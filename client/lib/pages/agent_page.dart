@@ -1,18 +1,21 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../models/relay_agent.dart';
 import '../services/relay_client.dart';
+import '../widgets/ansi_terminal.dart';
 import '../widgets/status_chip.dart';
 
-/// Детали агента: живой вывод терминала, отправка промпта, быстрые клавиши.
+/// Agent details: live terminal output, sending a prompt, quick keys.
 ///
-/// Клиент берёт из Provider — тот же [RelayClient], что и список (один
-/// WS-канал на всё), поэтому не закрывает его при выходе.
+/// The client comes from Provider — the same [RelayClient] as the list
+/// (one WS channel for everything), so it is not closed on exit.
 class AgentPage extends StatefulWidget {
   const AgentPage({super.key, required this.agent});
 
-  /// Снимок агента на момент открытия; статус дальше обновляется по событиям.
+  /// Snapshot of the agent at open time; status is then updated from events.
   final RelayAgent agent;
 
   @override
@@ -30,27 +33,65 @@ class _AgentPageState extends State<AgentPage> {
   String? _error;
   bool _sending = false;
 
+  /// Whether the view should follow new output; the user scrolling up turns
+  /// it off so they can read, scrolling back to the bottom turns it on again.
+  bool _stickToBottom = true;
+
+  /// Debounce for live output updates: `pane.output_changed` events may arrive
+  /// in bursts while an agent is streaming, so we wait until the stream settles
+  /// before re-reading the tail.
+  Timer? _outputDebounce;
+
+  /// Last seen `revision` from a `pane.output_changed` event; older/equal
+  /// revisions are ignored (out-of-order delivery safety).
+  int? _lastRevision;
+
   @override
   void initState() {
     super.initState();
     _client = context.read<RelayClient>();
     _agent = widget.agent;
+    _scroll.addListener(_onScroll);
     _client.events.listen(_onEvent);
     _refresh();
   }
 
   @override
   void dispose() {
+    _scroll.removeListener(_onScroll);
     _input.dispose();
     _scroll.dispose();
+    _outputDebounce?.cancel();
     super.dispose();
   }
 
+  void _onScroll() {
+    if (!_scroll.hasClients) return;
+    final atBottom =
+        _scroll.position.pixels >= _scroll.position.maxScrollExtent - 48;
+    if (atBottom != _stickToBottom) {
+      setState(() => _stickToBottom = atBottom);
+    }
+  }
+
   void _onEvent(RelayEvent event) {
+    if (!mounted) return;
+    // Live output change: re-read the tail on a debounce. The event carries
+    // only {pane_id, revision} — no text — so we always pull the real output.
+    if (event.name == 'pane.output_changed') {
+      final data = event.data;
+      if (data is! Map || data['pane_id'] != _agent.id) return;
+      final rev = data['revision'];
+      if (rev is int && _lastRevision != null && rev <= _lastRevision!) return;
+      if (rev is int) _lastRevision = rev;
+      _outputDebounce?.cancel();
+      _outputDebounce =
+          Timer(const Duration(milliseconds: 400), () => _refresh(silent: true));
+      return;
+    }
     if (event.name != 'pane.agent_status_changed') return;
     final data = event.data;
     if (data is Map && data['pane_id'] != _agent.id) return;
-    if (!mounted) return;
     setState(() {
       _agent = RelayAgent.fromJson(
         data is Map ? data.cast<String, dynamic>() : const {},
@@ -59,21 +100,28 @@ class _AgentPageState extends State<AgentPage> {
     _refresh();
   }
 
-  Future<void> _refresh() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+  /// Re-reads the agent output. In [silent] mode (live update after a
+  /// `pane.output_changed` event) the spinner/error stay untouched and a
+  /// failure is swallowed — the last good output remains on screen; the next
+  /// event will retry.
+  Future<void> _refresh({bool silent = false}) async {
+    if (!silent) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
     try {
-      final output = await _client.output(_agent.id, lines: 500);
+      final output = await _client.output(_agent.id, lines: 500, format: 'ansi');
       if (!mounted) return;
       setState(() {
         _output = output;
         _loading = false;
+        _error = null;
       });
       _scrollToBottom();
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || silent) return;
       setState(() {
         _error = '$e';
         _loading = false;
@@ -82,6 +130,7 @@ class _AgentPageState extends State<AgentPage> {
   }
 
   void _scrollToBottom() {
+    if (!_stickToBottom) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scroll.hasClients) return;
       _scroll.jumpTo(_scroll.position.maxScrollExtent);
@@ -95,7 +144,7 @@ class _AgentPageState extends State<AgentPage> {
     try {
       await _client.prompt(_agent.id, text);
       _input.clear();
-      // после отправки перечитываем вывод: агент начал работать
+      // after sending, re-read the output: the agent has started working
       await _refresh();
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
@@ -128,7 +177,7 @@ class _AgentPageState extends State<AgentPage> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: _loading ? null : _refresh,
+            onPressed: _loading ? null : () => _refresh(),
             tooltip: 'Обновить вывод',
           ),
         ],
@@ -156,7 +205,7 @@ class _AgentPageState extends State<AgentPage> {
               const SizedBox(height: 8),
               Text(_error!, textAlign: TextAlign.center),
               const SizedBox(height: 8),
-              TextButton(onPressed: _refresh, child: const Text('Повторить')),
+              TextButton(onPressed: () => _refresh(), child: const Text('Повторить')),
             ],
           ),
         ),
@@ -165,16 +214,9 @@ class _AgentPageState extends State<AgentPage> {
     if (_loading && _output.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
-    return ListView(
+    return AnsiTerminal(
       controller: _scroll,
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.all(12),
-      children: [
-        SelectableText(
-          _output.isEmpty ? '(вывод пуст)' : _output,
-          style: const TextStyle(fontFamily: 'monospace', fontSize: 12, height: 1.3),
-        ),
-      ],
+      text: _output.isEmpty ? '(вывод пуст)' : _output,
     );
   }
 
@@ -190,7 +232,7 @@ class _AgentPageState extends State<AgentPage> {
         children: [
           Row(
             children: [
-              // Быстрые клавиши: Esc и Ctrl-C — это agent.keys.
+              // Quick keys: Esc and Ctrl-C are sent via agent.keys.
               IconButton(
                 icon: const Icon(Icons.keyboard_tab, size: 20),
                 onPressed: () => _sendKeys(const ['esc']),

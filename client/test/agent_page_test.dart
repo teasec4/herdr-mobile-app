@@ -94,4 +94,59 @@ void main() {
 
     expect(find.text('blocked'), findsOneWidget);
   });
+
+  testWidgets('событие pane.output_changed перечитывает вывод (дебаунс)', (tester) async {
+    client.outputText = 'первый\n';
+    await pumpAgent(tester);
+
+    client.outputText = 'второй\n';
+    client.emit(RelayEvent('pane.output_changed', {
+      'pane_id': agent.id,
+      'revision': 2,
+    }));
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+
+    expect(find.text('второй\n'), findsOneWidget);
+    expect(find.text('первый\n'), findsNothing);
+  });
+
+  testWidgets('pane.output_changed с уже виденной ревизией не перечитывает вывод', (tester) async {
+    client.outputText = 'первый\n';
+    await pumpAgent(tester);
+
+    client.emit(RelayEvent('pane.output_changed', {
+      'pane_id': agent.id,
+      'revision': 1,
+    }));
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+
+    client.outputText = 'второй\n';
+    client.emit(RelayEvent('pane.output_changed', {
+      'pane_id': agent.id,
+      'revision': 1,
+    }));
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+
+    expect(find.text('второй\n'), findsNothing);
+    expect(find.text('первый\n'), findsOneWidget);
+  });
+
+  testWidgets('pane.output_changed чужого агента не перечитывает вывод', (tester) async {
+    client.outputText = 'первый\n';
+    await pumpAgent(tester);
+
+    client.outputText = 'второй\n';
+    client.emit(RelayEvent('pane.output_changed', {
+      'pane_id': 'wG:other',
+      'revision': 2,
+    }));
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+
+    expect(find.text('второй\n'), findsNothing);
+    expect(find.text('первый\n'), findsOneWidget);
+  });
 }

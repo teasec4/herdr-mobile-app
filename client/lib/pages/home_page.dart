@@ -7,13 +7,13 @@ import '../services/relay_client.dart';
 import '../widgets/status_chip.dart';
 import 'agent_page.dart';
 
-/// Главный экран: статус соединения и список агентов на компьютере.
+/// Main screen: connection status and the list of agents on the computer.
 class HomePage extends StatefulWidget {
   const HomePage({super.key, required this.config, required this.onDisconnect});
 
   final PairConfig config;
 
-  /// Разпарить устройство (очистить сохранённую пару и вернуться к сканеру).
+  /// Unpair the device (clear the saved pair and return to the scanner).
   final Future<void> Function() onDisconnect;
 
   @override
@@ -29,7 +29,7 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    // Клиент релея — один на всё приложение (см. main.dart).
+    // The relay client is shared app-wide (see main.dart).
     _client = context.read<RelayClient>();
     _client.status.addListener(_onStatusChanged);
     _client.events.listen(_onEvent);
@@ -44,12 +44,18 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _onStatusChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    // On reconnect, drop the stale error and reload the list by itself.
+    if (_client.status.value == RelayStatus.connected && _error != null) {
+      _refresh();
+    } else {
+      setState(() {});
+    }
   }
 
   void _onEvent(RelayEvent event) {
-    // Событие приходит от плагина при каждом изменении статуса агента —
-    // перечитываем снапшот, чтобы список не протухал.
+    // The plugin fires this event on every agent status change —
+    // re-read the snapshot so the list stays fresh.
     if (event.name == 'pane.agent_status_changed') {
       _refresh();
     }
@@ -246,15 +252,15 @@ class _AgentTile extends StatelessWidget {
       trailing: agent.focused ? const Icon(Icons.center_focus_strong, size: 16) : null,
     );
 
-    // Заблокированный агент ждёт ответа — выделяем карточку целиком.
+    // A blocked agent awaits a reply — highlight the whole tile.
     if (agent.isBlocked) {
       return Container(
         decoration: BoxDecoration(
           color: Colors.amber.withValues(alpha: 0.08),
           border: const Border(left: BorderSide(color: Colors.amber, width: 4)),
         ),
-        // Material между DecoratedBox и ListTile: иначе debug-ассерт про
-        // невидимые ink-эффекты (фон ListTile рисуется на ближайшем Material).
+        // Material between DecoratedBox and ListTile: otherwise a debug assertion
+        // about invisible ink effects (ListTile's background is drawn on the nearest Material).
         child: Material(color: Colors.transparent, child: tile),
       );
     }

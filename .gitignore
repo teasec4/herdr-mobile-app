@@ -1,6 +1,7 @@
 # собранные бинари релея (корень + плагин)
 /relay
 /plugin/bin/
+/cmd/relay/relay
 
 # macOS
 .DS_Store

@@ -108,6 +108,16 @@ herdr plugin log list --plugin herdrelay.events
 3. **Установка/запуск релея.** `[[build]]` → `install.sh` собирает Go-релей в
    `bin/herdrelay` и ставит launchd-сервис (см. «Запуск релея»).
 
+**Живой вывод (Б-lite) — НЕ через плагин.** Хук-система herdr не имеет
+события для вывода терминала: `pane.updated`, `pane.output_changed`,
+`pane.scroll_changed` отвергаются линковщиком как unknown event (проверено
+брутфорсом на herdr 0.8.0). Поэтому живой вывод реализован напрямую: релей
+подписывается на `events.subscribe` по unix-сокету herdr
+(`pane.scroll_changed` на каждый pane_id) и форвардит изменения как
+`pane.output_changed` — см. `cmd/relay/herdrevents.go` и
+[03-relay.md](03-relay.md) → «Обработка событий herdr». Плагин в этой схеме
+не участвует вовсе.
+
 Реализованный манифест (`plugin/herdr-plugin.toml`):
 
 ```toml
@@ -173,6 +183,17 @@ curl -s localhost:8375/healthz                    # {"ok":true}
   событие с полным `data` (pane_id, tab_id, tab_label, workspace_id,
   agent_status, agent, display_agent, cwd).
 - `worktree.created` — ревьюровский кейс, нам не нужен.
+
+**Вывод терминала — только через сокет, не через хук.** Все имена событий
+вывода (`pane.updated`, `pane.output_changed`, `pane.scroll_changed`) линковщик
+отвергает: `herdr plugin link` → warning «unknown event». Проверено на herdr
+0.8.0. Живой вывод работает через JSON-RPC-подписку релея по unix-сокету:
+`events.subscribe` c `pane.updated` (глобальная) и `pane.scroll_changed` по
+pane_id; нотификации приходят как `{"event":"pane.scroll_changed","data":{...}}`
+(данные: pane_id, scroll.max_offset_from_bottom, offset_from_bottom,
+viewport_rows) и `{"event":"pane_updated","data":{"pane":{...}}}`. Формат
+запроса/ответа и диалект сокета — в [03-relay.md](03-relay.md) →
+«Обработка событий herdr».
 
 Контракт хука: herdr передаёт событие через env `HERDR_PLUGIN_EVENT_JSON` =
 `{"data":{...}}`; имя события в env отсутствует — оно равно `on` из манифеста,

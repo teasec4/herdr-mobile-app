@@ -3,11 +3,11 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../models/pair_config.dart';
 
-/// Онбординг: скан QR с пары-ссылкой релея или вставка ссылки вручную.
+/// Onboarding: scan a QR with the relay pair link or paste a link manually.
 class PairPage extends StatefulWidget {
   const PairPage({super.key, required this.onPaired});
 
-  /// Вызывается с валидной парой; родитель сохраняет её и переключает экран.
+  /// Called with a valid pair; the parent saves it and switches the screen.
   final Future<void> Function(PairConfig config) onPaired;
 
   @override

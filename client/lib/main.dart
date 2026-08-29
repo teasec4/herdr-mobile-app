@@ -16,7 +16,7 @@ void main() {
 class HerdRelayApp extends StatefulWidget {
   const HerdRelayApp({super.key, this.clientFactory});
 
-  /// Фабрика клиента релея: в проде [WsRelayClient], в тестах — фейк.
+  /// Relay client factory: [WsRelayClient] in production, a fake in tests.
   final RelayClient Function(PairConfig config)? clientFactory;
 
   @override
@@ -52,7 +52,7 @@ class _HerdRelayAppState extends State<HerdRelayApp> {
     }
   }
 
-  /// Заменяет пару: закрывает старый клиент релея, поднимает новый.
+  /// Replaces the pair: closes the old relay client and brings up a new one.
   Future<void> _setConfig(PairConfig config) async {
     await _client?.close();
     final client = (widget.clientFactory ?? WsRelayClient.new)(config);
@@ -67,16 +67,16 @@ class _HerdRelayAppState extends State<HerdRelayApp> {
     });
   }
 
-  /// Глубокие ссылки `herdrelay://pair?...` (Android intent-filter / iOS
-  /// URL scheme) позволяют повторно сконфигурировать приложение по ссылке —
-  /// в т.ч. со сканом QR из другого приложения.
+  /// Deep links `herdrelay://pair?...` (Android intent-filter / iOS
+  /// URL scheme) let the app be reconfigured from a link — including via
+  /// scanning a QR from another app.
   void _listenDeepLinks() {
     final appLinks = AppLinks();
     appLinks.uriLinkStream.listen(_applyLink);
     appLinks.getInitialLink().then((uri) {
       if (uri != null) _applyLink(uri);
     }).catchError((_) {
-      // на десктопе/вебе deep link может быть не поддержан — не критично
+      // deep links may be unsupported on desktop/web — not critical
     });
   }
 
@@ -87,11 +87,11 @@ class _HerdRelayAppState extends State<HerdRelayApp> {
       await _store.save(config);
       await _setConfig(config);
     } on FormatException {
-      // некорректная ссылка — игнорируем
+      // invalid link — ignore
     }
   }
 
-  /// Разрыв пары: очистить сохранённый конфиг и закрыть клиент.
+  /// Unpair: clear the saved config and close the client.
   Future<void> _disconnect() async {
     await _store.clear();
     final client = _client;
@@ -117,13 +117,13 @@ class _HerdRelayAppState extends State<HerdRelayApp> {
         ),
       );
     }
-    // Клиент релея доступен всему приложению (список и детали — один WS-канал);
-    // Provider выше MaterialApp, чтобы его видели и push-роуты.
+    // The relay client is shared across the app (list and details use one WS channel);
+    // Provider sits above MaterialApp so push routes can see it too.
     return Provider<RelayClient>.value(
       value: client,
       child: _app(
-        // Ключ по конфигу: при смене пары по deep link экран пересоздаётся
-        // с новым клиентом.
+        // Key derived from config: when the pair changes via deep link, the screen
+        // is recreated with the new client.
         HomePage(
           key: ValueKey('${config.host}:${config.port}:${config.token}'),
           config: config,
@@ -136,7 +136,13 @@ class _HerdRelayAppState extends State<HerdRelayApp> {
   Widget _app(Widget home) {
     return MaterialApp(
       title: 'HerdRelay',
-      theme: ThemeData(colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal)),
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.teal,
+          brightness: Brightness.dark,
+        ),
+        useMaterial3: true,
+      ),
       home: home,
     );
   }

@@ -1,8 +1,8 @@
-/// Конфигурация пары с релеем, полученная из пары-ссылки.
+/// Relay pairing configuration, parsed from a pair link.
 ///
-/// Ссылку генерирует релей: `herdrelay://pair?host=...&port=...&mode=...&token=...`
-/// (см. `cmd/relay/pair.go`). Клиент хранит её в [ConfigStore] и по ней
-/// подключается по WebSocket.
+/// The relay generates the link: `herdrelay://pair?host=...&port=...&mode=...&token=...`
+/// (see `cmd/relay/pair.go`). The client stores it in [ConfigStore] and uses it
+/// to connect over WebSocket.
 class PairConfig {
   const PairConfig({
     required this.host,
@@ -11,16 +11,16 @@ class PairConfig {
     required this.token,
   });
 
-  /// Хост релея: IP или DNS-имя (для tailscale — имя вида `mac.local.c.tailnet.ts.net`).
+  /// Relay host: IP or DNS name (for tailscale, a name like `mac.local.c.tailnet.ts.net`).
   final String host;
 
-  /// Порт релея (обычно 8375).
+  /// Relay port (usually 8375).
   final int port;
 
-  /// Режим сети: lan / tailscale / funnel / gateway.
+  /// Network mode: lan / tailscale / funnel / gateway.
   final String mode;
 
-  /// Секрет пары (64 hex), он же WS-токен (`?token=` в query).
+  /// Pair secret (64 hex), also used as the WS token (`?token=` in the query).
   final String token;
 
   static const int defaultPort = 8375;
@@ -29,13 +29,13 @@ class PairConfig {
   static const String _scheme = 'herdrelay';
   static const String _pairHost = 'pair';
 
-  /// Минимальная длина токена, чтобы отсечь очевидные опечатки.
+  /// Minimum token length to filter out obvious typos.
   static const int _minTokenLength = 16;
 
-  /// Разбирает пару-ссылку из QR или вставленного текста.
+  /// Parses a pair link from a QR code or pasted text.
   ///
-  /// Бросает [FormatException] с человекочитаемым сообщением, если ссылка
-  /// не похожа на пару-ссылку релея.
+  /// Throws [FormatException] with a human-readable message if the link does
+  /// not look like a relay pair link.
   factory PairConfig.fromLink(String link) {
     final uri = Uri.tryParse(link.trim());
     if (uri == null) {
@@ -82,13 +82,13 @@ class PairConfig {
     return PairConfig(host: host, port: port, mode: mode, token: token);
   }
 
-  /// Host с квадратными скобками для IPv6 (в `Uri.host` скобки сняты).
+  /// Host wrapped in square brackets for IPv6 (`Uri.host` strips the brackets).
   String get _authority => host.contains(':') && !host.startsWith('[') ? '[$host]' : host;
 
-  /// ws-адрес релея для WebSocket-подключения (токен в query).
+  /// WS address of the relay for the WebSocket connection (token in the query).
   Uri get wsUri => Uri.parse('ws://$_authority:$port/ws?token=$token');
 
-  /// http-адрес healthz для быстрой проверки доступности.
+  /// HTTP address of /healthz for a quick availability check.
   Uri get healthUri => Uri.parse('http://$_authority:$port/healthz');
 
   Map<String, dynamic> toJson() => {

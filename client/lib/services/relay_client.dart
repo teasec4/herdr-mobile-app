@@ -9,10 +9,10 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import '../models/pair_config.dart';
 import '../models/relay_agent.dart';
 
-/// Фаза соединения с релеем.
+/// Relay connection phase.
 enum RelayStatus { disconnected, connecting, connected }
 
-/// Ошибка протокола релея (код из frame.error или локальная).
+/// Relay protocol error (code from frame.error or a local one).
 class RelayException implements Exception {
   const RelayException(this.code, this.message);
 
@@ -23,7 +23,7 @@ class RelayException implements Exception {
   String toString() => message;
 }
 
-/// Событие релея (`{"type":"event","event":...,"data":...}`).
+/// Relay event (`{"type":"event","event":...,"data":...}`).
 class RelayEvent {
   const RelayEvent(this.name, this.data);
 
@@ -31,43 +31,43 @@ class RelayEvent {
   final dynamic data;
 }
 
-/// Контракт клиента релея для UI: соединение, снимок, операции с агентом.
+/// Relay client contract for the UI: connection, snapshot, agent operations.
 ///
-/// Реализация по WebSocket — [WsRelayClient]; в виджет-тестах — фейк.
+/// WebSocket implementation — [WsRelayClient]; in widget tests — a fake.
 abstract class RelayClient {
-  /// Статус соединения; подпишитесь на изменения для обновления UI.
+  /// Connection status; subscribe to changes to update the UI.
   ValueNotifier<RelayStatus> get status;
 
-  /// Поток событий релея (например, `pane.agent_status_changed`).
+  /// Stream of relay events (e.g. `pane.agent_status_changed`).
   Stream<RelayEvent> get events;
 
-  /// Список агентов (`agents.snapshot`).
+  /// List of agents (`agents.snapshot`).
   Future<List<RelayAgent>> snapshot();
 
-  /// Метка вывода терминала агента (`agent.output`).
+  /// Agent terminal output (`agent.output`).
   Future<String> output(String target, {int lines = 200, String format = 'text'});
 
-  /// Шлёт комбинации клавиш агенту (`agent.keys`): ['enter'], ['ctrl', 'c'].
+  /// Sends key combinations to the agent (`agent.keys`): ['enter'], ['ctrl', 'c'].
   Future<void> keys(String target, List<String> keys);
 
-  /// Шлёт текст как сообщение агенту (`agent.prompt`).
+  /// Sends text as a message to the agent (`agent.prompt`).
   Future<void> prompt(String target, String text);
 
-  /// Быстрая проверка, что релей жив, по http /healthz.
+  /// Quick check that the relay is alive via http /healthz.
   Future<bool> healthz();
 
-  /// Закрывает клиент: останавливает переподключения и события.
+  /// Closes the client: stops reconnects and events.
   Future<void> close();
 }
 
-/// Клиент релея по WebSocket.
+/// Relay client over WebSocket.
 ///
-/// Протокол (см. `cmd/relay/ws.go` и docs/01-architecture.md):
-/// запрос `{"type":"request","id":N,"method":...,"params":{...}}`, ответ
-/// `{"type":"response","id":N,"ok":true,"result":...}` либо
-/// `{"type":"response","id":N,"error":{"code","message"}}`; события идут
-/// отдельными frame без id. Автопереподключение с экспоненциальным бэкоффом
-/// 1, 2, 4, ..., до 30 с.
+/// Protocol (see `cmd/relay/ws.go` and docs/01-architecture.md):
+/// request `{"type":"request","id":N,"method":...,"params":{...}}`, response
+/// `{"type":"response","id":N,"ok":true,"result":...}` or
+/// `{"type":"response","id":N,"error":{"code","message"}}`; events arrive
+/// as separate frames without an id. Auto-reconnect with exponential backoff
+/// 1, 2, 4, ..., up to 30 s.
 class WsRelayClient implements RelayClient {
   WsRelayClient(this.config) {
     status = ValueNotifier<RelayStatus>(RelayStatus.disconnected);
@@ -77,11 +77,11 @@ class WsRelayClient implements RelayClient {
 
   final PairConfig config;
 
-  /// Статус соединения; подпишитесь на изменения для обновления UI.
+  /// Connection status; subscribe to changes to update the UI.
   @override
   late final ValueNotifier<RelayStatus> status;
 
-  /// Поток событий релея (например, `pane.agent_status_changed`).
+  /// Stream of relay events (e.g. `pane.agent_status_changed`).
   @override
   Stream<RelayEvent> get events => _events.stream;
 
@@ -94,12 +94,16 @@ class WsRelayClient implements RelayClient {
   int _nextId = 1;
   final Map<int, Completer<Map<String, dynamic>>> _pending = {};
 
+  /// Last connection error (shown to the user instead of a generic message).
+  String? lastError;
+
   static const Duration _requestTimeout = Duration(seconds: 15);
   static const Duration _maxReconnectDelay = Duration(seconds: 30);
+  static const Duration _connectWait = Duration(seconds: 8);
 
-  // --- публичные операции --------------------------------------------------
+  // --- public operations --------------------------------------------------------------------
 
-  /// Список агентов (`agents.snapshot`).
+  /// List of agents (`agents.snapshot`).
   @override
   Future<List<RelayAgent>> snapshot() async {
     final result = await _request('agents.snapshot', const {});
@@ -111,7 +115,7 @@ class WsRelayClient implements RelayClient {
         .toList();
   }
 
-  /// Метка вывода терминала агента (`agent.output`).
+  /// Agent terminal output (`agent.output`).
   @override
   Future<String> output(String target, {int lines = 200, String format = 'text'}) async {
     final result = await _request('agent.output', {
@@ -122,19 +126,19 @@ class WsRelayClient implements RelayClient {
     return result['output'] as String? ?? '';
   }
 
-  /// Шлёт комбинации клавиш агенту (`agent.keys`): ['enter'], ['ctrl', 'c'].
+  /// Sends key combinations to the agent (`agent.keys`): ['enter'], ['ctrl', 'c'].
   @override
   Future<void> keys(String target, List<String> keys) async {
     await _request('agent.keys', {'target': target, 'keys': keys});
   }
 
-  /// Шлёт текст как сообщение агенту (`agent.prompt`).
+  /// Sends text as a message to the agent (`agent.prompt`).
   @override
   Future<void> prompt(String target, String text) async {
     await _request('agent.prompt', {'target': target, 'text': text});
   }
 
-  /// Быстрая проверка, что релей жив, по http /healthz.
+  /// Quick check that the relay is alive via http /healthz.
   @override
   Future<bool> healthz() async {
     try {
@@ -145,7 +149,7 @@ class WsRelayClient implements RelayClient {
     }
   }
 
-  /// Закрывает клиент: останавливает переподключения и события.
+  /// Closes the client: stops reconnects and events.
   @override
   Future<void> close() async {
     _closed = true;
@@ -157,7 +161,7 @@ class WsRelayClient implements RelayClient {
     await _events.close();
   }
 
-  // --- соединение ----------------------------------------------------------
+  // --- connection --------------------------------------------------------------------
 
   Future<void> _connect() async {
     if (_closed) return;
@@ -171,10 +175,12 @@ class WsRelayClient implements RelayClient {
         return;
       }
       _attempt = 0;
+      lastError = null;
       status.value = RelayStatus.connected;
       _sub = ws.stream.listen(_onMessage, onDone: _onDisconnect, onError: (_) => _onDisconnect());
-    } catch (_) {
+    } catch (e) {
       if (_closed) return;
+      lastError = '$e';
       ws.sink.close();
       _scheduleReconnect();
     }
@@ -217,6 +223,7 @@ class WsRelayClient implements RelayClient {
 
   void _onDisconnect() {
     if (_closed) return;
+    lastError ??= 'Соединение с релеем разорвано';
     _sub?.cancel();
     _sub = null;
     _channel?.sink.close();
@@ -224,6 +231,25 @@ class WsRelayClient implements RelayClient {
     status.value = RelayStatus.disconnected;
     _failPending();
     _scheduleReconnect();
+  }
+
+  /// Waits up to [_connectWait] for the status to become [RelayStatus.connected]
+  /// (the WS may still be establishing on a cold start / reconnect backoff).
+  Future<void> _waitForConnected() async {
+    if (status.value == RelayStatus.connected) return;
+    final completer = Completer<void>();
+    void listener() {
+      if (status.value == RelayStatus.connected && !completer.isCompleted) {
+        completer.complete();
+      }
+    }
+
+    status.addListener(listener);
+    try {
+      await completer.future.timeout(_connectWait, onTimeout: () {});
+    } finally {
+      status.removeListener(listener);
+    }
   }
 
   void _scheduleReconnect() {
@@ -244,11 +270,16 @@ class WsRelayClient implements RelayClient {
     _pending.clear();
   }
 
-  // --- запрос-ответ --------------------------------------------------------
+  // --- request-response ---------------------------------------------------------------
 
   Future<Map<String, dynamic>> _request(String method, Map<String, dynamic> params) async {
     if (status.value != RelayStatus.connected) {
-      throw const RelayException('not_connected', 'Нет соединения с релеем');
+      // Give the WS a moment to (re)connect on a cold start instead of failing
+      // the first operation instantly. After the wait, surface the real reason.
+      await _waitForConnected();
+      if (status.value != RelayStatus.connected) {
+        throw RelayException('not_connected', lastError ?? 'Нет соединения с релеем');
+      }
     }
     final id = _nextId++;
     final completer = Completer<Map<String, dynamic>>();

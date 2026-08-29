@@ -4,12 +4,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/pair_config.dart';
 
-/// Хранит конфигурацию пары в SharedPreferences, чтобы не сканировать QR
-/// при каждом запуске.
+/// Stores the pair config in SharedPreferences so the QR does not have to be
+/// scanned on every launch.
 class ConfigStore {
   static const String _key = 'pair_config';
 
-  /// Возвращает сохранённую пару или null, если её нет (или она битая).
+  /// Returns the saved pair, or null if none exists (or it is corrupt).
   Future<PairConfig?> load() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_key);

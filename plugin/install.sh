@@ -1,20 +1,32 @@
 #!/usr/bin/env bash
-# herdr [[build]]-шаг плагина HerdRelay: собирает Go-релей из корня репо
-# в bin/ плагина и ставит launchd-сервис автозапуска (macOS).
+# HerdRelay plugin [[build]] step.
 #
-# При `herdr plugin install` вызывается после подтверждения; при `herdr plugin
-# link` build пропускается herdr'ом — для локальной разработки запускать вручную:
+# What it does: builds the Go relay from the repo root into the plugin's bin/
+# and installs a launchd autostart service (macOS). The relay is a separate
+# system service, not a herdr process, so it survives herdr restarts.
+#
+# When it runs: `herdr plugin install` invokes this script after confirmation.
+# `herdr plugin link` does NOT run build — for local development run it by hand:
 #   bash plugin/install.sh
+#
+# Side effects:
+#   - bin/herdrelay                                    built relay binary
+#   - ~/Library/LaunchAgents/com.herdrelay.relay.plist   launchd service
+#   - ${XDG_STATE_HOME:-$HOME/.local/state}/herdrelay/   service logs
+# Environment: HERDRELAY_PORT (port, default 8375), XDG_STATE_HOME (log dir).
 set -euo pipefail
 
-# Корень плагина = каталог скрипта (на момент [[build]] env HERDR_PLUGIN_ROOT
-# может не передаваться, как в persiyanov/herdr-reviewr).
+# Plugin root = the script's directory (HERDR_PLUGIN_ROOT may not be set during
+# [[build]], same as in the persiyanov/herdr-reviewr reference).
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$ROOT/.." && pwd)"
 BIN_DIR="$ROOT/bin"
 PLIST="$HOME/Library/LaunchAgents/com.herdrelay.relay.plist"
 LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/herdrelay"
 PORT="${HERDRELAY_PORT:-8375}"
+# herdr lives in a user-local dir that launchd's minimal PATH does not include,
+# so resolve its absolute path here and hand it to the relay via env.
+HERDR_BIN="${HERDR_BIN:-$(command -v herdr || true)}"
 
 echo "HerdRelay: building relay binary..."
 ( cd "$REPO_ROOT" && go build -o "$BIN_DIR/herdrelay" ./cmd/relay )
@@ -45,12 +57,14 @@ cat > "$PLIST" <<EOF
   <dict>
     <key>HERDRELAY_MODE</key>
     <string>lan</string>
+    <key>HERDRELAY_HERDR_BIN</key>
+    <string>$HERDR_BIN</string>
   </dict>
 </dict>
 </plist>
 EOF
 
-# Перезапуск сервиса: unload старого (если был), load нового.
+# (Re)start the service: unload the old one (if any), load the new one.
 launchctl unload "$PLIST" >/dev/null 2>&1 || true
 launchctl load "$PLIST"
 

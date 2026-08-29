@@ -104,11 +104,25 @@ func (s *Server) handleEvent(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-// handleHerdrEvent принимает сырой JSON события от плагина herdr
-// (env HERDR_PLUGIN_EVENT_JSON, формат {"data":{...}}) и рассылает его
-// WS-клиентам с каноническим именем pane.agent_status_changed — имя события
-// хук от herdr в env не получает, оно фиксировано манифестом плагина.
+// handleHerdrEvent forwards an agent-status hook payload from the herdr plugin
+// to WS clients. The event name is pinned by the plugin manifest, so this is a
+// thin wrapper over handlePluginEvent.
 func (s *Server) handleHerdrEvent(w http.ResponseWriter, r *http.Request) {
+	s.handlePluginEvent(w, r, "pane.agent_status_changed")
+}
+
+// handleOutputEvent forwards a pane.output_changed hook payload from the herdr
+// plugin (live terminal output change) to WS clients; the client re-reads the
+// tail on the signal.
+func (s *Server) handleOutputEvent(w http.ResponseWriter, r *http.Request) {
+	s.handlePluginEvent(w, r, "pane.output_changed")
+}
+
+// handlePluginEvent parses a raw herdr hook payload — env HERDR_PLUGIN_EVENT_JSON,
+// format {"data":{...}} — and broadcasts it to every connected WS client under
+// the given canonical event name. herdr does not pass the hook name in env, so
+// it is fixed by the plugin manifest and mapped to a name here.
+func (s *Server) handlePluginEvent(w http.ResponseWriter, r *http.Request, name string) {
 	var ev struct {
 		Data json.RawMessage `json:"data"`
 	}
@@ -120,6 +134,6 @@ func (s *Server) handleHerdrEvent(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing data"})
 		return
 	}
-	s.hub.broadcast(mustJSON(frame{Type: "event", Event: "pane.agent_status_changed", Data: ev.Data}))
+	s.hub.broadcast(mustJSON(frame{Type: "event", Event: name, Data: ev.Data}))
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }

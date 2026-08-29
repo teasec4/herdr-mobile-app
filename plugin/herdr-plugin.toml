@@ -1,42 +1,49 @@
-# herdr-plugin.toml регистрирует HerdRelay в herdr как плагин.
+# herdr-plugin.toml registers HerdRelay with herdr as a plugin.
 #
-# Установка/линковка:
-#   herdr plugin link /Users/yg_kovalev/go/herdr_relay/plugin   # локальная разработка
-#   herdr plugin install yg_kovalev/herdr_relay/plugin          # из GitHub (клонирует репо)
+# Install/link:
+#   herdr plugin link /Users/yg_kovalev/go/herdr_relay/plugin   # local dev
+#   herdr plugin install yg_kovalev/herdr_relay/plugin          # from GitHub (clones the repo)
 #
-# [[build]] при install гоняет install.sh: собирает Go-релей из корня репо
-# в bin/ и ставит launchd-сервис. При `herdr plugin link` build не выполняется
-# (см. референс persiyanov/herdr-reviewr) — локально вызывать:
+# [[build]] runs install.sh on `plugin install`: builds the Go relay from the
+# repo root into bin/ and installs the launchd service. `herdr plugin link`
+# does not run build (see persiyanov/herdr-reviewr reference) — locally call:
 #   bash plugin/install.sh
 #
-# После установки: herdr plugin action invoke show-pair-link --plugin herdrelay.events
-# (или экшен через меню herdr) — откроет пейн со ссылкой/QR для телефона.
+# After install: herdr plugin action invoke show-pair-link --plugin herdrelay.events
+# (or the action via the herdr menu) — opens the pane with the pairing link/QR
+# for the phone.
 
 id = "herdrelay.events"
 name = "HerdRelay"
 version = "0.1.0"
-# 0.7.5 — минимальная версия с pane.agent_status_changed в событийном хуке.
+# 0.7.5 — minimum herdr with pane.agent_status_changed in the event hook.
 min_herdr_version = "0.7.5"
 description = "Remote control for Herdr: monitor and check agents from your phone over LAN/Tailscale"
 platforms = ["macos", "linux"]
 
-# Собрать Go-релей в bin/ и поставить launchd-сервис (macOS).
+# Build the Go relay into bin/ and install the launchd service (macOS).
 [[build]]
 command = ["bash", "install.sh"]
 
-# Смена статуса локального агента -> форвард в релей -> пуш на телефон.
-# herdr передаёт событие хуку через env HERDR_PLUGIN_EVENT_JSON.
+# Local agent status change -> forward to the relay -> push to the phone.
+# herdr passes the event to the hook via env HERDR_PLUGIN_EVENT_JSON.
 [[events]]
 on = "pane.agent_status_changed"
 command = ["sh", "on-event.sh"]
 
-# «Показать QR» — открывает пейн setup со ссылкой/QR пары.
+# Live terminal output (Б-lite) is NOT driven by a plugin hook: herdr's hook
+# system rejects every output-ish event name (pane.updated, pane.output_changed,
+# pane.scroll_changed — all "unknown event"), so the relay subscribes to
+# pane.scroll_changed itself over herdr's unix socket (see cmd/relay/herdrevents.go)
+# and streams pane.output_changed to the phone.
+
+# "Show QR" — opens the setup pane with the pairing link/QR.
 [[actions]]
 id = "show-pair-link"
 title = "HerdRelay: show phone link / QR"
 command = ["bash", "open-pane.sh", "setup"]
 
-# Пейн установки: статус релея и QR для телефона.
+# Setup pane: relay status and the QR for the phone.
 [[panes]]
 id = "setup"
 title = "HerdRelay: Setup"

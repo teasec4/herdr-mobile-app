@@ -1,10 +1,10 @@
-/// Агент из снапшота релея (`agents.snapshot`).
+/// An agent from the relay snapshot (`agents.snapshot`).
 ///
-/// Форма записи совпадает с тем, что релей получает от herdr
+/// The record shape matches what the relay receives from herdr
 /// (`HERDR_PLUGIN_EVENT_JSON`): pane_id, tab_id, workspace_id, agent,
-/// agent_status, cwd, focused, terminal_id. Целевым идентификатором для
-/// `agent.output` / `agent.keys` / `agent.prompt` является `pane_id`
-/// (проверено на живом релее: terminal_id и tab_id herdr не принимает).
+/// agent_status, cwd, focused, terminal_id. The target identifier for
+/// `agent.output` / `agent.keys` / `agent.prompt` is `pane_id`
+/// (verified against a live relay: herdr rejects terminal_id and tab_id).
 class RelayAgent {
   const RelayAgent({
     required this.id,
@@ -14,27 +14,27 @@ class RelayAgent {
     this.focused = false,
   });
 
-  /// pane_id — единственный валидный target для операций с агентом.
+  /// pane_id is the only valid target for agent operations.
   final String id;
 
-  /// Имя агента (codex, kimi, ...). Может быть пустым.
+  /// Agent name (codex, kimi, ...). May be empty.
   final String agent;
 
-  /// Статус из herdr: done, running, waiting, error, ...
+  /// Status from herdr: done, running, waiting, error, ...
   final String status;
 
   final String? cwd;
 
   final bool focused;
 
-  /// Заблокирован — ждёт ответа пользователя («нужен мой ответ»).
+  /// Blocked — waiting for the user's response ("needs my reply").
   bool get isBlocked => status.toLowerCase() == 'blocked';
 
-  /// Человекочитаемое имя для списка: agent, иначе pane_id.
+  /// Human-readable name for the list: agent, otherwise pane_id.
   String get displayAgent => agent.isEmpty ? id : agent;
 
-  /// Сортировка списка для экрана: заблокированные (ждут ответа) сверху,
-  /// остальные — по имени. Сохраняет стабильность в рамках групп.
+  /// Sorts the list for the screen: blocked agents (awaiting a reply) on top,
+  /// the rest by name. Keeps stability within groups.
   static List<RelayAgent> sorted(List<RelayAgent> agents) {
     final list = [...agents];
     list.sort((a, b) {
