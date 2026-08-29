@@ -86,10 +86,19 @@ class PairConfig {
   String get _authority => host.contains(':') && !host.startsWith('[') ? '[$host]' : host;
 
   /// WS address of the relay for the WebSocket connection (token in the query).
-  Uri get wsUri => Uri.parse('ws://$_authority:$port/ws?token=$token');
+  Uri get wsUri {
+    // Funnel mode uses secure WebSocket (wss://) over HTTPS
+    final scheme = mode == 'funnel' ? 'wss' : 'ws';
+    final portSuffix = mode == 'funnel' ? '' : ':$port';
+    return Uri.parse('$scheme://$_authority$portSuffix/ws?token=$token');
+  }
 
   /// HTTP address of /healthz for a quick availability check.
-  Uri get healthUri => Uri.parse('http://$_authority:$port/healthz');
+  Uri get healthUri {
+    final scheme = mode == 'funnel' ? 'https' : 'http';
+    final portSuffix = mode == 'funnel' ? '' : ':$port';
+    return Uri.parse('$scheme://$_authority$portSuffix/healthz');
+  }
 
   Map<String, dynamic> toJson() => {
         'host': host,

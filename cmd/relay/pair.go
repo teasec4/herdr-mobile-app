@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/url"
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -95,13 +96,24 @@ type tailscaleInfoT struct {
 
 // tailscaleInfo returns the machine's MagicDNS name if Tailscale is running.
 func tailscaleInfo() *tailscaleInfoT {
-	out, err := exec.Command("tailscale", "status", "--json").Output()
+	// Try common tailscale binary locations
+	tailscaleBin := "tailscale"
+	for _, path := range []string{"/usr/local/bin/tailscale", "/usr/bin/tailscale"} {
+		if _, err := os.Stat(path); err == nil {
+			tailscaleBin = path
+			break
+		}
+	}
+
+	out, err := exec.Command(tailscaleBin, "status", "--json").Output()
 	if err != nil {
 		return nil
 	}
 	var st struct {
 		BackendState string `json:"BackendState"`
-		DNSName      string `json:"DNSName"`
+		Self         struct {
+			DNSName string `json:"DNSName"`
+		} `json:"Self"`
 	}
 	if err := json.Unmarshal(out, &st); err != nil {
 		return nil
@@ -109,7 +121,7 @@ func tailscaleInfo() *tailscaleInfoT {
 	if st.BackendState != "Running" {
 		return nil
 	}
-	name := strings.TrimSuffix(st.DNSName, ".")
+	name := strings.TrimSuffix(st.Self.DNSName, ".")
 	if name == "" {
 		return nil
 	}
