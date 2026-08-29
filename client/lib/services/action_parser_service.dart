@@ -24,7 +24,9 @@ class ActionParserService {
   List<SuggestedAction> parse(String output) {
     if (output.isEmpty) return const [];
 
-    final lines = output.split('\n');
+    // Strip ANSI escape codes before parsing
+    final cleanOutput = _stripAnsi(output);
+    final lines = cleanOutput.split('\n');
     // Only look at last 10 lines (recent output)
     final tail = lines.length > 10 ? lines.sublist(lines.length - 10) : lines;
 
@@ -97,5 +99,15 @@ class ActionParserService {
   String _truncate(String text, int maxLength) {
     if (text.length <= maxLength) return text;
     return '${text.substring(0, maxLength - 1)}…';
+  }
+
+  /// Strip ANSI escape codes from text
+  String _stripAnsi(String text) {
+    // Remove ANSI escape sequences: ESC [ ... m (SGR), ESC [ ... (CSI), ESC ] ... (OSC)
+    return text
+        .replaceAll(RegExp(r'\x1B\[[0-9;]*[A-Za-z]'), '') // CSI sequences
+        .replaceAll(RegExp(r'\x1B\][^\x07]*\x07'), '')    // OSC sequences
+        .replaceAll(RegExp(r'\x1B[=>]'), '')              // Other ESC sequences
+        .replaceAll(RegExp(r'\r'), '');                   // Carriage returns
   }
 }
