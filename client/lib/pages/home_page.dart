@@ -1,10 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 
+import '../core/service_locator.dart';
 import '../models/pair_config.dart';
 import '../models/relay_agent.dart';
+import '../models/relay_event.dart' as events;
+import '../repositories/agent_repository.dart';
 import '../services/relay_client.dart';
 import '../utils/async_value.dart';
 import '../utils/toast_service.dart';
@@ -25,23 +27,22 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  late final RelayClient _client;
-  StreamSubscription<RelayEvent>? _eventSubscription;
+  late final AgentRepository _repository;
+  StreamSubscription<events.RelayEvent>? _eventSubscription;
   AsyncValue<List<RelayAgent>> _agentsState = const AsyncIdle();
 
   @override
   void initState() {
     super.initState();
-    // The relay client is shared app-wide (see main.dart).
-    _client = context.read<RelayClient>();
-    _client.status.addListener(_onStatusChanged);
-    _eventSubscription = _client.events.listen(_onEvent);
+    _repository = getIt<AgentRepository>();
+    _repository.status.addListener(_onStatusChanged);
+    _eventSubscription = _repository.events.listen(_onEvent);
     _refresh();
   }
 
   @override
   void dispose() {
-    _client.status.removeListener(_onStatusChanged);
+    _repository.status.removeListener(_onStatusChanged);
     _eventSubscription?.cancel();
     super.dispose();
   }
@@ -49,29 +50,26 @@ class _HomePageState extends State<HomePage> {
   void _onStatusChanged() {
     if (!mounted) return;
     // On reconnect, reload the list
-    if (_client.status.value == RelayStatus.connected && _agentsState.hasError) {
+    if (_repository.status.value == RelayStatus.connected && _agentsState.hasError) {
       _refresh();
     } else {
       setState(() {});
     }
   }
 
-  void _onEvent(RelayEvent event) {
+  void _onEvent(events.RelayEvent event) {
     if (!mounted) return;
 
     // DEBUG: log all events
-    print('[HomePage] Event received: ${event.name}');
-    if (event.data != null) {
-      print('[HomePage] Event data: ${event.data}');
-    }
+    print('[HomePage] Event received: $event');
 
-    // The plugin fires this event on every agent status change —
+    // The plugin fires these events on agent status changes —
     // re-read the snapshot so the list stays fresh.
-    if (event.name == 'pane.agent_status_changed' || event.name == 'pane.updated') {
+    if (event is events.AgentStatusChanged || event is events.PaneUpdated) {
       // Small delay to let herdr update its internal state before we snapshot
       Future.delayed(const Duration(milliseconds: 150), () {
         if (mounted) {
-          print('[HomePage] Refreshing after event ${event.name}');
+          print('[HomePage] Refreshing after event $event');
           _refresh();
         }
       });
@@ -82,7 +80,7 @@ class _HomePageState extends State<HomePage> {
     setState(() => _agentsState = const AsyncLoading());
     try {
       print('[HomePage] Fetching snapshot...');
-      final agents = await _client.snapshot();
+      final agents = await _repository.getAgents();
       print('[HomePage] Got ${agents.length} agents:');
       for (final a in agents) {
         print('[HomePage]   ${a.id}: ${a.agent} (${a.status})');
@@ -103,13 +101,13 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _disconnect() async {
-    await _client.close();
+    await _repository.close();
     await widget.onDisconnect();
   }
 
   @override
   Widget build(BuildContext context) {
-    final connected = _client.status.value == RelayStatus.connected;
+    final connected = _repository.status.value == RelayStatus.connected;
     return Scaffold(
       appBar: AppBar(
         title: const Text('HerdRelay'),
@@ -123,13 +121,13 @@ class _HomePageState extends State<HomePage> {
                   size: 12,
                   color: connected
                       ? Colors.green
-                      : _client.status.value == RelayStatus.connecting
+                      : _repository.status.value == RelayStatus.connecting
                           ? Colors.orange
                           : Colors.grey,
                 ),
                 const SizedBox(width: 6),
                 Text(
-                  switch (_client.status.value) {
+                  switch (_repository.status.value) {
                     RelayStatus.connected => 'online',
                     RelayStatus.connecting => 'connecting…',
                     RelayStatus.disconnected => 'offline',

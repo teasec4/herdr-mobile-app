@@ -1,7 +1,8 @@
 import 'dart:async';
 
 import 'package:client/models/relay_agent.dart';
-import 'package:client/services/relay_client.dart';
+import 'package:client/models/relay_event.dart';
+import 'package:client/services/relay_client.dart' hide RelayEvent;
 import 'package:flutter/foundation.dart';
 
 /// Fake relay client for widget tests: no network, controlled from the test.
@@ -13,10 +14,9 @@ class FakeRelayClient implements RelayClient {
   final ValueNotifier<RelayStatus> status =
       ValueNotifier<RelayStatus>(RelayStatus.connected);
 
-  final StreamController<RelayEvent> _events = StreamController.broadcast();
+  final StreamController<RelayEvent> _eventsController = StreamController.broadcast();
 
-  @override
-  Stream<RelayEvent> get events => _events.stream;
+  Stream<RelayEvent> get events => _eventsController.stream;
 
   /// Snapshot that `snapshot()` will return.
   List<RelayAgent> agents = const [];
@@ -62,6 +62,6 @@ class FakeRelayClient implements RelayClient {
   @override
   Future<void> close() async {}
 
-  /// Emits an event the way it would arrive over WS.
-  void emit(RelayEvent event) => _events.add(event);
+  /// Emits a typed event the way it would arrive over WS.
+  void emit(RelayEvent event) => _eventsController.add(event);
 }

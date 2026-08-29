@@ -2,12 +2,11 @@ import 'package:client/models/pair_config.dart';
 import 'package:client/models/relay_agent.dart';
 import 'package:client/pages/agent_page.dart';
 import 'package:client/pages/home_page.dart';
-import 'package:client/services/relay_client.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:provider/provider.dart';
 
 import 'fakes/fake_relay_client.dart';
+import 'test_helper.dart';
 
 void main() {
   late FakeRelayClient client;
@@ -17,19 +16,21 @@ void main() {
     '&token=abcdef0123456789',
   );
 
-  setUp(() {
+  setUp(() async {
     client = FakeRelayClient();
+    await setupTestDependencies(client, config);
+  });
+
+  tearDown(() async {
+    await teardownTestDependencies();
   });
 
   Future<void> pumpHome(WidgetTester tester) async {
     await tester.pumpWidget(
-      Provider<RelayClient>.value(
-        value: client,
-        child: MaterialApp(
-          home: HomePage(
-            config: config,
-            onDisconnect: () async {},
-          ),
+      MaterialApp(
+        home: HomePage(
+          config: config,
+          onDisconnect: () async {},
         ),
       ),
     );

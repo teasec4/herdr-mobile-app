@@ -1,16 +1,20 @@
 import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:provider/provider.dart';
 
+import 'core/service_locator.dart';
 import 'models/pair_config.dart';
 import 'pages/home_page.dart';
 import 'pages/pair_page.dart';
 import 'services/config_store.dart';
 import 'services/relay_client.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize dependency injection
+  await setupDependencies();
+
   // Draw behind the system bars and match them to the dark theme; otherwise the
   // white system navigation/status bar shows as a light band under the app.
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -37,9 +41,7 @@ class HerdRelayApp extends StatefulWidget {
 }
 
 class _HerdRelayAppState extends State<HerdRelayApp> {
-  final ConfigStore _store = ConfigStore();
   PairConfig? _config;
-  RelayClient? _client;
   bool _loading = true;
 
   @override
@@ -51,12 +53,13 @@ class _HerdRelayAppState extends State<HerdRelayApp> {
 
   @override
   void dispose() {
-    _client?.close();
+    teardownRelayServices();
     super.dispose();
   }
 
   Future<void> _bootstrap() async {
-    final config = await _store.load();
+    final store = getIt<ConfigStore>();
+    final config = await store.load();
     if (!mounted) return;
     if (config == null) {
       setState(() => _loading = false);
@@ -65,16 +68,12 @@ class _HerdRelayAppState extends State<HerdRelayApp> {
     }
   }
 
-  /// Replaces the pair: closes the old relay client and brings up a new one.
+  /// Replaces the pair: closes the old relay and brings up a new one.
   Future<void> _setConfig(PairConfig config) async {
-    await _client?.close();
-    final client = (widget.clientFactory ?? WsRelayClient.new)(config);
-    if (!mounted) {
-      await client.close();
-      return;
-    }
+    await teardownRelayServices();
+    setupRelayServices(config, clientFactory: widget.clientFactory);
+    if (!mounted) return;
     setState(() {
-      _client = client;
       _config = config;
       _loading = false;
     });
@@ -97,7 +96,8 @@ class _HerdRelayAppState extends State<HerdRelayApp> {
     if (uri.scheme != 'herdrelay') return;
     try {
       final config = PairConfig.fromUri(uri);
-      await _store.save(config);
+      final store = getIt<ConfigStore>();
+      await store.save(config);
       await _setConfig(config);
     } on FormatException {
       // invalid link — ignore
@@ -106,10 +106,9 @@ class _HerdRelayAppState extends State<HerdRelayApp> {
 
   /// Unpair: clear the saved config and close the client.
   Future<void> _disconnect() async {
-    await _store.clear();
-    final client = _client;
-    _client = null;
-    await client?.close();
+    final store = getIt<ConfigStore>();
+    await store.clear();
+    await teardownRelayServices();
     if (mounted) setState(() => _config = null);
   }
 
@@ -119,29 +118,24 @@ class _HerdRelayAppState extends State<HerdRelayApp> {
       return _app(const Scaffold(body: Center(child: CircularProgressIndicator())));
     }
     final config = _config;
-    final client = _client;
-    if (client == null || config == null) {
+    if (config == null) {
       return _app(
         PairPage(
           onPaired: (config) async {
-            await _store.save(config);
+            final store = getIt<ConfigStore>();
+            await store.save(config);
             await _setConfig(config);
           },
         ),
       );
     }
-    // The relay client is shared across the app (list and details use one WS channel);
-    // Provider sits above MaterialApp so push routes can see it too.
-    return Provider<RelayClient>.value(
-      value: client,
-      child: _app(
-        // Key derived from config: when the pair changes via deep link, the screen
-        // is recreated with the new client.
-        HomePage(
-          key: ValueKey('${config.host}:${config.port}:${config.token}'),
-          config: config,
-          onDisconnect: _disconnect,
-        ),
+    // Key derived from config: when the pair changes via deep link, the screen
+    // is recreated with the new services.
+    return _app(
+      HomePage(
+        key: ValueKey('${config.host}:${config.port}:${config.token}'),
+        config: config,
+        onDisconnect: _disconnect,
       ),
     );
   }

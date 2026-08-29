@@ -2,26 +2,18 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/service_locator.dart';
 import '../models/relay_agent.dart';
-import '../services/relay_client.dart';
+import '../models/relay_event.dart';
+import '../repositories/agent_repository.dart';
+import '../services/action_parser_service.dart';
+import '../services/command_history_service.dart';
 import '../utils/toast_service.dart';
 import '../widgets/ansi_terminal.dart';
 import '../widgets/status_chip.dart';
 
-/// Quick key metadata: label, icon, and the key sequence to send.
-class _SuggestedAction {
-  const _SuggestedAction(this.label, this.response);
-  final String label;
-  final String response;
-}
-
 /// Agent details: live terminal output, sending a prompt, quick keys.
-///
-/// The client comes from Provider — the same [RelayClient] as the list
-/// (one WS channel for everything), so it is not closed on exit.
 class AgentPage extends StatefulWidget {
   const AgentPage({super.key, required this.agent});
 
@@ -33,7 +25,9 @@ class AgentPage extends StatefulWidget {
 }
 
 class _AgentPageState extends State<AgentPage> {
-  late final RelayClient _client;
+  late final AgentRepository _repository;
+  late final CommandHistoryService _historyService;
+  late final ActionParserService _parserService;
   StreamSubscription<RelayEvent>? _eventSubscription;
   late RelayAgent _agent;
   late final TextEditingController _input = TextEditingController();
@@ -58,20 +52,22 @@ class _AgentPageState extends State<AgentPage> {
   int? _lastRevision;
 
   /// Command history and navigation state.
-  final List<String> _commandHistory = [];
+  List<String> _commandHistory = [];
   int? _historyIndex;
   String? _historyTemp;
 
   /// Suggested actions parsed from agent output.
-  List<_SuggestedAction> _suggestedActions = [];
+  List<SuggestedAction> _suggestedActions = [];
 
   @override
   void initState() {
     super.initState();
-    _client = context.read<RelayClient>();
+    _repository = getIt<AgentRepository>();
+    _historyService = getIt<CommandHistoryService>();
+    _parserService = getIt<ActionParserService>();
     _agent = widget.agent;
     _scroll.addListener(_onScroll);
-    _eventSubscription = _client.events.listen(_onEvent);
+    _eventSubscription = _repository.events.listen(_onEvent);
     _loadCommandHistory();
     _refresh();
   }
@@ -98,28 +94,32 @@ class _AgentPageState extends State<AgentPage> {
 
   void _onEvent(RelayEvent event) {
     if (!mounted) return;
-    // Live output change: re-read the tail on a debounce. The event carries
-    // only {pane_id, revision} — no text — so we always pull the real output.
-    if (event.name == 'pane.output_changed') {
-      final data = event.data;
-      if (data is! Map || data['pane_id'] != _agent.id) return;
-      final rev = data['revision'];
-      if (rev is int && _lastRevision != null && rev <= _lastRevision!) return;
-      if (rev is int) _lastRevision = rev;
+
+    // Output changed: debounce and refresh
+    if (event is OutputChanged) {
+      if (event.paneId != _agent.id) return;
+      if (_lastRevision != null && event.revision <= _lastRevision!) return;
+      _lastRevision = event.revision;
       _outputDebounce?.cancel();
       _outputDebounce =
           Timer(const Duration(milliseconds: 400), () => _refresh(silent: true));
       return;
     }
-    if (event.name != 'pane.agent_status_changed') return;
-    final data = event.data;
-    if (data is Map && data['pane_id'] != _agent.id) return;
-    setState(() {
-      _agent = RelayAgent.fromJson(
-        data is Map ? data.cast<String, dynamic>() : const {},
-      );
-    });
-    _refresh();
+
+    // Agent status changed: update agent state and refresh
+    if (event is AgentStatusChanged) {
+      if (event.paneId != _agent.id) return;
+      setState(() {
+        _agent = RelayAgent(
+          id: _agent.id,
+          agent: _agent.agent,
+          status: event.status,
+          focused: _agent.focused,
+          cwd: _agent.cwd,
+        );
+      });
+      _refresh();
+    }
   }
 
   /// Re-reads the agent output. In [silent] mode (live update after a
@@ -131,19 +131,17 @@ class _AgentPageState extends State<AgentPage> {
       setState(() => _loading = true);
     }
     try {
-      final output = await _client.output(_agent.id, lines: 500, format: 'ansi');
+      final output = await _repository.getOutput(_agent.id, lines: 500);
       if (!mounted) return;
       setState(() {
         _output = output;
         _loading = false;
-        _parseSuggestedActions(output);
+        _suggestedActions = _parserService.parse(output);
       });
       _scrollToBottom();
     } catch (e) {
       if (!mounted || silent) return;
-      setState(() {
-        _loading = false;
-      });
+      setState(() => _loading = false);
       ToastService.showError(context, e);
     }
   }
@@ -161,20 +159,12 @@ class _AgentPageState extends State<AgentPage> {
     if (text.isEmpty || _sending) return;
     setState(() => _sending = true);
     try {
-      await _client.prompt(_agent.id, text);
-
-      // Add to command history (avoid duplicates)
-      if (_commandHistory.isEmpty || _commandHistory.last != text) {
-        _commandHistory.add(text);
-        // Keep last 100 commands
-        if (_commandHistory.length > 100) {
-          _commandHistory.removeAt(0);
-        }
-        await _saveCommandHistory();
-      }
-
+      await _repository.sendPrompt(_agent.id, text);
+      await _historyService.addCommand(_agent.id, text);
       _input.clear();
       _clearHistoryNavigation();
+      // Reload command history from service
+      _commandHistory = await _historyService.load(_agent.id);
       // after sending, re-read the output: the agent has started working
       await _refresh();
     } catch (e) {
@@ -186,7 +176,7 @@ class _AgentPageState extends State<AgentPage> {
 
   Future<void> _sendKeys(List<String> keys) async {
     try {
-      await _client.keys(_agent.id, keys);
+      await _repository.sendKeys(_agent.id, keys);
     } catch (e) {
       if (mounted) ToastService.showError(context, e);
     }
@@ -332,18 +322,8 @@ class _AgentPageState extends State<AgentPage> {
   // ─────────────────────────────────────────────────────────────────────
 
   Future<void> _loadCommandHistory() async {
-    final prefs = await SharedPreferences.getInstance();
-    final history = prefs.getStringList('command_history_${_agent.id}') ?? [];
-    if (!mounted) return;
-    setState(() {
-      _commandHistory.clear();
-      _commandHistory.addAll(history);
-    });
-  }
-
-  Future<void> _saveCommandHistory() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList('command_history_${_agent.id}', _commandHistory);
+    _commandHistory = await _historyService.load(_agent.id);
+    if (mounted) setState(() {});
   }
 
   void _handleKeyEvent(KeyEvent event) {
@@ -391,118 +371,4 @@ class _AgentPageState extends State<AgentPage> {
       _historyTemp = null;
     });
   }
-
-  // ─────────────────────────────────────────────────────────────────────
-  // Suggested actions parsing
-  // ─────────────────────────────────────────────────────────────────────
-
-  void _parseSuggestedActions(String output) {
-    _suggestedActions = [];
-
-    // Only suggest actions when agent is blocked
-    if (_agent.status != 'blocked') return;
-
-    // Parse only last 10 lines (agent prompts are at the end)
-    final lines = output.split('\n');
-    final recentLines = lines.length > 10 ? lines.sublist(lines.length - 10) : lines;
-
-    // Find the last non-empty line before prompt markers (❯, >, ───)
-    String? lastNonEmpty;
-    for (int i = recentLines.length - 1; i >= 0; i--) {
-      final stripped = recentLines[i].trim();
-      // Skip empty lines and common prompt/decoration markers
-      if (stripped.isEmpty ||
-          stripped == '❯' ||
-          stripped == '>' ||
-          stripped.startsWith('─') ||
-          stripped.startsWith('⏵')) {
-        continue;
-      }
-      lastNonEmpty = stripped;
-      break;
-    }
-
-    if (lastNonEmpty == null) return;
-
-    // Strategy 1: Extract inline options from the last line
-    // These are the most explicit - always trust them
-    // Patterns: "(y/n)", "(yes/no)", "[y/n]", "accept/reject"
-    final inlinePatterns = [
-      RegExp(r'\(([^)]+)/([^)]+)\)'),           // (yes/no) or (y/n)
-      RegExp(r'\[([^\]]+)/([^\]]+)\]'),         // [yes/no] or [y/n]
-      RegExp(r'\b(\w+)\s*/\s*(\w+)\s*[?.]?\s*$'), // yes/no at end of line
-    ];
-
-    for (final pattern in inlinePatterns) {
-      final match = pattern.firstMatch(lastNonEmpty);
-      if (match != null && match.groupCount >= 2) {
-        final opt1 = match.group(1)!.trim();
-        final opt2 = match.group(2)!.trim();
-
-        // Skip if options are too long (not real options)
-        if (opt1.length <= 15 && opt2.length <= 15) {
-          _suggestedActions.add(_SuggestedAction(_capitalize(opt1), opt1.toLowerCase()));
-          _suggestedActions.add(_SuggestedAction(_capitalize(opt2), opt2.toLowerCase()));
-          return;
-        }
-      }
-    }
-
-    // Strategy 2: Look for explicit questions - only if very clear
-    final lastFewLines = recentLines.join('\n').toLowerCase();
-    final hasExplicitQuestion = lastFewLines.contains(RegExp(r'\b(would you|do you want|should i|can i)\b'));
-
-    // Only show yes/no if there's a question AND it ends with '?'
-    if (hasExplicitQuestion && lastNonEmpty.trim().endsWith('?')) {
-      _suggestedActions.add(const _SuggestedAction('Yes', 'yes'));
-      _suggestedActions.add(const _SuggestedAction('No', 'no'));
-      return;
-    }
-
-    // Strategy 3: Look for numbered options
-    // "1. Option one"  "2. Option two"  or  "1) Option"
-    final numberedPattern = RegExp(r'^\s*(\d+)[.)]\s+(.+)$', multiLine: true);
-    final matches = numberedPattern.allMatches(recentLines.join('\n'));
-
-    if (matches.length >= 2 && matches.length <= 6) {
-      final options = <_SuggestedAction>[];
-      for (final match in matches.take(6)) {
-        final number = match.group(1)!;
-        final text = match.group(2)!.trim();
-
-        // Clean up the text: remove ANSI, keep first 40 chars
-        final cleaned = text.replaceAll(RegExp(r'\x1B\[[0-9;]*[a-zA-Z]'), '');
-        final label = cleaned.length > 40 ? '${cleaned.substring(0, 37)}...' : cleaned;
-
-        options.add(_SuggestedAction(label, number));
-      }
-
-      if (options.isNotEmpty) {
-        _suggestedActions = options;
-        return;
-      }
-    }
-
-    // Strategy 4: Look for checkbox lists - skip them
-    // "◻ Do something"  "◼ Already done"
-    final checkboxPattern = RegExp(r'^[◻◼☐☑]\s+(.+)$', multiLine: true);
-    final checkMatches = checkboxPattern.allMatches(recentLines.join('\n'));
-
-    if (checkMatches.length >= 2) {
-      // This looks like a task list, not options. Skip.
-      return;
-    }
-
-    // No clear pattern found - don't guess
-  }
-
-  String _capitalize(String s) {
-    if (s.isEmpty) return s;
-    return s[0].toUpperCase() + s.substring(1).toLowerCase();
-  }
-
-  // ─────────────────────────────────────────────────────────────────────
-  // Quick keys and commands
-  // ─────────────────────────────────────────────────────────────────────
-
 }

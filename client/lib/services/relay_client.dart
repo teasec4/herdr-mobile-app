@@ -8,6 +8,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../models/pair_config.dart';
 import '../models/relay_agent.dart';
+import '../models/relay_event.dart';
 
 /// Relay connection phase.
 enum RelayStatus { disconnected, connecting, connected }
@@ -21,14 +22,6 @@ class RelayException implements Exception {
 
   @override
   String toString() => message;
-}
-
-/// Relay event (`{"type":"event","event":...,"data":...}`).
-class RelayEvent {
-  const RelayEvent(this.name, this.data);
-
-  final String name;
-  final dynamic data;
 }
 
 /// Relay client contract for the UI: connection, snapshot, agent operations.
@@ -203,7 +196,10 @@ class WsRelayClient implements RelayClient {
       case 'response':
         _onResponse(frame);
       case 'event':
-        _events.add(RelayEvent(frame['event'] as String? ?? 'event', frame['data']));
+        _events.add(RelayEvent.fromJson({
+          'name': frame['event'] as String? ?? 'event',
+          'data': frame['data'] as Map<String, dynamic>?,
+        }));
       case 'ping':
         _sendFrame(const {'type': 'pong'});
     }
