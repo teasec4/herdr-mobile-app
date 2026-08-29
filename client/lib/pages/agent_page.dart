@@ -289,7 +289,7 @@ class _AgentPageState extends State<AgentPage> {
           Row(
             children: [
               OutlinedButton.icon(
-                onPressed: () => _sendKeys(['ctrl', 'c']),
+                onPressed: () => _sendKeys(['C-c']),
                 icon: const Icon(Icons.stop, size: 16),
                 label: const Text('Ctrl-C'),
                 style: OutlinedButton.styleFrom(
@@ -421,28 +421,35 @@ class _AgentPageState extends State<AgentPage> {
     // Only suggest actions when agent is blocked
     if (_agent.status != 'blocked') return;
 
-    // Parse last ~50 lines for context
+    // Parse only last 10 lines (agent prompts are at the end)
     final lines = output.split('\n');
-    final recentLines = lines.length > 50 ? lines.sublist(lines.length - 50) : lines;
+    final recentLines = lines.length > 10 ? lines.sublist(lines.length - 10) : lines;
 
-    // Find the last non-empty line (likely the prompt or question)
+    // Find the last non-empty line before prompt markers (❯, >, ───)
     String? lastNonEmpty;
     for (int i = recentLines.length - 1; i >= 0; i--) {
       final stripped = recentLines[i].trim();
-      if (stripped.isNotEmpty && !stripped.startsWith('─') && !stripped.startsWith('⏵')) {
-        lastNonEmpty = stripped;
-        break;
+      // Skip empty lines and common prompt/decoration markers
+      if (stripped.isEmpty ||
+          stripped == '❯' ||
+          stripped == '>' ||
+          stripped.startsWith('─') ||
+          stripped.startsWith('⏵')) {
+        continue;
       }
+      lastNonEmpty = stripped;
+      break;
     }
 
     if (lastNonEmpty == null) return;
 
     // Strategy 1: Extract inline options from the last line
-    // Patterns: "(y/n)", "(yes/no)", "[y/n]", "yes/no", "accept/reject"
+    // These are the most explicit - always trust them
+    // Patterns: "(y/n)", "(yes/no)", "[y/n]", "accept/reject"
     final inlinePatterns = [
       RegExp(r'\(([^)]+)/([^)]+)\)'),           // (yes/no) or (y/n)
       RegExp(r'\[([^\]]+)/([^\]]+)\]'),         // [yes/no] or [y/n]
-      RegExp(r'\b(\w+)\s*/\s*(\w+)\b'),         // yes/no or accept/reject
+      RegExp(r'\b(\w+)\s*/\s*(\w+)\s*[?.]?\s*$'), // yes/no at end of line
     ];
 
     for (final pattern in inlinePatterns) {
@@ -460,18 +467,15 @@ class _AgentPageState extends State<AgentPage> {
       }
     }
 
-    // Strategy 2: Look for explicit questions with common keywords
-    final lastFewLines = recentLines.length > 10
-        ? recentLines.sublist(recentLines.length - 10).join('\n').toLowerCase()
-        : recentLines.join('\n').toLowerCase();
+    // Strategy 2: Look for explicit questions - only if very clear
+    final lastFewLines = recentLines.join('\n').toLowerCase();
+    final hasExplicitQuestion = lastFewLines.contains(RegExp(r'\b(would you|do you want|should i|can i)\b'));
 
-    // "Would you like to...", "Do you want to...", "Should I..."
-    if (lastFewLines.contains(RegExp(r'\b(would you|do you want|should i|can i)\b'))) {
-      if (!_suggestedActions.any((a) => a.label == 'Yes')) {
-        _suggestedActions.add(const _SuggestedAction('Yes', 'yes'));
-        _suggestedActions.add(const _SuggestedAction('No', 'no'));
-        return;
-      }
+    // Only show yes/no if there's a question AND it ends with '?'
+    if (hasExplicitQuestion && lastNonEmpty.trim().endsWith('?')) {
+      _suggestedActions.add(const _SuggestedAction('Yes', 'yes'));
+      _suggestedActions.add(const _SuggestedAction('No', 'no'));
+      return;
     }
 
     // Strategy 3: Look for numbered options
@@ -498,40 +502,17 @@ class _AgentPageState extends State<AgentPage> {
       }
     }
 
-    // Strategy 4: Look for checkbox lists with actions
+    // Strategy 4: Look for checkbox lists - skip them
     // "◻ Do something"  "◼ Already done"
     final checkboxPattern = RegExp(r'^[◻◼☐☑]\s+(.+)$', multiLine: true);
     final checkMatches = checkboxPattern.allMatches(recentLines.join('\n'));
 
-    if (checkMatches.length >= 2 && checkMatches.length <= 5) {
+    if (checkMatches.length >= 2) {
       // This looks like a task list, not options. Skip.
       return;
     }
 
-    // Strategy 5: Common action keywords in the last line
-    final actionKeywords = {
-      'proceed': 'proceed',
-      'continue': 'continue',
-      'skip': 'skip',
-      'retry': 'retry',
-      'cancel': 'cancel',
-      'approve': 'approve',
-      'reject': 'reject',
-      'accept': 'accept',
-      'decline': 'decline',
-    };
-
-    final foundActions = <_SuggestedAction>[];
-    for (final entry in actionKeywords.entries) {
-      if (lastFewLines.contains(entry.key)) {
-        foundActions.add(_SuggestedAction(_capitalize(entry.key), entry.value));
-      }
-    }
-
-    if (foundActions.length >= 2 && foundActions.length <= 4) {
-      _suggestedActions = foundActions;
-      return;
-    }
+    // No clear pattern found - don't guess
   }
 
   String _capitalize(String s) {

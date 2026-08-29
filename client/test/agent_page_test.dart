@@ -65,7 +65,7 @@ void main() {
 
     expect(client.keysCalls.length, 1);
     expect(client.keysCalls[0].$1, agent.id);
-    expect(client.keysCalls[0].$2, ['ctrl', 'c']);
+    expect(client.keysCalls[0].$2, ['C-c']);
   });
 
   testWidgets('предложенные действия появляются когда агент blocked с yes/no', (tester) async {
