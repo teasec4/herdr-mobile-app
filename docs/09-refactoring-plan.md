@@ -263,11 +263,11 @@ class FixedDelay      implements RetryPolicy { ... }
 
 ### Фаза 4 — Connection Manager (неделя 4)
 
-1. `core/connection/retry_policy.dart` — интерфейс + `ExponentialBackoff`, `FixedDelay` (перенос формулы 1..30 c).
+1. `core/transport/retry_policy.dart` — интерфейс + `ExponentialBackoff`, `FixedDelay` (перенос формулы 1..30 c; живёт в transport, чтобы не было зависимости transport → connection).
 2. `core/connection/connection_manager.dart` — lifecycle из `main.dart` (`WidgetsBindingObserver` → `transport.pause()/resume()`), подключение RetryPolicy.
 3. `main.dart` — убрать `WidgetsBindingObserver`; `service_locator.dart` регистрирует `ConnectionManager` рядом с client/repo.
 4. Удаление `_legacy/WsRelayClient`.
-5. Тесты: `connection_manager_test.dart` (paused/hidden → pause, resumed → resume; disposal без утечки observer), `retry_policy_test.dart`.
+5. Тесты: `connection_manager_test.dart` (paused/hidden → pause, resumed → resume; disposal без утечки observer), `retry_policy_test.dart` (в `test/core/transport/`).
 
 **Критерий готовности:** приложение само паузит reconnect в background и возобновляет в foreground (поведение из main.dart сохранено, теперь тестируемое). Battery drain закрыт.
 
@@ -308,6 +308,7 @@ client/lib/
 │   │   ├── transport.dart              # interface + ConnectionStatus
 │   │   ├── websocket_transport.dart
 │   │   ├── reconnect_mixin.dart        # backoff + pause/resume
+│   │   ├── retry_policy.dart           # ExponentialBackoff/FixedDelay
 │   │   ├── http_health.dart            # healthz (3 попытки)
 │   │   └── http_transport.dart         # Фаза 5 (future fallback)
 │   ├── protocol/
@@ -315,8 +316,7 @@ client/lib/
 │   │   ├── request_response_manager.dart
 │   │   └── relay_exception.dart
 │   ├── connection/
-│   │   ├── connection_manager.dart     # lifecycle (из main.dart)
-│   │   └── retry_policy.dart
+│   │   └── connection_manager.dart     # lifecycle (из main.dart)
 │   └── service_locator.dart
 ├── models/                             # без изменений
 ├── services/
@@ -328,9 +328,9 @@ client/lib/
 
 client/test/
 ├── core/
-│   ├── transport/  (websocket_transport_test, http_health_test)
+│   ├── transport/  (websocket_transport_test, http_health_test, retry_policy_test)
 │   ├── protocol/   (relay_protocol_test, request_response_manager_test)
-│   └── connection/ (connection_manager_test, retry_policy_test)
+│   └── connection/ (connection_manager_test)
 ├── services/       (relay_client_impl_test, relay_client_test ← baseline)
 └── fakes/          (fake_transport.dart, fake_relay_client.dart ← существующий)
 ```

@@ -1,7 +1,7 @@
 import 'package:flutter/widgets.dart';
 
 import '../transport/transport.dart';
-import 'retry_policy.dart';
+import '../transport/retry_policy.dart';
 
 /// Orchestrates the connection across the app lifecycle
 /// (docs/09-refactoring-plan.md §2.4).

@@ -36,7 +36,7 @@ getIt.registerSingleton<ConnectionManager>(manager);
 ```
 
 ## Testing
-- `test/core/connection/retry_policy_test.dart` — delay schedules, caps.
+- `test/core/transport/retry_policy_test.dart` — delay schedules, caps.
 - `test/core/connection/connection_manager_test.dart` — lifecycle translation
   via `WidgetsBinding.instance.handleAppLifecycleStateChanged`, observer
   removal on dispose.

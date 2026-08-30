@@ -1,5 +1,5 @@
 import 'package:client/core/connection/connection_manager.dart';
-import 'package:client/core/connection/retry_policy.dart';
+import 'package:client/core/transport/retry_policy.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 

@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
-import '../connection/retry_policy.dart';
+import 'retry_policy.dart';
 import 'reconnect_mixin.dart';
 import 'transport.dart';
 

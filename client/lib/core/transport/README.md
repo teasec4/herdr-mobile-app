@@ -11,7 +11,7 @@ or the relay protocol — those live in the Protocol layer
 - `dart:async` (Stream, Future, Timer)
 - `flutter/foundation` (ValueNotifier)
 - `web_socket_channel` (WebSocket implementation)
-- `core/connection/retry_policy.dart` (reconnect delay schedule)
+- `retry_policy.dart` (reconnect delay schedule)
 
 ## API
 ```dart

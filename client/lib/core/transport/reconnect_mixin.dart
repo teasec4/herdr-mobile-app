@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
-import '../connection/retry_policy.dart';
+import 'retry_policy.dart';
 import 'transport.dart';
 
 /// Reconnect loop, shared by every [Transport] implementation (WebSocket now,

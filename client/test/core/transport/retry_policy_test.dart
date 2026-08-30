@@ -1,4 +1,4 @@
-import 'package:client/core/connection/retry_policy.dart';
+import 'package:client/core/transport/retry_policy.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
