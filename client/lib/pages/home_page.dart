@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../controllers/agents_controller.dart';
+import '../controllers/agents_store.dart';
 import '../core/connection/mode_service.dart';
 import '../core/service_locator.dart';
 import '../models/pair_config.dart';
@@ -9,7 +9,6 @@ import '../repositories/agent_repository.dart';
 import '../services/app_settings.dart';
 import '../services/relay_client.dart';
 import '../utils/async_value.dart';
-import '../utils/route_observer.dart';
 import '../widgets/mode_picker_sheet.dart';
 import '../widgets/status_chip.dart';
 import 'agent_page.dart';
@@ -51,17 +50,13 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> with RouteAware {
+class _HomePageState extends State<HomePage> {
   late final AgentRepository _repository;
 
-  /// Agents list ViewModel — created lazily on the first visit of the Agents
-  /// tab (or the first refresh press), so no snapshot fetch happens for a tab
-  /// the user may never open. Owns event/status subscriptions and refresh
-  /// orchestration (see [AgentsController]).
-  AgentsController? _agents;
-
-  AgentsController get _agentsController =>
-      _agents ??= AgentsController(getIt<AgentRepository>())..refresh();
+  /// Single source of truth for agent/workspace status (Agents tab, AgentPage,
+  /// WorkspacePage and SessionController all read from here — no per-page
+  /// status copies, so every listener always shows the same current state).
+  late final AgentsStore _store;
 
   int _tabIndex = 0; // 0 = Spaces, 1 = Agents, 2 = Run
 
@@ -74,37 +69,10 @@ class _HomePageState extends State<HomePage> with RouteAware {
   void initState() {
     super.initState();
     _repository = getIt<AgentRepository>();
+    _store = getIt<AgentsStore>();
     final settings = getIt<AppSettings>();
     _tabIndex = settings.homeTabIndex.clamp(0, 2);
     _visitedTabs = {_tabIndex};
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final route = ModalRoute.of(context);
-    if (route != null) {
-      routeObserver.subscribe(this, route);
-    }
-  }
-
-  @override
-  void dispose() {
-    routeObserver.unsubscribe(this);
-    _agents?.dispose();
-    super.dispose();
-  }
-
-  @override
-  void didPushNext() {
-    // A detail route (AgentPage/WorkspacePage) covers the page: pause live
-    // updates so no hidden snapshot fetches run.
-    _agents?.setPaused(true);
-  }
-
-  @override
-  void didPopNext() {
-    _agents?.setPaused(false); // unpause -> catch-up refresh
   }
 
   Future<void> _disconnect() async {
@@ -203,7 +171,7 @@ class _HomePageState extends State<HomePage> with RouteAware {
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _repository.status.value == RelayStatus.connected
-                ? () => _agentsController.refresh()
+                ? () => _store.refresh()
                 : null,
             tooltip: 'Refresh',
           ),
@@ -249,7 +217,7 @@ class _HomePageState extends State<HomePage> with RouteAware {
               const SizedBox.shrink(),
             if (_visitedTabs.contains(1))
               RefreshIndicator(
-                onRefresh: _agentsController.refresh,
+                onRefresh: _store.refresh,
                 child: _buildBody(),
               )
             else
@@ -336,10 +304,14 @@ class _HomePageState extends State<HomePage> with RouteAware {
   }
 
   Widget _buildBody() {
+    // Lazy load: the first build of the Agents tab triggers the snapshot
+    // fetch; later builds are no-ops (already loaded). Nothing is fetched
+    // until the user actually opens the tab.
+    _store.ensureLoaded();
     return ListenableBuilder(
-      listenable: _agentsController,
+      listenable: _store,
       builder: (context, _) {
-        return switch (_agentsController.state) {
+        return switch (_store.state) {
           AsyncIdle() || AsyncLoading() =>
             const Center(child: CircularProgressIndicator()),
           AsyncError(:final error) => ListView(
@@ -355,7 +327,7 @@ class _HomePageState extends State<HomePage> with RouteAware {
                       Text('$error', textAlign: TextAlign.center),
                       const SizedBox(height: 8),
                       TextButton(
-                          onPressed: _agentsController.refresh,
+                          onPressed: _store.refresh,
                           child: const Text('Retry')),
                     ],
                   ),

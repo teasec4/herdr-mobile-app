@@ -9,7 +9,6 @@ import 'pages/home_page.dart';
 import 'pages/pair_page.dart';
 import 'services/config_store.dart';
 import 'services/relay_client.dart';
-import 'utils/route_observer.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -200,7 +199,6 @@ class _HerdRelayAppState extends State<HerdRelayApp> {
   Widget _app(Widget home) {
     return MaterialApp(
       navigatorKey: _navKey,
-      navigatorObservers: [routeObserver],
       title: 'HerdRelay',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(

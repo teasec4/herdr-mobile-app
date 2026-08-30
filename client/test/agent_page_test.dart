@@ -28,6 +28,10 @@ void main() {
       'agent_status': 'blocked',
       'cwd': '/Users/me/proj',
     });
+    // Status events flow through AgentsStore, which needs a snapshot to know
+    // this agent; otherwise the pane is unknown and events only schedule a
+    // re-snapshot instead of applying the delta locally.
+    client.agents = [agent];
   });
 
   tearDown(() async {

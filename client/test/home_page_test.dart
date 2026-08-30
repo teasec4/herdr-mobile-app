@@ -164,21 +164,26 @@ void main() {
 
     final snapshots = client.snapshotCalls;
     client.emit(AgentStatusChanged(paneId: 'p:unknown', status: 'working'));
-    await tester.pump(const Duration(milliseconds: 350));
+    // AgentsStore is registered in setUp (outside the fake-async test zone),
+    // so its debounce timer is real — advance real time, then settle frames.
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 350)),
+    );
     await tester.pumpAndSettle();
 
     expect(client.snapshotCalls, greaterThan(snapshots));
   });
 
-  testWidgets('агенты не фетчатся до первого открытия таба Agents (лениво)', (tester) async {
+  testWidgets('агенты грузятся один раз при старте (общий store для всех табов)', (tester) async {
     client.agents = [agent('p:alice', 'alice', 'done')];
-    await pumpHome(tester); // stays on the Spaces tab
+    await pumpHome(tester); // Spaces tab (default) triggers the shared store
 
-    expect(client.snapshotCalls, 0,
-        reason: 'agents list loads only when the Agents tab is first visited');
+    expect(client.snapshotCalls, 1,
+        reason: 'one agents fetch serves the Spaces/Agents/Run tabs');
 
     await goToAgents(tester);
-    expect(client.snapshotCalls, 1);
+    expect(client.snapshotCalls, 1,
+        reason: 'visiting Agents must not re-fetch (store is shared)');
     expect(find.text('alice'), findsOneWidget);
   });
 

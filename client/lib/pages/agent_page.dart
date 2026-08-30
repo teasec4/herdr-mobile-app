@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../controllers/agents_store.dart';
 import '../core/service_locator.dart';
 import '../models/relay_agent.dart';
 import '../models/relay_event.dart';
@@ -18,7 +19,8 @@ import '../widgets/status_chip.dart';
 class AgentPage extends StatefulWidget {
   const AgentPage({super.key, required this.agent});
 
-  /// Snapshot of the agent at open time; status is then updated from events.
+  /// Snapshot of the agent at open time; live status/name are read from
+  /// [AgentsStore] (the single source of truth) and fall back to this.
   final RelayAgent agent;
 
   @override
@@ -27,6 +29,7 @@ class AgentPage extends StatefulWidget {
 
 class _AgentPageState extends State<AgentPage> {
   late final AgentRepository _repository;
+  late final AgentsStore _store;
   late final CommandHistoryService _historyService;
   late final ActionParserService _parserService;
   StreamSubscription<RelayEvent>? _eventSubscription;
@@ -78,6 +81,8 @@ class _AgentPageState extends State<AgentPage> {
   void initState() {
     super.initState();
     _repository = getIt<AgentRepository>();
+    _store = getIt<AgentsStore>();
+    _store.ensureLoaded();
     _historyService = getIt<CommandHistoryService>();
     _parserService = getIt<ActionParserService>();
     _settings = getIt<AppSettings>();
@@ -124,7 +129,9 @@ class _AgentPageState extends State<AgentPage> {
   void _onEvent(RelayEvent event) {
     if (!mounted) return;
 
-    // Output changed: debounce and refresh
+    // Output changed: debounce and refresh. Agent status is not handled here —
+    // live status/name come from AgentsStore (single source of truth) and are
+    // rendered by the ListenableBuilder in the AppBar.
     if (event is OutputChanged) {
       if (event.paneId != _agent.id) return;
       // herdr's pane.scroll_changed carries no revision (always 0), so the
@@ -140,20 +147,6 @@ class _AgentPageState extends State<AgentPage> {
       );
       return;
     }
-
-    // Agent status changed: the event carries everything needed (status, and
-    // often the agent name) — update locally, no snapshot/output re-read. The
-    // output tail is re-read on pane.output_changed (debounced above).
-    if (event is AgentStatusChanged) {
-      if (event.paneId != _agent.id) return;
-      setState(() {
-        _agent = _agent.copyWith(
-          status: event.status,
-          agent: event.agent.isEmpty ? _agent.agent : event.agent,
-          workspaceId: event.workspaceId ?? _agent.workspaceId,
-        );
-      });
-    }
   }
 
   /// Re-reads the agent output. In [silent] mode (live update after a
@@ -167,12 +160,6 @@ class _AgentPageState extends State<AgentPage> {
       setState(() => _loading = true);
     }
     try {
-      // Also refresh agent metadata from snapshot to get current status
-      if (!silent) {
-        await _refreshAgentFromSnapshot();
-        if (!mounted || gen != _refreshGeneration) return;
-      }
-
       final output = _agent.isPlainTerminal
           ? await _repository.getPaneOutput(_agent.id,
               lines: 500, knownRevision: knownRevision)
@@ -189,21 +176,6 @@ class _AgentPageState extends State<AgentPage> {
       if (!mounted || silent || gen != _refreshGeneration) return;
       setState(() => _loading = false);
       ToastService.showError(context, e);
-    }
-  }
-
-  /// Refresh agent metadata (status, etc.) from current snapshot
-  Future<void> _refreshAgentFromSnapshot() async {
-    try {
-      final agents = await _repository.getAgents();
-      final current = agents.where((a) => a.id == _agent.id).firstOrNull;
-      if (current != null && mounted) {
-        setState(() {
-          _agent = current;
-        });
-      }
-    } catch (e) {
-      // Ignore error - keep current agent state
     }
   }
 
@@ -252,13 +224,23 @@ class _AgentPageState extends State<AgentPage> {
     final theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Flexible(child: Text(_agent.displayAgent, overflow: TextOverflow.ellipsis)),
-            const SizedBox(width: 8),
-            StatusChip(status: _agent.status),
-          ],
+        // Live name/status from the shared store; falls back to the open-time
+        // snapshot while the store has not loaded the agent yet.
+        title: ListenableBuilder(
+          listenable: _store,
+          builder: (context, _) {
+            final live = _store.byId(_agent.id);
+            final name = live?.displayAgent ?? _agent.displayAgent;
+            final status = live?.status ?? _agent.status;
+            return Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(child: Text(name, overflow: TextOverflow.ellipsis)),
+                const SizedBox(width: 8),
+                StatusChip(status: status),
+              ],
+            );
+          },
         ),
         actions: [
           IconButton(

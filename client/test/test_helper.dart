@@ -1,3 +1,4 @@
+import 'package:client/controllers/agents_store.dart';
 import 'package:client/controllers/session_controller.dart';
 import 'package:client/core/connection/mode_service.dart';
 import 'package:client/core/service_locator.dart';
@@ -53,9 +54,15 @@ Future<void> setupTestDependencies(
     AgentRepository(getIt<RelayClient>(), getIt<AppSettings>()),
   );
 
+  // Single source of truth for agent/workspace status (mirrors production
+  // wiring).
+  getIt.registerSingleton<AgentsStore>(
+    AgentsStore(getIt<AgentRepository>()),
+  );
+
   // Shared session state for the Spaces/Run tabs (mirrors production wiring).
   getIt.registerSingleton<SessionController>(
-    SessionController(getIt<RelayClient>()),
+    SessionController(getIt<RelayClient>(), getIt<AgentsStore>()),
   );
 }
 
@@ -63,6 +70,9 @@ Future<void> setupTestDependencies(
 Future<void> teardownTestDependencies() async {
   if (getIt.isRegistered<SessionController>()) {
     getIt<SessionController>().dispose();
+  }
+  if (getIt.isRegistered<AgentsStore>()) {
+    getIt<AgentsStore>().dispose();
   }
   await GetIt.instance.reset();
 }

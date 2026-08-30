@@ -47,7 +47,8 @@ void main() {
       await teardownTestDependencies();
     });
 
-    testWidgets('status event reloads the session (debounced)', (tester) async {
+    testWidgets('pane structure change reloads the session (debounced)',
+        (tester) async {
       final client = FakeRelayClient()..sessionData = session;
       await setupTestDependencies(client, config);
       final c = getIt<SessionController>();
@@ -55,10 +56,12 @@ void main() {
       await tester.pump();
       expect(client.sessionCalls, 1);
 
-      client.emit(AgentStatusChanged(paneId: 'wH:p8', status: 'blocked'));
+      // Pane structure changes (not agent status — those live in AgentsStore)
+      // invalidate the session snapshot, so it is re-read debounced.
+      client.emit(const PaneUpdated(paneId: 'wH:p10'));
       await tester.pump(const Duration(milliseconds: 400));
       expect(client.sessionCalls, 2,
-          reason: 'status events must re-read the session');
+          reason: 'pane structure events must re-read the session');
 
       await teardownTestDependencies();
     });

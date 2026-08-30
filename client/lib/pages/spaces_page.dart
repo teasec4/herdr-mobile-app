@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../controllers/agents_store.dart';
 import '../controllers/session_controller.dart';
 import '../core/service_locator.dart';
 import '../models/relay_agent.dart';
@@ -11,18 +12,21 @@ import 'agent_page.dart';
 /// Spaces tab: herdr workspaces (spaces) with their panes — agent panes and
 /// plain terminals (docs/11-spaces.md). Tap a workspace to see its panes.
 ///
-/// Pure view over [SessionController] (load, reconnect catch-up and live
-/// status refresh live in the controller, shared with the Run tab).
+/// Pure view over [SessionController] (load, reconnect catch-up and structure
+/// refresh) + [AgentsStore] (live workspace statuses derived from agent
+/// statuses — the same single source as the Agents tab).
 class SpacesPage extends StatelessWidget {
   const SpacesPage({super.key});
 
   @override
   Widget build(BuildContext context) {
     final controller = getIt<SessionController>();
+    final store = getIt<AgentsStore>();
     // Loads once on the first build (idempotent afterwards).
     controller.ensureLoaded();
+    store.ensureLoaded();
     return ListenableBuilder(
-      listenable: controller,
+      listenable: Listenable.merge([controller, store]),
       builder: (context, _) {
         return switch (controller.state) {
           AsyncIdle() || AsyncLoading() =>
@@ -47,6 +51,7 @@ class SpacesPage extends StatelessWidget {
             const Center(child: Text('No workspaces')),
           AsyncData(:final data) => _WorkspaceList(
               session: data,
+              store: store,
               onRefresh: controller.refresh,
             ),
         };
@@ -57,9 +62,14 @@ class SpacesPage extends StatelessWidget {
 
 /// Workspace list with pull-to-refresh.
 class _WorkspaceList extends StatelessWidget {
-  const _WorkspaceList({required this.session, required this.onRefresh});
+  const _WorkspaceList({
+    required this.session,
+    required this.store,
+    required this.onRefresh,
+  });
 
   final RelaySession session;
+  final AgentsStore store;
   final Future<void> Function() onRefresh;
 
   @override
@@ -85,7 +95,7 @@ class _WorkspaceList extends StatelessWidget {
             ),
             title: Text(ws.label.isEmpty ? ws.id : ws.label),
             subtitle: Text('${panes.length} pane(s) · ${ws.id}'),
-            trailing: StatusChip(status: ws.status),
+            trailing: StatusChip(status: store.workspaceStatus(ws.id)),
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
                 builder: (_) => WorkspacePage(workspace: ws, panes: panes),
@@ -100,6 +110,10 @@ class _WorkspaceList extends StatelessWidget {
 
 /// Panes of a single workspace: agents and plain terminals. Tap a pane to
 /// open its terminal (output, keys; prompt works for agent panes).
+///
+/// Pane structure comes from the navigated [panes] snapshot (the session is
+/// the only source of plain-terminal flags); each pane's live status is read
+/// from [AgentsStore] so returning from a pane never shows a stale status.
 class WorkspacePage extends StatelessWidget {
   const WorkspacePage({super.key, required this.workspace, required this.panes});
 
@@ -109,45 +123,50 @@ class WorkspacePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final store = getIt<AgentsStore>();
     return Scaffold(
       appBar: AppBar(
         title: Text(workspace.label.isEmpty ? workspace.id : workspace.label),
       ),
       body: panes.isEmpty
           ? const Center(child: Text('No panes in this workspace'))
-          : ListView.separated(
-              itemCount: panes.length,
-              separatorBuilder: (_, _) => const Divider(height: 1),
-              itemBuilder: (context, i) {
-                final pane = panes[i];
-                final isAgent = pane.isAgentPane;
-                return ListTile(
-                  leading: Icon(
-                    isAgent ? Icons.smart_toy : Icons.terminal,
-                    color: isAgent
-                        ? theme.colorScheme.primary
-                        : theme.colorScheme.outline,
-                  ),
-                  title: Text(pane.agent.isEmpty ? pane.id : pane.agent),
-                  subtitle: Text('${pane.id} · ${pane.status}'),
-                  trailing: StatusChip(status: pane.status),
-                  onTap: () {
-                    final agent = RelayAgent(
-                      id: pane.id,
-                      agent: pane.agent.isEmpty ? pane.id : pane.agent,
-                      status: pane.status,
-                      cwd: pane.cwd,
-                      workspaceId: pane.workspaceId,
-                      isPlainTerminal: !isAgent,
-                    );
-                    Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => AgentPage(agent: agent),
-                      ),
-                    );
-                  },
-                );
-              },
+          : ListenableBuilder(
+              listenable: store,
+              builder: (context, _) => ListView.separated(
+                itemCount: panes.length,
+                separatorBuilder: (_, _) => const Divider(height: 1),
+                itemBuilder: (context, i) {
+                  final pane = panes[i];
+                  final isAgent = pane.isAgentPane;
+                  final status = store.statusOf(pane.id) ?? pane.status;
+                  return ListTile(
+                    leading: Icon(
+                      isAgent ? Icons.smart_toy : Icons.terminal,
+                      color: isAgent
+                          ? theme.colorScheme.primary
+                          : theme.colorScheme.outline,
+                    ),
+                    title: Text(pane.agent.isEmpty ? pane.id : pane.agent),
+                    subtitle: Text('${pane.id} · $status'),
+                    trailing: StatusChip(status: status),
+                    onTap: () {
+                      final agent = RelayAgent(
+                        id: pane.id,
+                        agent: pane.agent.isEmpty ? pane.id : pane.agent,
+                        status: status,
+                        cwd: pane.cwd,
+                        workspaceId: pane.workspaceId,
+                        isPlainTerminal: !isAgent,
+                      );
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => AgentPage(agent: agent),
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
             ),
     );
   }

@@ -1,4 +1,5 @@
 import 'package:client/models/pair_config.dart';
+import 'package:client/models/relay_agent.dart';
 import 'package:client/models/relay_event.dart';
 import 'package:client/models/relay_session.dart';
 import 'package:client/pages/agent_page.dart';
@@ -146,26 +147,58 @@ void main() {
     });
   });
 
-  testWidgets('событие статуса перечитывает session (live-статус)', (tester) async {
+  testWidgets('статус-событие обновляет статус воркспейса живьём, без session-перечита',
+      (tester) async {
+    // Workspace statuses now come from AgentsStore (aggregated from agent
+    // statuses); the session only supplies the workspace/pane structure.
+    client.agents = [
+      RelayAgent.fromJson({
+        'pane_id': 'wH:p8',
+        'agent': 'kimi',
+        'agent_status': 'working',
+        'workspace_id': 'wH',
+      }),
+    ];
+    await tester.pumpWidget(
+      const MaterialApp(home: Scaffold(body: SpacesPage())),
+    );
+    await tester.pumpAndSettle();
+
+    // Workspace wH chip shows the aggregated status from the store.
+    expect(find.text('working'), findsOneWidget);
+
+    final before = client.sessionCalls;
+    client.emit(AgentStatusChanged(
+      paneId: 'wH:p8',
+      status: 'blocked',
+      workspaceId: 'wH',
+    ));
+    await tester.pumpAndSettle();
+
+    // Status applied live from the store — no session re-read.
+    expect(find.text('blocked'), findsOneWidget);
+    expect(find.text('working'), findsNothing);
+    expect(client.sessionCalls, before,
+        reason: 'status events must not re-read the session');
+  });
+
+  testWidgets('pane.updated перечитывает session (структурные изменения)',
+      (tester) async {
     await tester.pumpWidget(
       const MaterialApp(home: Scaffold(body: SpacesPage())),
     );
     await tester.pumpAndSettle();
     final before = client.sessionCalls;
 
-    client.emit(AgentStatusChanged(
-      paneId: 'wH:p8',
-      status: 'blocked',
-      workspaceId: 'wH',
-    ));
-    // The controller is created in setUp (outside the fake-async test zone),
-    // so its debounce timer is real — advance real time, then settle frames.
+    client.emit(const PaneUpdated(paneId: 'wH:p9'));
+    // SessionController (registered in setUp, outside the fake-async test
+    // zone) debounces on the real clock — advance real time, then settle.
     await tester.runAsync(
       () => Future<void>.delayed(const Duration(milliseconds: 400)),
     );
     await tester.pumpAndSettle();
 
     expect(client.sessionCalls, greaterThan(before),
-        reason: 'status events must re-read the session');
+        reason: 'pane.updated must re-read the session');
   });
 }
