@@ -4,9 +4,9 @@ import 'package:flutter/services.dart';
 
 import 'core/service_locator.dart';
 import 'models/pair_config.dart';
+import 'pages/connection_page.dart';
 import 'pages/home_page.dart';
 import 'pages/pair_page.dart';
-import 'pages/profile_page.dart';
 import 'services/config_store.dart';
 import 'services/relay_client.dart';
 
@@ -132,28 +132,6 @@ class _HerdRelayAppState extends State<HerdRelayApp> {
     }
   }
 
-  /// Forgets an arbitrary profile from the picker; if it was the active one,
-  /// behaves like [_forgetActive].
-  Future<void> _forgetProfile(String profileKey) async {
-    final store = getIt<ConfigStore>();
-    if (_config?.profileKey == profileKey) {
-      await _forgetActive();
-      return;
-    }
-    await store.forget(profileKey);
-  }
-
-  Future<void> _showProfilePicker() async {
-    await _navKey.currentState?.push(
-      MaterialPageRoute<void>(
-        builder: (_) => ProfilePage(
-          onSwitch: _switchTo,
-          onForget: _forgetProfile,
-        ),
-      ),
-    );
-  }
-
   Future<void> _showAddDevice() async {
     await _navKey.currentState?.push(
       MaterialPageRoute<void>(
@@ -170,6 +148,22 @@ class _HerdRelayAppState extends State<HerdRelayApp> {
       _navKey.currentState?.pop();
     }
     await _setConfig(config);
+  }
+
+  /// Opens the Connection screen: status, mode, saved devices, pair entry.
+  Future<void> _openConnection() async {
+    final config = _config;
+    if (config == null) return;
+    await _navKey.currentState?.push(
+      MaterialPageRoute<void>(
+        builder: (_) => ConnectionPage(
+          config: config,
+          onSwitch: _switchTo,
+          onForgetActive: _forgetActive,
+          onLink: (link) => _applyLink(Uri.parse(link)),
+        ),
+      ),
+    );
   }
 
   @override
@@ -194,7 +188,7 @@ class _HerdRelayAppState extends State<HerdRelayApp> {
       HomePage(
         key: ValueKey('${config.host}:${config.port}:${config.token}'),
         config: config,
-        onRequestSwitch: _showProfilePicker,
+        onRequestSwitch: _openConnection,
         onAddDevice: _showAddDevice,
         onForgetDevice: _forgetActive,
       ),

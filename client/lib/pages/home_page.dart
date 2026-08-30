@@ -206,7 +206,7 @@ class _HomePageState extends State<HomePage> {
           PopupMenuButton<String>(
             onSelected: (v) {
               switch (v) {
-                case 'switch':
+                case 'connection':
                   widget.onRequestSwitch();
                 case 'add':
                   widget.onAddDevice();
@@ -216,8 +216,8 @@ class _HomePageState extends State<HomePage> {
             },
             itemBuilder: (context) => const [
               PopupMenuItem(
-                value: 'switch',
-                child: Text('Switch device…'),
+                value: 'connection',
+                child: Text('Connection…'),
               ),
               PopupMenuItem(
                 value: 'add',

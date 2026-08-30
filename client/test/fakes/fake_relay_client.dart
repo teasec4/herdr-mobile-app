@@ -28,6 +28,9 @@ class FakeRelayClient implements RelayClient {
   /// When true, `snapshot()` throws [RelayException].
   bool snapshotError = false;
 
+  /// What `healthz()` returns (default: relay is healthy).
+  bool healthzResult = true;
+
   /// Recorded `prompt(target, text)` calls.
   final List<(String, String)> prompts = [];
 
@@ -58,7 +61,7 @@ class FakeRelayClient implements RelayClient {
   }
 
   @override
-  Future<bool> healthz() async => true;
+  Future<bool> healthz() async => healthzResult;
 
   @override
   void pauseReconnect() {

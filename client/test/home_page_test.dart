@@ -97,20 +97,20 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('показывает три пункта: Switch, Add, Forget', (tester) async {
+    testWidgets('показывает три пункта: Connection, Add, Forget', (tester) async {
       await pumpHome(tester);
       await openMenu(tester);
-      expect(find.text('Switch device…'), findsOneWidget);
+      expect(find.text('Connection…'), findsOneWidget);
       expect(find.text('Add device…'), findsOneWidget);
       expect(find.text('Forget device'), findsOneWidget);
     });
 
-    testWidgets('«Switch device…» вызывает onRequestSwitch', (tester) async {
+    testWidgets('«Connection…» вызывает onRequestSwitch', (tester) async {
       var switched = false;
       await pumpHome(tester, onSwitch: () async => switched = true);
       await openMenu(tester);
 
-      await tester.tap(find.text('Switch device…'));
+      await tester.tap(find.text('Connection…'));
       await tester.pumpAndSettle();
       expect(switched, isTrue);
     });
