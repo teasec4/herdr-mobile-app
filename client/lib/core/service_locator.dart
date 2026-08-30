@@ -9,6 +9,7 @@ import '../services/config_store.dart';
 import '../services/relay_client.dart';
 import '../services/relay_client_impl.dart';
 import 'connection/connection_manager.dart';
+import 'transport/http_transport.dart';
 import 'transport/retry_policy.dart';
 import 'transport/transport.dart';
 import 'transport/websocket_transport.dart';
@@ -41,7 +42,15 @@ Future<void> setupDependencies() async {
 ///     └─ AgentRepository
 /// Widget tests inject a FakeRelayClient via [clientFactory]; the transport
 /// and ConnectionManager are then not created at all.
-void setupRelayServices(PairConfig config, {RelayClient Function(PairConfig)? clientFactory}) {
+///
+/// [transportMode] selects the transport: `ws` (default) or `http`
+/// (Phase 5 fallback — /api/rpc + SSE). In the future this can be driven by
+/// a feature flag / PairConfig field.
+void setupRelayServices(
+  PairConfig config, {
+  RelayClient Function(PairConfig)? clientFactory,
+  String transportMode = 'ws',
+}) {
   // Unregister old instances if they exist
   if (getIt.isRegistered<AgentRepository>()) {
     final oldRepo = getIt<AgentRepository>();
@@ -60,7 +69,10 @@ void setupRelayServices(PairConfig config, {RelayClient Function(PairConfig)? cl
     getIt.registerSingleton<RelayClient>(clientFactory(config));
   } else {
     // One transport shared by the connection manager and the client.
-    final transport = WebSocketTransport() as Transport;
+    final Transport transport = switch (transportMode) {
+      'http' => HttpTransport(baseUri: config.httpBaseUri, token: config.token),
+      _ => WebSocketTransport(),
+    };
     final retryPolicy = ExponentialBackoff();
     getIt.registerSingleton<ConnectionManager>(
       ConnectionManager(transport, retryPolicy),
