@@ -1,3 +1,50 @@
+/// One reachable endpoint of the relay for a given mode.
+///
+/// The same relay can be reached over several networks at once (LAN IP,
+/// Tailscale DNS name, Funnel public URL). A profile remembers every endpoint
+/// it has seen, so switching modes (e.g. Tailscale off at home -> LAN) picks a
+/// stored address instead of re-deriving it from /pair — which is unreachable
+/// exactly when the switch is needed.
+class RelayEndpoint {
+  const RelayEndpoint({required this.host, this.port = PairConfig.defaultPort});
+
+  final String host;
+  final int port;
+
+  /// Host wrapped in square brackets for IPv6 (`Uri.host` strips the brackets).
+  String get authority =>
+      host.contains(':') && !host.startsWith('[') ? '[$host]' : host;
+
+  /// Parses a relay mode URL (`ws://host:port`, `https://host`) into an
+  /// endpoint.
+  factory RelayEndpoint.fromUrl(String url) {
+    final u = Uri.parse(url);
+    final port = u.hasPort
+        ? u.port
+        : (u.scheme == 'https' || u.scheme == 'wss')
+            ? 443
+            : PairConfig.defaultPort;
+    return RelayEndpoint(host: u.host, port: port);
+  }
+
+  Map<String, dynamic> toJson() => {'host': host, 'port': port};
+
+  factory RelayEndpoint.fromJson(Map<String, dynamic> json) => RelayEndpoint(
+        host: json['host'] as String,
+        port: (json['port'] as num?)?.toInt() ?? PairConfig.defaultPort,
+      );
+
+  @override
+  bool operator ==(Object other) =>
+      other is RelayEndpoint && other.host == host && other.port == port;
+
+  @override
+  int get hashCode => Object.hash(host, port);
+
+  @override
+  String toString() => '$authority:$port';
+}
+
 /// Relay pairing configuration, parsed from a pair link.
 ///
 /// The relay generates the link: `herdrelay://pair?host=...&port=...&mode=...&token=...`
@@ -11,6 +58,7 @@ class PairConfig {
     required this.token,
     this.relayId,
     this.name,
+    this.endpoints = const {},
   });
 
   /// Relay host: IP or DNS name (for tailscale, a name like `mac.local.c.tailnet.ts.net`).
@@ -30,6 +78,43 @@ class PairConfig {
 
   /// Human-readable relay name (hostname of the relay machine).
   final String? name;
+
+  /// Known reachable endpoints per mode (lan/tailscale/funnel) for this relay.
+  /// The active connection uses [host]/[port]/[mode]; the others are kept so
+  /// switching modes offline only picks a stored endpoint.
+  final Map<String, RelayEndpoint> endpoints;
+
+  /// The stored endpoint for [mode], or null when never seen.
+  RelayEndpoint? endpointFor(String mode) => endpoints[mode];
+
+  /// Returns a copy with [more] endpoints merged in (active connection
+  /// unchanged). Used to remember every mode /pair advertised.
+  PairConfig withEndpoints(Map<String, RelayEndpoint> more) {
+    if (more.isEmpty) return this;
+    return PairConfig(
+      host: host,
+      port: port,
+      mode: mode,
+      token: token,
+      relayId: relayId,
+      name: name,
+      endpoints: {...endpoints, ...more},
+    );
+  }
+
+  /// Returns a copy connected via [mode] at [endpoint], remembering all known
+  /// endpoints — switching modes never forgets the others.
+  PairConfig connectVia(String mode, RelayEndpoint endpoint) {
+    return PairConfig(
+      host: endpoint.host,
+      port: endpoint.port,
+      mode: mode,
+      token: token,
+      relayId: relayId,
+      name: name,
+      endpoints: {...endpoints, mode: endpoint},
+    );
+  }
 
   static const int defaultPort = 8375;
   static const String defaultMode = 'lan';
@@ -117,6 +202,8 @@ class PairConfig {
       token: token,
       relayId: _nonEmpty(uri.queryParameters['relay_id']),
       name: _nonEmpty(uri.queryParameters['name']),
+      // The link's own mode+host is this relay's first known endpoint.
+      endpoints: {mode: RelayEndpoint(host: host, port: port)},
     );
   }
 
@@ -153,6 +240,10 @@ class PairConfig {
         'token': token,
         if (relayId != null) 'relay_id': relayId,
         if (name != null) 'name': name,
+        if (endpoints.isNotEmpty)
+          'endpoints': {
+            for (final e in endpoints.entries) e.key: e.value.toJson(),
+          },
       };
 
   /// JSON with the token masked — safe for logs and crash reports.
@@ -163,16 +254,41 @@ class PairConfig {
         'token': '${token.substring(0, 8)}***',
         if (relayId != null) 'relay_id': relayId,
         if (name != null) 'name': name,
+        if (endpoints.isNotEmpty)
+          'endpoints': {
+            for (final e in endpoints.entries) e.key: e.value.toJson(),
+          },
       };
 
-  factory PairConfig.fromJson(Map<String, dynamic> json) => PairConfig(
-        host: json['host'] as String,
-        port: (json['port'] as num?)?.toInt() ?? defaultPort,
-        mode: json['mode'] as String? ?? defaultMode,
-        token: json['token'] as String,
-        relayId: json['relay_id'] as String?,
-        name: json['name'] as String?,
-      );
+  factory PairConfig.fromJson(Map<String, dynamic> json) {
+    final host = json['host'] as String;
+    final port = (json['port'] as num?)?.toInt() ?? defaultPort;
+    final mode = json['mode'] as String? ?? defaultMode;
+    var endpoints = <String, RelayEndpoint>{};
+    final raw = json['endpoints'];
+    if (raw is Map) {
+      raw.forEach((modeName, e) {
+        if (e is Map) {
+          endpoints[modeName as String] =
+              RelayEndpoint.fromJson(e.cast<String, dynamic>());
+        }
+      });
+    }
+    final config = PairConfig(
+      host: host,
+      port: port,
+      mode: mode,
+      token: json['token'] as String,
+      relayId: json['relay_id'] as String?,
+      name: json['name'] as String?,
+      endpoints: endpoints,
+    );
+    // Legacy profiles (pre-endpoints): seed the current endpoint so offline
+    // mode switching still has at least one known address.
+    return config.endpoints.isEmpty
+        ? config.withEndpoints({mode: RelayEndpoint(host: host, port: port)})
+        : config;
+  }
 
   @override
   String toString() => 'PairConfig($mode $_authority:$port)';

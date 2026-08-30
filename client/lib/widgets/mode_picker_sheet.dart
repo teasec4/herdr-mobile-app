@@ -39,12 +39,20 @@ class _ModePickerSheetState extends State<ModePickerSheet> {
   /// Manual-connection form: lets the user switch modes even when the relay
   /// is unreachable (e.g. Tailscale is off at home and /pair cannot be
   /// fetched). The token is taken from the active profile — no relay round
-  /// trip needed.
+  /// trip needed. The host field follows the selected mode (prefilled from the
+  /// profile's stored endpoint for that mode, never another mode's host).
   String _manualMode = 'lan';
   late final TextEditingController _hostController =
-      TextEditingController(text: widget.config.host);
+      TextEditingController(text: widget.config.endpointFor(_manualMode)?.host ?? '');
   late final TextEditingController _portController =
-      TextEditingController(text: '${widget.config.port}');
+      TextEditingController(text: '${widget.config.endpointFor(_manualMode)?.port ?? widget.config.port}');
+
+  String get _hostHint => switch (_manualMode) {
+        'lan' => '192.168.1.5',
+        'tailscale' => 'mac.tailnet.ts.net',
+        'funnel' => 'relay.tailnet.ts.net',
+        _ => 'relay address',
+      };
 
   @override
   void initState() {
@@ -80,11 +88,15 @@ class _ModePickerSheetState extends State<ModePickerSheet> {
     }
   }
 
+  /// Switches to a fetched mode, merging every advertised endpoint into the
+  /// profile (LAN IP + tailnet name + funnel) so later offline switches work.
   Future<void> _pick(RelayModeInfo mode) async {
     if (_switching) return;
     setState(() => _switching = true);
     try {
-      final config = PairConfig.fromLink(mode.link);
+      final config = widget.config.withEndpoints({
+        for (final m in _modes) m.mode: RelayEndpoint.fromUrl(m.url),
+      }).connectVia(mode.mode, RelayEndpoint.fromUrl(mode.url));
       Navigator.of(context).pop();
       await widget.onSelected(config);
     } on FormatException {
@@ -100,31 +112,12 @@ class _ModePickerSheetState extends State<ModePickerSheet> {
     }
   }
 
-  /// Builds a config from the manual form (host/port/mode + the saved token)
-  /// and switches — works while the relay is completely unreachable.
-  Future<void> _connectManual() async {
+  /// Switches to a stored endpoint (offline quick-switch: no /pair needed).
+  Future<void> _pickEndpoint(String mode, RelayEndpoint endpoint) async {
     if (_switching) return;
-    final host = _hostController.text.trim();
-    final portRaw = _portController.text.trim();
-    if (host.isEmpty) {
-      ToastService.showError(context, 'Enter the relay host (e.g. 192.168.1.5)');
-      return;
-    }
-    final port = int.tryParse(portRaw) ?? PairConfig.defaultPort;
-    if (port <= 0 || port > 65535) {
-      ToastService.showError(context, 'Invalid port: $portRaw');
-      return;
-    }
     setState(() => _switching = true);
     try {
-      final config = PairConfig(
-        host: host,
-        port: port,
-        mode: _manualMode,
-        token: widget.config.token,
-        relayId: widget.config.relayId,
-        name: widget.config.name,
-      );
+      final config = widget.config.connectVia(mode, endpoint);
       Navigator.of(context).pop();
       await widget.onSelected(config);
     } catch (e) {
@@ -135,11 +128,53 @@ class _ModePickerSheetState extends State<ModePickerSheet> {
     }
   }
 
+  /// Builds a config from the manual form (host/port/mode + the saved token)
+  /// and switches — works while the relay is completely unreachable.
+  Future<void> _connectManual() async {
+    if (_switching) return;
+    final host = _hostController.text.trim();
+    final portRaw = _portController.text.trim();
+    if (host.isEmpty) {
+      ToastService.showError(
+          context, 'Enter the relay host (e.g. ${_hostHint})');
+      return;
+    }
+    final port = int.tryParse(portRaw) ?? PairConfig.defaultPort;
+    if (port <= 0 || port > 65535) {
+      ToastService.showError(context, 'Invalid port: $portRaw');
+      return;
+    }
+    setState(() => _switching = true);
+    try {
+      final config = widget.config
+          .withEndpoints({_manualMode: RelayEndpoint(host: host, port: port)})
+          .connectVia(_manualMode, RelayEndpoint(host: host, port: port));
+      Navigator.of(context).pop();
+      await widget.onSelected(config);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _switching = false);
+        ToastService.showError(context, e);
+      }
+    }
+  }
+
+  void _onManualModeChanged(String mode) {
+    setState(() => _manualMode = mode);
+    // Host follows the selected mode: stored endpoint for it, or empty with a
+    // hint — never carry another mode's host over.
+    final ep = widget.config.endpointFor(mode);
+    _hostController.text = ep?.host ?? '';
+    _portController.text = '${ep?.port ?? widget.config.port}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return SafeArea(
-      child: Padding(
+      // Scrollable: with the saved-modes + manual sections the sheet can
+      // exceed the bottom-sheet height on small screens.
+      child: SingleChildScrollView(
         padding: const EdgeInsets.only(bottom: 8),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -188,22 +223,45 @@ class _ModePickerSheetState extends State<ModePickerSheet> {
                 ),
               )
             else
-              Flexible(
-                child: ListView(
-                  shrinkWrap: true,
-                  children: [
-                    for (final mode in _modes)
-                      RadioListTile<String>(
-                        dense: true,
-                        title: Text(mode.mode),
-                        subtitle: Text('${mode.description}\n${mode.url}'),
-                        value: mode.mode,
-                        groupValue: widget.config.mode,
-                        onChanged: _switching ? null : (_) => _pick(mode),
-                      ),
-                  ],
+              for (final mode in _modes)
+                RadioListTile<String>(
+                  dense: true,
+                  title: Text(mode.mode),
+                  subtitle: Text('${mode.description}\n${mode.url}'),
+                  value: mode.mode,
+                  groupValue: widget.config.mode,
+                  onChanged: _switching ? null : (_) => _pick(mode),
                 ),
+            // Offline quick-switch: /pair failed, but the profile remembers
+            // endpoints for this relay — switch without any network.
+            if (_error != null && widget.config.endpoints.isNotEmpty) ...[
+              const Divider(height: 16),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+                child: Text('Saved modes for this relay',
+                    style: theme.textTheme.labelLarge),
               ),
+              for (final entry in widget.config.endpoints.entries)
+                ListTile(
+                  dense: true,
+                  leading: Icon(
+                    entry.key == 'lan'
+                        ? Icons.wifi
+                        : entry.key == 'tailscale'
+                            ? Icons.vpn_lock
+                            : Icons.public,
+                    size: 18,
+                  ),
+                  title: Text(entry.key),
+                  subtitle: Text(entry.value.toString()),
+                  trailing: entry.key == widget.config.mode
+                      ? const Icon(Icons.check, size: 16)
+                      : null,
+                  onTap: _switching
+                      ? null
+                      : () => _pickEndpoint(entry.key, entry.value),
+                ),
+            ],
             // Manual fallback — shown even while /pair is loading, so an
             // unreachable relay (e.g. Tailscale off at home) never blocks the
             // user from switching modes by hand.
@@ -229,18 +287,18 @@ class _ModePickerSheetState extends State<ModePickerSheet> {
                         ],
                         onChanged: _switching
                             ? null
-                            : (v) => setState(() => _manualMode = v ?? 'lan'),
+                            : (v) => _onManualModeChanged(v ?? 'lan'),
                       ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: TextField(
                           controller: _hostController,
                           enabled: !_switching,
-                          decoration: const InputDecoration(
+                          decoration: InputDecoration(
                             labelText: 'Host',
-                            hintText: '192.168.1.5',
+                            hintText: _hostHint,
                             isDense: true,
-                            border: OutlineInputBorder(),
+                            border: const OutlineInputBorder(),
                           ),
                         ),
                       ),

@@ -210,4 +210,66 @@ void main() {
       expect(restored.name, isNull);
     });
   });
+
+  group('PairConfig endpoints', () {
+    test('fromLink сидирует endpoint своей пары', () {
+      final config = PairConfig.fromLink(
+        'herdrelay://pair?host=192.168.1.5&port=8375&mode=lan'
+        '&token=${'a' * 64}',
+      );
+      expect(config.endpointFor('lan'), const RelayEndpoint(host: '192.168.1.5'));
+      expect(config.endpointFor('tailscale'), isNull);
+    });
+
+    test('toJson/fromJson круговая сериализация endpoints', () {
+      final config = PairConfig.fromLink(
+        'herdrelay://pair?host=192.168.1.5&port=8375&mode=lan'
+        '&token=${'a' * 64}',
+      ).withEndpoints({
+        'tailscale': const RelayEndpoint(host: 'mac.tailnet.ts.net', port: 8375),
+        'funnel': const RelayEndpoint(host: 'mac.tailnet.ts.net', port: 443),
+      });
+      final restored = PairConfig.fromJson(config.toJson());
+      expect(restored.endpointFor('lan'), const RelayEndpoint(host: '192.168.1.5'));
+      expect(restored.endpointFor('tailscale'),
+          const RelayEndpoint(host: 'mac.tailnet.ts.net', port: 8375));
+      expect(restored.endpointFor('funnel'),
+          const RelayEndpoint(host: 'mac.tailnet.ts.net', port: 443));
+    });
+
+    test('legacy fromJson (без endpoints) сидирует текущий endpoint', () {
+      final restored = PairConfig.fromJson({
+        'host': 'mac.tailnet.ts.net',
+        'port': 8375,
+        'mode': 'tailscale',
+        'token': 'x' * 64,
+      });
+      expect(restored.endpointFor('tailscale'),
+          const RelayEndpoint(host: 'mac.tailnet.ts.net', port: 8375));
+    });
+
+    test('connectVia переключает режим и помнит остальные endpoints', () {
+      final config = PairConfig.fromLink(
+        'herdrelay://pair?host=192.168.1.5&port=8375&mode=lan'
+        '&token=${'a' * 64}',
+      ).connectVia('tailscale',
+          const RelayEndpoint(host: 'mac.tailnet.ts.net', port: 8375));
+
+      expect(config.mode, 'tailscale');
+      expect(config.host, 'mac.tailnet.ts.net');
+      // LAN endpoint не потерялся при переключении.
+      expect(config.endpointFor('lan'), const RelayEndpoint(host: '192.168.1.5'));
+      expect(config.endpointFor('tailscale'),
+          const RelayEndpoint(host: 'mac.tailnet.ts.net', port: 8375));
+      // token/identity сохраняются.
+      expect(config.token, 'a' * 64);
+    });
+
+    test('RelayEndpoint.fromUrl парсит ws и https', () {
+      expect(RelayEndpoint.fromUrl('ws://192.168.1.5:8375'),
+          const RelayEndpoint(host: '192.168.1.5', port: 8375));
+      expect(RelayEndpoint.fromUrl('https://mac.tailnet.ts.net'),
+          const RelayEndpoint(host: 'mac.tailnet.ts.net', port: 443));
+    });
+  });
 }

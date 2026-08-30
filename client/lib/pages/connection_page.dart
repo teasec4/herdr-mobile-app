@@ -149,7 +149,13 @@ class _ConnectionPageState extends State<ConnectionPage> {
 
   Future<void> _switchMode(RelayModeInfo mode) async {
     try {
-      final config = PairConfig.fromLink(mode.link);
+      // Merge every advertised endpoint into the profile so switching modes
+      // never forgets the others (LAN IP + tailnet name + funnel).
+      final config = widget.config
+          .withEndpoints({
+            for (final m in _modes) m.mode: RelayEndpoint.fromUrl(m.url),
+          })
+          .connectVia(mode.mode, RelayEndpoint.fromUrl(mode.url));
       await widget.onSwitch(config);
       if (mounted) {
         ToastService.showSuccess(context, 'Switched to ${mode.mode}');
