@@ -61,6 +61,11 @@ class _AgentPageState extends State<AgentPage> {
   /// Suggested actions parsed from agent output.
   List<SuggestedAction> _suggestedActions = [];
 
+  /// Guards against overlapping refreshes: a manual refresh and an event
+  /// trigger may run concurrently — a stale response must not overwrite a
+  /// fresher one (docs/12-fix-plan.md, refresh races).
+  int _refreshGeneration = 0;
+
   @override
   void initState() {
     super.initState();
@@ -132,6 +137,7 @@ class _AgentPageState extends State<AgentPage> {
   /// failure is swallowed — the last good output remains on screen; the next
   /// event will retry.
   Future<void> _refresh({bool silent = false}) async {
+    final gen = ++_refreshGeneration;
     if (!silent) {
       setState(() => _loading = true);
     }
@@ -139,12 +145,13 @@ class _AgentPageState extends State<AgentPage> {
       // Also refresh agent metadata from snapshot to get current status
       if (!silent) {
         await _refreshAgentFromSnapshot();
+        if (!mounted || gen != _refreshGeneration) return;
       }
 
       final output = _agent.isPlainTerminal
           ? await _repository.getPaneOutput(_agent.id, lines: 500)
           : await _repository.getOutput(_agent.id, lines: 500);
-      if (!mounted) return;
+      if (!mounted || gen != _refreshGeneration) return;
       setState(() {
         _output = output;
         _loading = false;
@@ -152,7 +159,7 @@ class _AgentPageState extends State<AgentPage> {
       });
       _scrollToBottom();
     } catch (e) {
-      if (!mounted || silent) return;
+      if (!mounted || silent || gen != _refreshGeneration) return;
       setState(() => _loading = false);
       ToastService.showError(context, e);
     }

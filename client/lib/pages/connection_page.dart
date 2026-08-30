@@ -55,6 +55,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
   bool _checkOk = false;
   String? _checkResult;
   bool _connectingLink = false;
+  int _checkGeneration = 0;
 
   @override
   void initState() {
@@ -110,6 +111,9 @@ class _ConnectionPageState extends State<ConnectionPage> {
   Future<void> _checkConnection() async {
     final client = _client;
     if (client == null) return;
+    // Guard against overlapping tests (double-tap / retry): a stale response
+    // must not overwrite a fresher one.
+    final gen = ++_checkGeneration;
     setState(() {
       _checking = true;
       _checkResult = null;
@@ -118,6 +122,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
       final sw = Stopwatch()..start();
       final healthy = await client.healthz();
       final ms = sw.elapsedMilliseconds;
+      if (!mounted || gen != _checkGeneration) return;
       if (!healthy) {
         setState(() {
           _checkOk = false;
@@ -126,19 +131,19 @@ class _ConnectionPageState extends State<ConnectionPage> {
         return;
       }
       final agents = await client.snapshot();
-      if (!mounted) return;
+      if (!mounted || gen != _checkGeneration) return;
       setState(() {
         _checkOk = true;
         _checkResult = 'OK · ${agents.length} agent(s) · ${ms}ms';
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || gen != _checkGeneration) return;
       setState(() {
         _checkOk = false;
         _checkResult = '$e';
       });
     } finally {
-      if (mounted) setState(() => _checking = false);
+      if (mounted && gen == _checkGeneration) setState(() => _checking = false);
     }
   }
 

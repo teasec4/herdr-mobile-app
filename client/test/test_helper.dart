@@ -1,3 +1,4 @@
+import 'package:client/controllers/session_controller.dart';
 import 'package:client/core/connection/mode_service.dart';
 import 'package:client/core/service_locator.dart';
 import 'package:client/models/pair_config.dart';
@@ -40,9 +41,17 @@ Future<void> setupTestDependencies(FakeRelayClient fakeClient, PairConfig config
   getIt.registerSingleton<AgentRepository>(
     AgentRepository(getIt<RelayClient>(), getIt<SharedPreferences>()),
   );
+
+  // Shared session state for the Spaces/Run tabs (mirrors production wiring).
+  getIt.registerSingleton<SessionController>(
+    SessionController(getIt<RelayClient>()),
+  );
 }
 
 /// Cleanup test dependencies
 Future<void> teardownTestDependencies() async {
+  if (getIt.isRegistered<SessionController>()) {
+    getIt<SessionController>().dispose();
+  }
   await GetIt.instance.reset();
 }

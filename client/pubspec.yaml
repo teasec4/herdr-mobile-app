@@ -39,7 +39,6 @@ dependencies:
   mobile_scanner: ^7.4.0
   app_links: ^7.2.1
   http: ^1.6.0
-  provider: ^6.1.5+1
   get_it: ^9.2.1
 
 dev_dependencies:

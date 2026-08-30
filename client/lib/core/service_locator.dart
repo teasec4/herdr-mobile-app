@@ -1,6 +1,7 @@
 import 'package:get_it/get_it.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../controllers/session_controller.dart';
 import '../models/pair_config.dart';
 import '../repositories/agent_repository.dart';
 import '../services/action_parser_service.dart';
@@ -56,6 +57,10 @@ void setupRelayServices(
   String transportMode = 'ws',
 }) {
   // Unregister old instances if they exist
+  if (getIt.isRegistered<SessionController>()) {
+    getIt<SessionController>().dispose();
+    getIt.unregister<SessionController>();
+  }
   if (getIt.isRegistered<AgentRepository>()) {
     final oldRepo = getIt<AgentRepository>();
     oldRepo.close();
@@ -90,10 +95,19 @@ void setupRelayServices(
   getIt.registerSingleton<AgentRepository>(
     AgentRepository(getIt<RelayClient>(), getIt<SharedPreferences>()),
   );
+
+  // Shared session state for the Spaces/Run tabs (loads once on registration).
+  getIt.registerSingleton<SessionController>(
+    SessionController(getIt<RelayClient>()),
+  );
 }
 
 /// Clean up relay services (on disconnect)
 Future<void> teardownRelayServices() async {
+  if (getIt.isRegistered<SessionController>()) {
+    getIt<SessionController>().dispose();
+    getIt.unregister<SessionController>();
+  }
   if (getIt.isRegistered<AgentRepository>()) {
     await getIt<AgentRepository>().close();
     getIt.unregister<AgentRepository>();

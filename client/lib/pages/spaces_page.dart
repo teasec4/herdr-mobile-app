@@ -1,129 +1,79 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 
+import '../controllers/session_controller.dart';
 import '../core/service_locator.dart';
 import '../models/relay_agent.dart';
-import '../models/relay_event.dart' as events;
 import '../models/relay_session.dart';
-import '../services/relay_client.dart';
+import '../utils/async_value.dart';
 import '../widgets/status_chip.dart';
 import 'agent_page.dart';
 
 /// Spaces tab: herdr workspaces (spaces) with their panes — agent panes and
 /// plain terminals (docs/11-spaces.md). Tap a workspace to see its panes.
-class SpacesPage extends StatefulWidget {
+///
+/// Pure view over [SessionController] (load, reconnect catch-up and live
+/// status refresh live in the controller, shared with the Run tab).
+class SpacesPage extends StatelessWidget {
   const SpacesPage({super.key});
 
   @override
-  State<SpacesPage> createState() => _SpacesPageState();
+  Widget build(BuildContext context) {
+    final controller = getIt<SessionController>();
+    // Loads once on the first build (idempotent afterwards).
+    controller.ensureLoaded();
+    return ListenableBuilder(
+      listenable: controller,
+      builder: (context, _) {
+        return switch (controller.state) {
+          AsyncIdle() || AsyncLoading() =>
+            const Center(child: CircularProgressIndicator()),
+          AsyncError(:final error) => Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('$error', textAlign: TextAlign.center),
+                    const SizedBox(height: 12),
+                    FilledButton.tonal(
+                      onPressed: controller.refresh,
+                      child: const Text('Retry'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          AsyncData(:final data) when data.workspaces.isEmpty =>
+            const Center(child: Text('No workspaces')),
+          AsyncData(:final data) => _WorkspaceList(
+              session: data,
+              onRefresh: controller.refresh,
+            ),
+        };
+      },
+    );
+  }
 }
 
-class _SpacesPageState extends State<SpacesPage> {
-  RelaySession? _session;
-  bool _loading = true;
-  Object? _error;
-  bool _wasDisconnected = false;
-  StreamSubscription<events.RelayEvent>? _eventSub;
-  Timer? _refreshDebounce;
+/// Workspace list with pull-to-refresh.
+class _WorkspaceList extends StatelessWidget {
+  const _WorkspaceList({required this.session, required this.onRefresh});
 
-  @override
-  void initState() {
-    super.initState();
-    _load();
-    getIt<RelayClient>().status.addListener(_onConnectionStatus);
-    _eventSub = getIt<RelayClient>().events.listen(_onEvent);
-  }
-
-  @override
-  void dispose() {
-    _refreshDebounce?.cancel();
-    _eventSub?.cancel();
-    getIt<RelayClient>().status.removeListener(_onConnectionStatus);
-    super.dispose();
-  }
-
-  /// Workspace statuses come from a session snapshot; agent status events
-  /// invalidate it, so re-read (debounced) to keep the list current.
-  void _onEvent(events.RelayEvent event) {
-    if (!mounted || _wasDisconnected) return;
-    if (event is events.AgentStatusChanged || event is events.PaneUpdated) {
-      _refreshDebounce?.cancel();
-      _refreshDebounce = Timer(const Duration(milliseconds: 300), () {
-        if (mounted) _load();
-      });
-    }
-  }
-
-  /// Reloads the session after a reconnect — events during the gap were lost.
-  void _onConnectionStatus() {
-    if (!mounted) return;
-    final s = getIt<RelayClient>().status.value;
-    if (s == RelayStatus.connected && _wasDisconnected) {
-      _wasDisconnected = false;
-      _load();
-    } else if (s != RelayStatus.connected) {
-      _wasDisconnected = true;
-    }
-  }
-
-  Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    try {
-      final session = await getIt<RelayClient>().session();
-      if (!mounted) return;
-      setState(() {
-        _session = session;
-        _loading = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _error = e;
-        _loading = false;
-      });
-    }
-  }
+  final RelaySession session;
+  final Future<void> Function() onRefresh;
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    if (_error != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('$_error', textAlign: TextAlign.center),
-              const SizedBox(height: 12),
-              FilledButton.tonal(
-                onPressed: _load,
-                child: const Text('Retry'),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-    final workspaces = _session?.workspaces ?? const <RelayWorkspace>[];
-    if (workspaces.isEmpty) {
-      return const Center(child: Text('No workspaces'));
-    }
+    final workspaces = session.workspaces;
     return RefreshIndicator(
-      onRefresh: _load,
+      onRefresh: onRefresh,
       child: ListView.separated(
         physics: const AlwaysScrollableScrollPhysics(),
         itemCount: workspaces.length,
         separatorBuilder: (_, _) => const Divider(height: 1),
         itemBuilder: (context, i) {
           final ws = workspaces[i];
-          final panes = (_session?.panes ?? const <RelayPane>[])
+          final panes = session.panes
               .where((p) => p.workspaceId == ws.id)
               .toList();
           return ListTile(

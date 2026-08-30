@@ -169,6 +169,49 @@ void main() {
     expect(client.snapshotCalls, greaterThan(snapshots));
   });
 
+  testWidgets('агенты не фетчатся до первого открытия таба Agents (лениво)', (tester) async {
+    client.agents = [agent('p:alice', 'alice', 'done')];
+    await pumpHome(tester); // stays on the Spaces tab
+
+    expect(client.snapshotCalls, 0,
+        reason: 'agents list loads only when the Agents tab is first visited');
+
+    await goToAgents(tester);
+    expect(client.snapshotCalls, 1);
+    expect(find.text('alice'), findsOneWidget);
+  });
+
+  testWidgets('шапка не переполняется на узком экране с длинным режимом', (tester) async {
+    // Narrow phone (320 logical px @2x) + the longest mode label (TAILSCALE).
+    tester.view.devicePixelRatio = 2.0;
+    tester.view.physicalSize = const Size(320 * 2, 640 * 2);
+    addTearDown(tester.view.reset);
+
+    final tailscaleConfig = PairConfig.fromLink(
+      'herdrelay://pair?host=mac.tailnet.ts.net&port=8375&mode=tailscale'
+      '&token=abcdef0123456789',
+    );
+    client = FakeRelayClient();
+    await setupTestDependencies(client, tailscaleConfig);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: HomePage(
+          config: tailscaleConfig,
+          onRequestSwitch: () async {},
+          onAddDevice: () async {},
+          onForgetDevice: () async {},
+          onModeSelected: (_) async {},
+          modesFetcher: (_) async => stubModes,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull,
+        reason: 'the mode badge must truncate instead of overflowing');
+  });
+
   group('меню устройств', () {
     Future<void> openMenu(WidgetTester tester) async {
       await tester.tap(find.byType(PopupMenuButton<String>));

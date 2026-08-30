@@ -158,7 +158,11 @@ void main() {
       status: 'blocked',
       workspaceId: 'wH',
     ));
-    await tester.pump(const Duration(milliseconds: 400));
+    // The controller is created in setUp (outside the fake-async test zone),
+    // so its debounce timer is real — advance real time, then settle frames.
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 400)),
+    );
     await tester.pumpAndSettle();
 
     expect(client.sessionCalls, greaterThan(before),

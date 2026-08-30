@@ -161,6 +161,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Прерываемый reconnect-цикл сокета**: `Close()` больше не ждёт backoff-сон (docs/12 B3).
 - **Debug-print убран** из `agent_page.dart` (и событийного пути `home_page.dart`).
 
+### Changed (view architecture: контроллеры вместо orchestration в State)
+- **Лёгкие ViewModel'ы** (plain `ChangeNotifier` + `ListenableBuilder`, без фреймворка): `AgentsController` (список агентов: дельты статусов, дебаунс, reconnect catch-up, пауза под AgentPage) и `SessionController` (session для табов Spaces/Run: одна загрузка вместо двух, live-обновление статусов, reconnect catch-up, `freePaneFor`).
+- **Устранено тройное дублирование** reconnect-catch-up (`_wasDisconnected` был в home/run/spaces — теперь живёт в двух контроллерах).
+- **Закрыты гонки refresh** (generation counter): устаревший ответ не перезаписывает свежий — `AgentsController`, `SessionController`, `AgentPage._refresh`, `ConnectionPage._checkConnection`.
+- **Ленивые табы HomePage**: Spaces/Agents/Run строятся по первому посещению — на старте нет `getAgents()` и двойного `session()` для невидимых табов (проверено тестом).
+- **Шапка HomePage не переполняется** на узких экранах: бейдж режима (TAILSCALE) и статус усекаются, отступы уменьшены; тест на 320 px.
+- **AnsiTerminalParser вынесен** в отдельный файл (`widgets/ansi_terminal_parser.dart`); тайлы списка обёрнуты в `RepaintBoundary`.
+- **Удалена мёртвая зависимость** `provider` из pubspec.
+
 ### Planned
 - Remote API доступ (за пределами локальной сети)
 - Поддержка мульти-workspace

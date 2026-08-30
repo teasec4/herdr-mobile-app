@@ -49,6 +49,15 @@ class FakeRelayClient implements RelayClient {
   /// an output re-read).
   int outputCalls = 0;
 
+  /// When set, the FIRST `session()` call waits for this completer before
+  /// returning; later calls return immediately. Lets tests exercise
+  /// overlapping refreshes (generation guards).
+  Completer<void>? firstSessionGate;
+
+  /// When set, the FIRST `snapshot()` call waits for this completer before
+  /// returning; later calls return immediately.
+  Completer<void>? firstSnapshotGate;
+
   /// What `healthz()` returns (default: relay is healthy).
   bool healthzResult = true;
 
@@ -70,16 +79,24 @@ class FakeRelayClient implements RelayClient {
   @override
   Future<List<RelayAgent>> snapshot() async {
     snapshotCalls++;
+    final result = agents;
+    if (snapshotCalls == 1 && firstSnapshotGate != null) {
+      await firstSnapshotGate!.future;
+    }
     if (snapshotError) {
       throw const RelayException('boom', 'ошибка снимка');
     }
-    return agents;
+    return result;
   }
 
   @override
   Future<RelaySession> session() async {
     sessionCalls++;
-    return sessionData;
+    final result = sessionData;
+    if (sessionCalls == 1 && firstSessionGate != null) {
+      await firstSessionGate!.future;
+    }
+    return result;
   }
 
   @override

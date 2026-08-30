@@ -1,17 +1,14 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 
+import '../controllers/agents_controller.dart';
 import '../core/connection/mode_service.dart';
 import '../core/service_locator.dart';
 import '../models/pair_config.dart';
 import '../models/relay_agent.dart';
-import '../models/relay_event.dart' as events;
 import '../repositories/agent_repository.dart';
 import '../services/relay_client.dart';
 import '../utils/async_value.dart';
 import '../utils/route_observer.dart';
-import '../utils/toast_service.dart';
 import '../widgets/mode_picker_sheet.dart';
 import '../widgets/status_chip.dart';
 import 'agent_page.dart';
@@ -55,28 +52,26 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> with RouteAware {
   late final AgentRepository _repository;
-  StreamSubscription<events.RelayEvent>? _eventSubscription;
-  AsyncValue<List<RelayAgent>> _agentsState = const AsyncIdle();
-  Timer? _refreshDebounce;
+
+  /// Agents list ViewModel — created lazily on the first visit of the Agents
+  /// tab (or the first refresh press), so no snapshot fetch happens for a tab
+  /// the user may never open. Owns event/status subscriptions and refresh
+  /// orchestration (see [AgentsController]).
+  AgentsController? _agents;
+
+  AgentsController get _agentsController =>
+      _agents ??= AgentsController(getIt<AgentRepository>())..refresh();
+
   int _tabIndex = 0; // 0 = Spaces, 1 = Agents, 2 = Run
 
-  /// True once the connection dropped: on the next connected state the list
-  /// is re-read, because events that arrived during the gap were lost
-  /// (docs/12-fix-plan.md, reconnect catch-up).
-  bool _wasDisconnected = false;
-
-  /// True while another route (AgentPage/WorkspacePage) is pushed on top: the
-  /// list is not visible, so live events are ignored until we come back
-  /// (didPopNext refreshes to catch up). Avoids hidden snapshot fetches.
-  bool _paused = false;
+  /// Tabs ever visited: IndexedStack children are built lazily on first visit
+  /// (eagerly building all three fetched getAgents + 2× session at startup).
+  final Set<int> _visitedTabs = {0};
 
   @override
   void initState() {
     super.initState();
     _repository = getIt<AgentRepository>();
-    _repository.status.addListener(_onStatusChanged);
-    _eventSubscription = _repository.events.listen(_onEvent);
-    _refresh();
   }
 
   @override
@@ -91,119 +86,20 @@ class _HomePageState extends State<HomePage> with RouteAware {
   @override
   void dispose() {
     routeObserver.unsubscribe(this);
-    _refreshDebounce?.cancel();
-    _repository.status.removeListener(_onStatusChanged);
-    _eventSubscription?.cancel();
+    _agents?.dispose();
     super.dispose();
   }
 
   @override
   void didPushNext() {
-    _paused = true;
+    // A detail route (AgentPage/WorkspacePage) covers the page: pause live
+    // updates so no hidden snapshot fetches run.
+    _agents?.setPaused(true);
   }
 
   @override
   void didPopNext() {
-    _paused = false;
-    if (mounted) _refresh(); // catch up while we were covered
-  }
-
-  void _onStatusChanged() {
-    if (!mounted || _paused) return;
-    final status = _repository.status.value;
-    if (status == RelayStatus.connected) {
-      // Catch up after a disconnect (events during the gap were lost) or an
-      // earlier failure — always re-read the list.
-      if (_wasDisconnected || _agentsState.hasError) {
-        _wasDisconnected = false;
-        _refresh();
-        return;
-      }
-    } else {
-      _wasDisconnected = true;
-      // Events received while offline are pointless (the connection is
-      // gone); the reconnect catch-up above re-reads the whole list.
-      _refreshDebounce?.cancel();
-    }
-    // Connection badge (online/connecting/offline) re-render.
-    setState(() {});
-  }
-
-  void _onEvent(events.RelayEvent event) {
-    if (!mounted || _paused) return;
-
-    if (event is events.AgentStatusChanged) {
-      // The event carries the new status — update the tile in place instead of
-      // re-reading the whole snapshot (statuses flip often while agents work).
-      _applyStatusDelta(event);
-      return;
-    }
-    if (event is events.PaneUpdated) {
-      // A pane appeared/moved/changed — the list may need a full snapshot.
-      _scheduleRefresh();
-    }
-  }
-
-  /// Applies a status change locally from the event. A full snapshot is only
-  /// taken when the pane is not in the current list (unknown to us); pane.updated
-  /// covers genuinely new panes.
-  void _applyStatusDelta(events.AgentStatusChanged event) {
-    final current = _agentsState;
-    if (current is! AsyncData<List<RelayAgent>>) {
-      _scheduleRefresh(); // no list yet (loading/error) — fetch it
-      return;
-    }
-    if (!current.data.any((a) => a.id == event.paneId)) {
-      _scheduleRefresh(); // unknown pane — fall back to a snapshot
-      return;
-    }
-    setState(() {
-      _agentsState = AsyncData(RelayAgent.sorted([
-        for (final a in current.data)
-          if (a.id == event.paneId)
-            a.copyWith(
-              status: event.status,
-              agent: event.agent.isEmpty ? a.agent : event.agent,
-              workspaceId: event.workspaceId ?? a.workspaceId,
-            )
-          else
-            a,
-      ]));
-    });
-  }
-
-  /// Debounces an event burst (e.g. a batch task flipping many agents) into a
-  /// single snapshot request.
-  void _scheduleRefresh() {
-    _refreshDebounce?.cancel();
-    _refreshDebounce = Timer(const Duration(milliseconds: 300), () {
-      // Skip while covered by AgentPage/WorkspacePage: didPopNext runs the
-      // catch-up refresh when we come back, so no work is lost — just no
-      // hidden snapshot fetch.
-      if (mounted && !_paused) _refresh();
-    });
-  }
-
-  Future<void> _refresh() async {
-    // Keep the current list on screen while refreshing; show the spinner only
-    // when there is nothing to show yet. This keeps the ListView mounted, so
-    // scroll position and tile state survive event bursts.
-    if (_agentsState is! AsyncData<List<RelayAgent>>) {
-      setState(() => _agentsState = const AsyncLoading());
-    }
-    try {
-      final agents = await _repository.getAgents();
-      if (mounted) {
-        setState(() {
-          _agentsState = AsyncData(RelayAgent.sorted(agents));
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _agentsState = AsyncError(e));
-        ToastService.showError(context, e);
-      }
-    }
+    _agents?.setPaused(false); // unpause -> catch-up refresh
   }
 
   Future<void> _disconnect() async {
@@ -252,78 +148,58 @@ class _HomePageState extends State<HomePage> with RouteAware {
 
   @override
   Widget build(BuildContext context) {
-    final connected = _repository.status.value == RelayStatus.connected;
     return Scaffold(
       appBar: AppBar(
         title: const Text('HerdRelay'),
         actions: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: Row(
-              children: [
-                // Connection mode badge — tap to switch the mode.
-                InkWell(
-                  onTap: _openModePicker,
-                  borderRadius: BorderRadius.circular(6),
-                  child: Tooltip(
-                    message: 'Tap to switch connection mode',
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color:
-                            _modeColor(widget.config.mode).withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(4),
-                        border: Border.all(
-                          color: _modeColor(widget.config.mode)
-                              .withOpacity(0.5),
-                          width: 1,
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            widget.config.mode.toUpperCase(),
-                            style: Theme.of(context)
-                                .textTheme
-                                .labelSmall
-                                ?.copyWith(
-                                  color: _modeColor(widget.config.mode),
-                                  fontWeight: FontWeight.bold,
-                                ),
-                          ),
-                          const Icon(Icons.arrow_drop_down, size: 16),
-                        ],
+          // Status-dependent cluster re-renders only when the connection
+          // status changes (no whole-page setState on every event).
+          ValueListenableBuilder<RelayStatus>(
+            valueListenable: _repository.status,
+            builder: (context, status, _) {
+              final connected = status == RelayStatus.connected;
+              return Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Flexible: a long mode (TAILSCALE) truncates with an
+                  // ellipsis instead of overflowing the AppBar on narrow
+                  // screens / large fonts.
+                  Flexible(child: _modeBadge(context)),
+                  const SizedBox(width: 4),
+                  Icon(
+                    connected ? Icons.circle : Icons.circle_outlined,
+                    size: 12,
+                    color: connected
+                        ? Colors.green
+                        : status == RelayStatus.connecting
+                            ? Colors.orange
+                            : Colors.grey,
+                  ),
+                  const SizedBox(width: 4),
+                  Flexible(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 80),
+                      child: Text(
+                        switch (status) {
+                          RelayStatus.connected => 'online',
+                          RelayStatus.connecting => 'connecting…',
+                          RelayStatus.disconnected => 'offline',
+                        },
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall,
                       ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                Icon(
-                  connected ? Icons.circle : Icons.circle_outlined,
-                  size: 12,
-                  color: connected
-                      ? Colors.green
-                      : _repository.status.value == RelayStatus.connecting
-                          ? Colors.orange
-                          : Colors.grey,
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  switch (_repository.status.value) {
-                    RelayStatus.connected => 'online',
-                    RelayStatus.connecting => 'connecting…',
-                    RelayStatus.disconnected => 'offline',
-                  },
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
-            ),
+                ],
+              );
+            },
           ),
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: connected ? _refresh : null,
+            onPressed: _repository.status.value == RelayStatus.connected
+                ? () => _agentsController.refresh()
+                : null,
             tooltip: 'Refresh',
           ),
           PopupMenuButton<String>(
@@ -360,18 +236,31 @@ class _HomePageState extends State<HomePage> with RouteAware {
           index: _tabIndex,
           children: [
             // Tab order matches the NavigationBar: 0 Spaces, 1 Agents, 2 Run.
+            // Unvisited tabs stay as placeholders so no data is fetched until
+            // the user actually opens them (lazy init).
             const SpacesPage(),
-            RefreshIndicator(
-              onRefresh: _refresh,
-              child: _buildBody(connected),
-            ),
-            const RunPage(),
+            if (_visitedTabs.contains(1))
+              RefreshIndicator(
+                onRefresh: _agentsController.refresh,
+                child: _buildBody(),
+              )
+            else
+              const SizedBox.shrink(),
+            if (_visitedTabs.contains(2))
+              const RunPage()
+            else
+              const SizedBox.shrink(),
           ],
         ),
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _tabIndex,
-        onDestinationSelected: (i) => setState(() => _tabIndex = i),
+        onDestinationSelected: (i) {
+          setState(() {
+            _tabIndex = i;
+            _visitedTabs.add(i);
+          });
+        },
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.space_dashboard_outlined),
@@ -393,74 +282,129 @@ class _HomePageState extends State<HomePage> with RouteAware {
     );
   }
 
-  Widget _buildBody(bool connected) {
-    return switch (_agentsState) {
-      AsyncIdle() || AsyncLoading() => const Center(child: CircularProgressIndicator()),
-      AsyncError(:final error) => ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                children: [
-                  Icon(Icons.error_outline, size: 40, color: Theme.of(context).colorScheme.error),
-                  const SizedBox(height: 8),
-                  Text('$error', textAlign: TextAlign.center),
-                  const SizedBox(height: 8),
-                  TextButton(onPressed: _refresh, child: const Text('Retry')),
-                ],
-              ),
+  /// Connection mode badge (tap to switch the mode). The mode text is capped
+  /// and ellipsized so a long mode (TAILSCALE) never overflows the AppBar.
+  Widget _modeBadge(BuildContext context) {
+    return InkWell(
+      onTap: _openModePicker,
+      borderRadius: BorderRadius.circular(6),
+      child: Tooltip(
+        message: 'Tap to switch connection mode',
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+          decoration: BoxDecoration(
+            color: _modeColor(widget.config.mode).withOpacity(0.2),
+            borderRadius: BorderRadius.circular(4),
+            border: Border.all(
+              color: _modeColor(widget.config.mode).withOpacity(0.5),
+              width: 1,
             ),
-          ],
-        ),
-      AsyncData(:final data) when data.isEmpty => ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
+          ),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 110),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.terminal, size: 40, color: Colors.grey),
-                const SizedBox(height: 8),
-                const Text('No agents found'),
-                const SizedBox(height: 4),
-                Text(
-                  'Start an agent (e.g. `herdr codex`) on the computer '
-                  'or press Refresh.',
-                  style: Theme.of(context).textTheme.bodySmall,
-                  textAlign: TextAlign.center,
+                Flexible(
+                  child: Text(
+                    widget.config.mode.toUpperCase(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: _modeColor(widget.config.mode),
+                          fontWeight: FontWeight.bold,
+                        ),
+                  ),
                 ),
+                const Icon(Icons.arrow_drop_down, size: 16),
               ],
             ),
           ),
-        ],
-      ),
-      AsyncData(:final data) => ListView.separated(
-          physics: const AlwaysScrollableScrollPhysics(),
-          itemCount: data.length + 1,
-          separatorBuilder: (_, __) => const Divider(height: 1),
-          itemBuilder: (context, i) {
-            if (i == data.length) {
-              return Padding(
-                padding: const EdgeInsets.all(12),
-                child: Text(
-                  '${widget.config.mode} · ${widget.config.host}:${widget.config.port}',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              );
-            }
-            final agent = data[i];
-            // Stable per-agent key: keeps tile state and scroll position across
-            // list rebuilds (status deltas / refreshes).
-            return _AgentTile(
-              key: ValueKey(agent.id),
-              agent: agent,
-              onTap: () => _openAgent(agent),
-            );
-          },
         ),
-    };
+      ),
+    );
+  }
+
+  Widget _buildBody() {
+    return ListenableBuilder(
+      listenable: _agentsController,
+      builder: (context, _) {
+        return switch (_agentsController.state) {
+          AsyncIdle() || AsyncLoading() =>
+            const Center(child: CircularProgressIndicator()),
+          AsyncError(:final error) => ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    children: [
+                      Icon(Icons.error_outline,
+                          size: 40, color: Theme.of(context).colorScheme.error),
+                      const SizedBox(height: 8),
+                      Text('$error', textAlign: TextAlign.center),
+                      const SizedBox(height: 8),
+                      TextButton(
+                          onPressed: _agentsController.refresh,
+                          child: const Text('Retry')),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          AsyncData(:final data) when data.isEmpty => ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    children: [
+                      const Icon(Icons.terminal, size: 40, color: Colors.grey),
+                      const SizedBox(height: 8),
+                      const Text('No agents found'),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Start an agent (e.g. `herdr codex`) on the computer '
+                        'or press Refresh.',
+                        style: Theme.of(context).textTheme.bodySmall,
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          AsyncData(:final data) => ListView.separated(
+              physics: const AlwaysScrollableScrollPhysics(),
+              itemCount: data.length + 1,
+              separatorBuilder: (_, __) => const Divider(height: 1),
+              itemBuilder: (context, i) {
+                if (i == data.length) {
+                  return Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Text(
+                      '${widget.config.mode} · ${widget.config.host}:${widget.config.port}',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  );
+                }
+                final agent = data[i];
+                // RepaintBoundary + stable key: a status delta on one tile
+                // repaints only that tile's layer and keeps its state/scroll
+                // across list rebuilds.
+                return RepaintBoundary(
+                  key: ValueKey(agent.id),
+                  child: _AgentTile(
+                    agent: agent,
+                    onTap: () => _openAgent(agent),
+                  ),
+                );
+              },
+            ),
+        };
+      },
+    );
   }
 
   void _openAgent(RelayAgent agent) {
@@ -482,7 +426,7 @@ class _HomePageState extends State<HomePage> with RouteAware {
 }
 
 class _AgentTile extends StatelessWidget {
-  const _AgentTile({super.key, required this.agent, required this.onTap});
+  const _AgentTile({required this.agent, required this.onTap});
 
   final RelayAgent agent;
   final VoidCallback onTap;
