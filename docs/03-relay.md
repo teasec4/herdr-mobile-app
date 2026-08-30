@@ -12,7 +12,7 @@
    - статусы агентов — через хук плагина (`pane.agent_status_changed` →
      `on-event.sh` → локальный HTTP);
    - живой вывод терминала (Б-lite) — через прямую сокет-подписку релея
-     (`pane.scroll_changed`, см. `herdrevents.go`).
+     (`pane.scroll_changed`, см. `socket_event_repository.go`).
 4. Аутентифицировать клиентов (bearer-токен пары).
 
 ## Связь с herdr: два варианта
@@ -142,9 +142,10 @@ JSON-RPC-подписку `events.subscribe`:
 - **`pane.scroll_changed`** (по одной на pane_id) — стреляет при изменении
   scrollable-вывода панели.
 
-Реализация — `cmd/relay/herdrevents.go` (`herdrSubscriber`): держит коннект с
-backoff-реконнектом 2s→30s, переживает перезапуски herdr, при старте
-сидируется pane_id из снимка. Полученный `pane.scroll_changed` релей
+Реализация — `internal/infrastructure/herdr/socket_event_repository.go`
+(`SocketEventRepository`): держит коннект с backoff-реконнектом 2s→30s,
+переживает перезапуски herdr, при старте сидируется pane_id из снимка.
+Полученный `pane.scroll_changed` релей
 форвардит клиентам как `{"type":"event","event":"pane.output_changed",
 "data":{...}}` — клиент ре-читает вывод агента по совпадению `pane_id`.
 Событие не несёт revision, поэтому клиентский revision-guard инертен, а

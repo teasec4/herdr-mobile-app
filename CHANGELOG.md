@@ -5,6 +5,50 @@ All notable changes to HerdRelay project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-08-30
+
+### Changed (big refactor, docs/09-refactoring-plan.md)
+
+#### Flutter Client — layered architecture
+- Monolithic `WsRelayClient` (362 lines) replaced by four layers:
+  - `core/transport` — `Transport` interface, `WebSocketTransport`
+    (reconnect via `RetryPolicy`, keepalive 20 s/10 s, pause/resume),
+    `HttpTransport` (HTTP RPC + SSE fallback), `HttpHealth`, `RetryPolicy`
+  - `core/protocol` — `sealed Frame` (Request/Response/Event/Ping/Pong),
+    `RequestResponseManager` (matching, 15 s timeout, fail-on-disconnect,
+    auto ping→pong, cold-start wait), `RelayException`
+  - `core/connection` — `ConnectionManager` (app lifecycle),
+    `ModeService` (fetch /pair modes with retries/limits/clear errors)
+  - `services/relay_client_impl.dart` — typed `RelayClient` on the layers
+- New **Connection screen**: device card, live status, connection test
+  (healthz + snapshot), mode switching, saved devices, pair link entry
+- **Tappable mode badge** on the home screen: opens a mode picker
+  (lan/tailscale/funnel from `/pair`) with loading/error+Retry states
+- Pair link entry now gives explicit success/error feedback
+- `get_it` DI (was `provider`), profiles stored in `shared_preferences`
+- 148 tests, `flutter analyze` 0 warnings
+
+#### Go Relay Server
+- Clean-architecture split into `internal/` (domain/service/infrastructure/
+  transport), `cmd/relay` keeps `pair`/`status` subcommands
+- **HTTP fallback endpoints**: `POST /api/rpc` (relay request frame in,
+  response frame out) and `GET /api/events/stream` (SSE) — HTTP twin of `/ws`
+- Shared `service.Dispatch` used by both WS and HTTP transports
+- Event socket repo: single `events.subscribe` per connection, per-pane
+  `pane.agent_status_changed` subscription (statuses without the plugin hook),
+  `scroll_changed` debounce (500 ms/pane)
+- herdr CLI calls now use `HERDR_SOCKET_PATH` (was ignored `HERDR_SOCKET`)
+
+#### herdr Plugin
+- `redeploy.sh`: one command to rebuild the relay, restart the launchd
+  service, re-link the plugin and health-check
+
+### Fixed (herdr API cross-check, docs/10)
+- `pane.agent_status_changed` read `agent_status` (was `status` → live status
+  always `unknown`); baseline test was red before the fix
+- Dead `/api/events/pane.updated` route removed; `display_agent` forwarded;
+  `jsonrpc` field dropped from subscribe
+
 ## [0.1.0] - 2026-08-29
 
 ### Added

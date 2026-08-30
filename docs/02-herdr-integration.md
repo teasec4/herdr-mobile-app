@@ -114,7 +114,8 @@ herdr plugin log list --plugin herdrelay.events
 брутфорсом на herdr 0.8.0). Поэтому живой вывод реализован напрямую: релей
 подписывается на `events.subscribe` по unix-сокету herdr
 (`pane.scroll_changed` на каждый pane_id) и форвардит изменения как
-`pane.output_changed` — см. `cmd/relay/herdrevents.go` и
+`pane.output_changed` — см.
+`internal/infrastructure/herdr/socket_event_repository.go` и
 [03-relay.md](03-relay.md) → «Обработка событий herdr». Плагин в этой схеме
 не участвует вовсе.
 

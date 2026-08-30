@@ -1,122 +1,142 @@
 # 05 — Flutter-приложение (`client/`)
 
-Мобильный клиент для iOS/Android. Минимальный, но рабочий: список агентов,
-живой терминал, ввод, пейринг. Работает во всех трёх транспортах
-(см. [01-architecture](01-architecture.md)): LAN, Tailscale (телефону Tailscale
-нужен только в режиме B1) и через гейтвей (режим C, опция).
+Мобильный клиент для iOS/Android. Работает во всех транспортах: LAN, Tailscale
+(режим B1 — телефону нужен Tailscale), Tailscale Funnel (B2 — публичный HTTPS,
+телефону Tailscale не нужен). Клиент построен слоями: `core/transport` +
+`core/protocol` + `core/connection` + тонкий `services/relay_client_impl.dart`
+(результат рефакторинга, [09 — План](09-refactoring-plan.md), фазы 0–5).
 
-## Стек и зависимости
+## Слои и зависимости
 
-| пакет | зачем | статус |
-| --- | --- | --- |
-| `web_socket_channel` | постоянный WS-канал к релею | подключён |
-| `http` | REST-fallback и загрузка снимков | подключён |
-| `provider` | DI/состояние: один `RelayClient` на всё дерево (`Provider.value`) | подключён |
-| `shared_preferences` | сохранение URL релея + токена пары | подключён |
-| `app_links` | deep link по custom scheme `herdrelay://` | подключён |
-| `mobile_scanner` | сканирование QR-ссылки пары (ядро онбординга) | подключён |
-| `flutter_local_notifications` | локальные нотификации при blocked | план (v1, ещё не реализовано) |
-| `flutter_xterm` | настоящий терминал с ANSI/цветами/скроллбэком | план (v2) |
+```
+┌─ pages/widgets — UI работает только через RelayClient и PairConfig
+├─ services/relay_client.dart      интерфейс RelayClient + RelayStatus (стабилен для UI)
+├─ services/relay_client_impl.dart сборка: Transport + RequestResponseManager + HttpHealth
+├─ core/protocol  Frame (sealed), RequestResponseManager, RelayException
+├─ core/transport Transport (интерфейс), WebSocketTransport, HttpTransport,
+│                 ReconnectMixin, RetryPolicy, HttpHealth
+├─ core/connection ConnectionManager (lifecycle), ModeService (режимы /pair)
+└─ models/ PairConfig · RelayAgent · RelayEvent (без изменений)
+```
+
+| пакет | зачем |
+| --- | --- |
+| `web_socket_channel` | WebSocket-канал к релею (`WebSocketTransport`) |
+| `http` | HTTP fallback (`HttpTransport`: `/api/rpc` + SSE), `HttpHealth`, режимы `/pair` |
+| `get_it` | DI: `RelayClient`, `AgentRepository`, `ConfigStore`, `ModeService`, `ConnectionManager` |
+| `shared_preferences` | сохранение профилей пары + offline-кэш последнего снимка |
+| `app_links` | deep link по custom scheme `herdrelay://` |
+| `mobile_scanner` | сканирование QR-ссылки пары |
 
 ## Экраны
 
-1. **Onboarding / настройки** (ядро флоу «скан-и-работает», см.
-   [07 — Онбординг](07-onboarding.md)). Регистрирует custom scheme
-   `herdrelay://` (Info.plist / Android intent-filter) — QR из пейна herdr
-   открывает приложение сразу. Скан QR (`mobile_scanner`, v1) или ручной
-   ввод ссылки; приложение парсит `herdrelay://pair?mode=...&token=...`,
-   сохраняет base URL + токен в `shared_preferences` и подключается.
-   Повторный QR = «переключить режим». Проверено живьём по LAN.
+1. **PairPage — онбординг.** Скан QR (`mobile_scanner`) или ручная вставка
+   ссылки `herdrelay://pair?...`; ссылка валидируется (токен ≥ 16 символов, без
+   символов, ломающих query). Ошибки — тостом (`ToastService`), успех —
+   переход на главный экран.
 
-2. **Список агентов** (главный экран).
-   - карточка: имя агента, статус (`idle/working/blocked/done`), воркспейс,
-     `terminal_title`, cwd;
-   - blocked — сверху и подсветка (это и есть «нужен мой ответ»);
-   - pull-to-refresh + живое обновление по событиям WS;
-   - fallback-поллинг снимка раз в 1–2 c при потере канала;
+2. **HomePage — список агентов** (главный).
+   - карточка агента: имя, статус (`idle/working/blocked/done/unknown`), cwd;
+     blocked — сверху и подсветкой («нужен мой ответ»);
+   - pull-to-refresh + живое обновление по событиям WS (события дебаунсятся
+     300 мс, чтобы пачка событий не порождала N snapshot-запросов);
    - **offline cache**: последний успешный снимок кэшируется в
-     `shared_preferences`; если релей недоступен, показывается закешированный
-     список (с пометкой времени последнего успеха), а не пустой экран ошибки.
+     `shared_preferences` (`AgentRepository`); при недоступном релее
+     показывается закешированный список;
+   - в AppBar — **кликабельный бейдж режима** (`LAN`/`TAILSCALE`): тап открывает
+     `ModePickerSheet` со списком режимов от релея (`/pair`); выбор режима
+     переподключает. Рядом — живой статус соединения (online/connecting/offline);
+   - меню «⋮»: **Connection…** (экран соединения), **Add device…**, **Forget device**.
 
-3. **Детали агента (терминал).**
-   - вывод: моноширинный тёмный терминал, автоскролл; живое обновление по
-     `pane.output_changed` с debounce ~400 мс; ANSI-цвета — своим SGR-парсером
-     (`widgets/ansi_terminal.dart`); в v2 — `flutter_xterm` со скроллбэком;
-   - строка ввода: отправка промпта (`agent.prompt`);
-   - быстрые клавиши: Esc, Ctrl-C (это `agent.keys`);
-   - шапка: имя, статус, кнопки «обновить», «стоп/продолжить» (через keys).
+3. **ConnectionPage — экран «Соединение»** (всё о том, как мы подключены):
+   - карточка устройства: имя, `host:port`, режим, ws-адрес, id профиля;
+   - живой статус + кнопка **Test** (healthz + snapshot: «OK · N agent(s) · Xms»);
+   - **Connection mode**: режимы от `/pair` (lan/tailscale/funnel), переключение;
+   - **Saved devices**: все сохранённые профили — переключение/удаление;
+   - **Pair**: вставка ссылки + «Forget this device» (с подтверждением).
 
-## Клиент WS
+4. **AgentPage — терминал агента.**
+   - вывод: моноширинный тёмный терминал, автоскролл, живое обновление по
+     `pane.output_changed` с debounce ~400 мс, ANSI — своим SGR-парсером
+     (`widgets/ansi_terminal.dart`);
+   - строка ввода: промпт (`agent.prompt`); быстрые клавиши Esc/Ctrl-C
+     (`agent.keys`); история команд; кнопки действий из вывода.
 
-- Один канал на всё. Reconnect с экспоненциальной задержкой (1, 2, 4, … до 30 c),
-  heartbeat-пинг раз в ~30 c.
-- **Reconnect без дублей**: перед открытием нового канала старая подписка
-  отменяется, `onError`/`onDone` объединены в один обработчик с
-  `cancelOnError: true`, повторное планирование reconnect блокируется
-  (`relay_client.dart::_connect`/`_onDisconnect`). Исключены ситуации, когда
-  из-за двойного срабатывания колбэков появляется >1 активного WS-соединения
-  и теряются ответы на запросы.
-- **Lifecycle**: при уходе приложения в фон (`paused`/`hidden`)
-  reconnect-цикл приостанавливается (`pauseReconnect`), при возврате —
-  возобновляется (`resumeReconnect`). Это бережёт батарею и не даёт висящим
-  соединениям держать pending-запросы после того, как iOS заморозил сеть.
-- **healthz с retry**: проверка доступности релея делает до 3 попыток с
-  коротким backoff, чтобы единичный сетевой сбой не показывал «релей офлайн».
-- Обработка событий: `agent_status_changed` → обновить список (`pane.output_changed`
-  → перечитать вывод активного агента с debounce ~400 мс). Обновление списка
-  от событий дебаунсится (300 мс), чтобы пачка одновременных событий не
-  вызывала N параллельных snapshot-запросов.
-- Обработка `relay_gone` от гейтвея → баннер «релей недоступен», ретрай.
+## Транспорт
+
+- **WebSocketTransport** — raw-строки, без знания протокола. Reconnect с
+  `RetryPolicy` (default `ExponentialBackoff`: 1, 2, 4, … до 30 с; формула и
+  лимит — `core/transport/retry_policy.dart`). Защита от дублей: один таймер,
+  `cancelOnError`, единый обработчик `onDone/onError`.
+- **Keepalive** (по умолчанию 20 с ping / 10 с окно pong): детектит «полумёртвые»
+  соединения (мобильные NAT молча роняют сокет) и переподключается.
+- **Lifecycle** — `core/connection/connection_manager.dart`
+  (`WidgetsBindingObserver`): `paused`/`hidden` → `transport.pause()`,
+  `resumed` → `transport.resume()` (бережёт батарею; iOS замораживает сокеты
+  ~30 с в фоне).
+- **HttpTransport** — HTTP fallback (Phase 5): `send()` POSTит request-фрейм в
+  `/api/rpc`, события — SSE-стрим `/api/events/stream`; тот же reconnect/backoff.
+  Включается в `service_locator` параметром `transportMode: 'ws'|'http'`.
+- **HttpHealth** — `/healthz`, до 3 попыток с коротким backoff.
+
+## Протокол
+
+- `core/protocol/relay_protocol.dart` — `sealed Frame`:
+  `Request/Response/Event/Ping/Pong`, строгий `Frame.parse` (мусор →
+  `ProtocolException`).
+- `core/protocol/request_response_manager.dart` — id→completer, таймаут 15 с,
+  при disconnect все pending завершаются ошибкой, автопинг-понг, cold-start
+  ожидание до 8 с перед `not_connected`.
+- `RelayException`/`RelayError`/`ProtocolException` — `core/protocol/`;
+  `services/relay_client.dart` делает `export`, чтобы UI/тесты продолжали
+  импортировать из одного места.
+
+## События
+
+`pane.agent_status_changed` (ключ **`agent_status`** — клиент читает именно его),
+`pane.updated`, `pane.output_changed` (у `pane.scroll_changed` нет `revision` —
+дебаунс на клиенте). Статусы агентов: `idle/working/blocked/done/unknown`
+(docs/10-herdr-api.md §6.2).
 
 ## Ошибки и их отображение
 
-- Протокольные ошибки релея (`RelayException`) мапятся в понятный пользователю
-  текст: `not_connected` → «проверьте сеть», `timeout` → «попробуйте ещё раз»,
-  `unauthorized` → «пересканируйте QR» (`utils/toast_service.dart`).
-- Ссылка пары валидируется на входе: токен не короче 16 символов и не содержит
-  символов, ломающих query-строку (`&`, `#`, `?`, пробел) — иначе ссылка
-  отклоняется как повреждённая.
+- `ToastService` мапит протокольные ошибки в понятный текст: `not_connected` →
+  «проверьте сеть», `timeout` → «попробуйте ещё раз», `unauthorized` →
+  «пересканируйте QR».
+- `ModeService` (режимы `/pair`) — до 3 попыток с backoff, таймаут 5 с; 401/403
+  — сразу без ретраев; понятные сообщения («Cannot reach relay…», «Relay did
+  not respond in time…»); в `ModePickerSheet` — стейты loading/error+Retry/list.
+- Ссылка пары валидируется на входе (токен ≥ 16 символов, без `& # ?` пробела).
 
-## Нотификации (честный трейдофф)
+## Тесты (148)
 
-- **Статус: локальные нотификации пока НЕ реализованы.** blocked подсвечивается
-  в списке (карточка сверху + цвет), но системного уведомления нет.
-- v1 (план): **локальные** — пока приложение живо и WS жив, blocked превращается
-  в уведомление без открытия приложения. Если приложение убито — уведомлений
-  нет (iOS не держит фоновый WS долго).
-- v3: настоящий push (FCM/APNs) — гейтвей шлёт пуш, когда видит blocked.
-  Это отдельная подсистема (регистрация устройства, алиасы), кладём в roadmap.
+- **unit**: `test/core/protocol/` (parse/encode, matching, timeout, fail-on-
+  disconnect), `test/core/transport/` (reconnect, keepalive, pause/resume,
+  HttpTransport против dart:io mock, HttpHealth, RetryPolicy),
+  `test/core/connection/` (lifecycle, ModeService с ретраями/лимитами).
+- **integration**: `test/services/relay_client_impl_test.dart` —
+  `RelayClientImpl` + `FakeTransport`.
+- **widget**: `home_page_test`, `connection_page_test`, `pair_page_test`,
+  `agent_page_test`.
+- **fakes**: `FakeRelayClient`, `FakeTransport`, `FakeWebSocketChannel`.
 
-## Рендер терминала
-
-- v1 (реализовано): свой SGR-парсер ANSI → `TextSpan`
-  (`widgets/ansi_terminal.dart`); моноширинный тёмный терминал, softWrap,
-  автоскролл вниз только когда пользователь уже внизу.
-- v2 (план): `flutter_xterm` — ввод клавиш, скроллбэк, ближе к ощущениям moshi.
+`flutter analyze` — 0 warnings/errors.
 
 ## Что сознательно НЕ в v1
 
-- Workspaces/worktrees/диффы (всё это есть у 0cv, нам пока не нужно).
-- Ответы на структурированные вопросы агентов (Codex/Claude approve-флоу):
-  в v1 «ответить» = отправить текст/клавиши в терминал, что покрывает
-  большинство кейсов. Если агент ждёт approve-кнопки — дорабатываем в v2/v3.
-- Push через FCM (см. выше).
+- Workspaces/worktrees/диффы.
+- Ответы на структурированные approve-флоу агентов: «ответить» = текст/клавиши
+  в терминал (покрывает большинство кейсов).
+- Push-уведомления (FCM/APNs) — план (см. [06 — Roadmap](06-roadmap.md));
+  локальных нотификаций тоже нет, blocked подсвечивается в списке.
+- `flutter_xterm` вместо своего ANSI-парсера — план v2.
 
 ## Безопасность и известные риски
 
-- **Токен пары** хранится в `shared_preferences` и передаётся как `?token=` в
-  query WS-соединения. Соединение открывается без логирования URL/токена;
-  `PairConfig.toJsonSafe()` маскирует токен для логов и краш-репортов
-  (никогда не логировать `toJson()` целиком).
-- **Certificate pinning для funnel mode — сознательно НЕ реализовано (риск
-  задокументирован).** Funnel (`wss://...ts.net`) идёт через Tailscale Funnel
-  с сертификатом Let's Encrypt, т.е. TLS-защищён от пассивного прослушивания.
-  Однако если атакующий контролирует DNS, MITM возможен. Полноценный pinning
-  требует платформо-зависимой реализации (проверка отпечатка сертификата в
-  `dart:io` `HttpClient` / `SecTrust` на iOS) и усложняет ротацию сертификатов.
-  Для MVP принято: полагаться на Let's Encrypt + DNS Tailnet; повторно
-  рассмотреть pinning, если клиент получит публичное распространение.
-- Валидация входящих ссылок пары: токен обязан быть не короче 16 символов и
-  не содержать символов, ломающих query-строку (`&`, `#`, `?`, пробел), иначе
-  ссылка отклоняется как повреждённая.
-
+- Токен пары хранится в `shared_preferences` и передаётся как `?token=` в query
+  WS; логирование только через `PairConfig.toJsonSafe()` (маска токена).
+- Certificate pinning для funnel mode сознательно не реализован (риск
+  задокументирован): funnel идёт через Tailscale Funnel с Let's Encrypt;
+  pinning требует платформенной реализации и усложняет ротацию — пересмотреть
+  при публичном распространении.
+- Валидация входящих ссылок пары (см. PairPage).
