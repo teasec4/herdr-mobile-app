@@ -41,7 +41,43 @@ func (s *AgentService) Dispatch(method string, params json.RawMessage) (interfac
 		if err != nil {
 			return nil, herdrError(err)
 		}
+		// Backward-compatible flat list of agents only.
+		return map[string]interface{}{"agents": snap.Agents}, nil
+
+	case "session.snapshot":
+		snap, err := s.GetSnapshot()
+		if err != nil {
+			return nil, herdrError(err)
+		}
 		return snap, nil
+
+	case "agent.start":
+		var p struct {
+			Name   string `json:"name"`
+			Kind   string `json:"kind"`
+			PaneID string `json:"pane_id"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, badParams()
+		}
+		if err := s.StartAgent(p.Name, p.Kind, p.PaneID); err != nil {
+			return nil, herdrError(err)
+		}
+		return map[string]bool{"ok": true}, nil
+
+	case "workspace.create":
+		var p struct {
+			Label string `json:"label"`
+			Cwd   string `json:"cwd"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, badParams()
+		}
+		id, label, err := s.CreateWorkspace(p.Label, p.Cwd)
+		if err != nil {
+			return nil, herdrError(err)
+		}
+		return map[string]string{"workspace_id": id, "label": label}, nil
 
 	case "agent.output":
 		var p struct {

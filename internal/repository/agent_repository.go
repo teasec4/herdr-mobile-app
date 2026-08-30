@@ -4,7 +4,8 @@ import "herdrelay/internal/domain"
 
 // AgentRepository defines operations for interacting with herdr agents.
 type AgentRepository interface {
-	// Snapshot returns the current state of all agents.
+	// Snapshot returns the complete session snapshot: workspaces, panes,
+	// agents and focused targets.
 	Snapshot() (*domain.Snapshot, error)
 
 	// ReadOutput reads the terminal output of an agent.
@@ -15,4 +16,10 @@ type AgentRepository interface {
 
 	// SendPrompt sends a text prompt to an agent.
 	SendPrompt(target, text string) error
+
+	// StartAgent launches an agent of the given kind into an existing pane.
+	StartAgent(name, kind, paneID string) error
+
+	// CreateWorkspace creates a workspace and returns its id and label.
+	CreateWorkspace(label, cwd string) (string, string, error)
 }

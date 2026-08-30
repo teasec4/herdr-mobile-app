@@ -21,11 +21,17 @@ import (
 type stubAgentRepo struct{}
 
 func (stubAgentRepo) Snapshot() (*domain.Snapshot, error) {
-	return &domain.Snapshot{Agents: []domain.Agent{{Agent: "codex", AgentStatus: "working", PaneID: "wF:p5"}}}, nil
+	return &domain.Snapshot{
+		Workspaces: []domain.Workspace{{WorkspaceID: "wF", Label: "herdr_relay", AgentStatus: "working", PaneCount: 1}},
+		Panes: []domain.Pane{{PaneID: "wF:p5", WorkspaceID: "wF", TabID: "wF:t1", Agent: "codex", AgentStatus: "working"}},
+		Agents:     []domain.Agent{{Agent: "codex", AgentStatus: "working", PaneID: "wF:p5"}},
+	}, nil
 }
 func (stubAgentRepo) ReadOutput(target string, lines int, format string) (string, error) { return "hello\nworld\n", nil }
 func (stubAgentRepo) SendKeys(target string, keys []string) error                         { return nil }
 func (stubAgentRepo) SendPrompt(target, text string) error                                { return nil }
+func (stubAgentRepo) StartAgent(name, kind, paneID string) error                          { return nil }
+func (stubAgentRepo) CreateWorkspace(label, cwd string) (string, string, error)           { return "w9", "test-ws", nil }
 
 // stubEventRepo is a fake event repository.
 type stubEventRepo struct{}
@@ -547,4 +553,99 @@ func TestEventStreamSSE(t *testing.T) {
 	if frame.Data.PaneID != "p1" || frame.Data.AgentStatus != "blocked" {
 		t.Fatalf("unexpected event data: %+v", frame.Data)
 	}
+}
+
+// TestSpacesAPI covers the spaces-protocol methods: session.snapshot,
+// agent.start and workspace.create over the HTTP /api/rpc fallback.
+func TestSpacesAPI(t *testing.T) {
+	ts := testServer(t, "secret")
+	defer ts.Close()
+
+	post := func(body string) *http.Response {
+		t.Helper()
+		req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/rpc", strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer secret")
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("rpc request failed: %v", err)
+		}
+		return res
+	}
+
+	// session.snapshot returns the full hierarchy.
+	t.Run("session.snapshot returns workspaces/panes/agents", func(t *testing.T) {
+		res := post(`{"type":"request","id":1,"method":"session.snapshot","params":{}}`)
+		defer res.Body.Close()
+		var frame struct {
+			Type string `json:"type"`
+			OK   bool   `json:"ok"`
+			Result struct {
+				Workspaces []domain.Workspace `json:"workspaces"`
+				Panes      []domain.Pane      `json:"panes"`
+				Agents     []domain.Agent     `json:"agents"`
+			} `json:"result"`
+		}
+		if err := json.NewDecoder(res.Body).Decode(&frame); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if !frame.OK || len(frame.Result.Workspaces) != 1 || frame.Result.Workspaces[0].Label != "herdr_relay" {
+			t.Fatalf("unexpected session.snapshot: %+v", frame.Result)
+		}
+		if len(frame.Result.Panes) != 1 || len(frame.Result.Agents) != 1 {
+			t.Fatalf("expected 1 pane and 1 agent, got %+v", frame.Result)
+		}
+	})
+
+	// agent.start launches an agent into a pane.
+	t.Run("agent.start returns ok", func(t *testing.T) {
+		res := post(`{"type":"request","id":2,"method":"agent.start","params":{"name":"codex","kind":"codex","pane_id":"wF:p5"}}`)
+		defer res.Body.Close()
+		var frame struct {
+			Type   string `json:"type"`
+			OK     bool   `json:"ok"`
+			Result map[string]bool `json:"result"`
+		}
+		if err := json.NewDecoder(res.Body).Decode(&frame); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if !frame.OK || frame.Result["ok"] != true {
+			t.Fatalf("unexpected agent.start: %+v", frame)
+		}
+	})
+
+	// agent.start with empty kind is rejected.
+	t.Run("agent.start rejects empty kind", func(t *testing.T) {
+		res := post(`{"type":"request","id":3,"method":"agent.start","params":{"name":"x","pane_id":"wF:p5"}}`)
+		defer res.Body.Close()
+		var frame struct {
+			Type  string `json:"type"`
+			Error *struct{ Code string `json:"code"` } `json:"error"`
+		}
+		if err := json.NewDecoder(res.Body).Decode(&frame); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if frame.Error == nil || frame.Error.Code != "herdr_error" {
+			t.Fatalf("expected herdr_error, got %+v", frame)
+		}
+	})
+
+	// workspace.create returns the new id and label.
+	t.Run("workspace.create returns id/label", func(t *testing.T) {
+		res := post(`{"type":"request","id":4,"method":"workspace.create","params":{"label":"mobile"}}`)
+		defer res.Body.Close()
+		var frame struct {
+			Type   string `json:"type"`
+			OK     bool   `json:"ok"`
+			Result struct {
+				WorkspaceID string `json:"workspace_id"`
+				Label       string `json:"label"`
+			} `json:"result"`
+		}
+		if err := json.NewDecoder(res.Body).Decode(&frame); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if !frame.OK || frame.Result.WorkspaceID != "w9" || frame.Result.Label != "test-ws" {
+			t.Fatalf("unexpected workspace.create: %+v", frame)
+		}
+	})
 }

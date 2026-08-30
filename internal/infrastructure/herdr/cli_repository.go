@@ -41,7 +41,8 @@ func (r *CLIRepository) run(args ...string) ([]byte, error) {
 	return out, nil
 }
 
-// Snapshot returns the current state of all agents.
+// Snapshot returns the complete herdr session snapshot: workspaces, panes,
+// agents and the focused targets (`herdr api snapshot`).
 func (r *CLIRepository) Snapshot() (*domain.Snapshot, error) {
 	out, err := r.run("api", "snapshot")
 	if err != nil {
@@ -56,6 +57,39 @@ func (r *CLIRepository) Snapshot() (*domain.Snapshot, error) {
 		return nil, fmt.Errorf("parse snapshot: %w", err)
 	}
 	return &env.Result.Snapshot, nil
+}
+
+// StartAgent launches an agent of the given kind into an existing pane:
+// `herdr agent start <name> --kind <kind> --pane <paneID>`.
+func (r *CLIRepository) StartAgent(name, kind, paneID string) error {
+	_, err := r.run("agent", "start", name, "--kind", kind, "--pane", paneID)
+	return err
+}
+
+// CreateWorkspace creates a new workspace and returns its id and label
+// (`herdr workspace create [--label ...] [--cwd ...]`).
+func (r *CLIRepository) CreateWorkspace(label, cwd string) (string, string, error) {
+	args := []string{"workspace", "create"}
+	if label != "" {
+		args = append(args, "--label", label)
+	}
+	if cwd != "" {
+		args = append(args, "--cwd", cwd)
+	}
+	out, err := r.run(args...)
+	if err != nil {
+		return "", "", err
+	}
+	var env struct {
+		Result struct {
+			WorkspaceID string `json:"workspace_id"`
+			Label       string `json:"label"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(out, &env); err != nil {
+		return "", "", fmt.Errorf("parse workspace create: %w", err)
+	}
+	return env.Result.WorkspaceID, env.Result.Label, nil
 }
 
 // ReadOutput reads the terminal output of an agent.

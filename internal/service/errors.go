@@ -11,4 +11,10 @@ var (
 
 	// ErrInvalidPrompt is returned when prompt text is empty.
 	ErrInvalidPrompt = errors.New("prompt text cannot be empty")
+
+	// ErrInvalidName is returned when an agent name is empty.
+	ErrInvalidName = errors.New("agent name cannot be empty")
+
+	// ErrInvalidKind is returned when an agent kind is empty.
+	ErrInvalidKind = errors.New("agent kind cannot be empty")
 )

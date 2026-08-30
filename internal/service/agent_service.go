@@ -61,3 +61,22 @@ func (s *AgentService) SendPrompt(target, text string) error {
 	}
 	return s.repo.SendPrompt(target, text)
 }
+
+// StartAgent launches an agent of the given kind into an existing pane.
+func (s *AgentService) StartAgent(name, kind, paneID string) error {
+	if name == "" {
+		return ErrInvalidName
+	}
+	if kind == "" {
+		return ErrInvalidKind
+	}
+	if paneID == "" {
+		return ErrInvalidTarget
+	}
+	return s.repo.StartAgent(name, kind, paneID)
+}
+
+// CreateWorkspace creates a new workspace; label/cwd are optional.
+func (s *AgentService) CreateWorkspace(label, cwd string) (string, string, error) {
+	return s.repo.CreateWorkspace(label, cwd)
+}
