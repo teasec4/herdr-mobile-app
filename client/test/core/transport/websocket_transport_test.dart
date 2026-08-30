@@ -181,5 +181,62 @@ void main() {
 
       await t.close();
     });
+
+    test('keepalive sends ping and reconnects when no pong arrives', () async {
+      var calls = 0;
+      late FakeWebSocketChannel first;
+      final t = WebSocketTransport(
+        channelFactory: (u) {
+          calls++;
+          final c = FakeWebSocketChannel();
+          if (calls == 1) first = c;
+          return c;
+        },
+        keepaliveInterval: const Duration(milliseconds: 100),
+        keepalivePongTimeout: const Duration(milliseconds: 200),
+      );
+      await t.connect(uri);
+      expect(calls, 1);
+
+      // ~100 ms: first ping; ~300 ms: pong timeout -> disconnect ->
+      // backoff 1 s -> reconnect ~1.3 s.
+      await Future<void>.delayed(const Duration(milliseconds: 700));
+      expect(first.sent, contains('{"type":"ping"}'),
+          reason: 'keepalive ping was sent');
+      expect(t.status.value, ConnectionStatus.disconnected,
+          reason: 'missing pong kills the connection');
+
+      await Future<void>.delayed(const Duration(milliseconds: 1500));
+      expect(calls, 2, reason: 'reconnect after keepalive death');
+
+      await t.close();
+    });
+
+    test('keepalive stays connected while pongs arrive', () async {
+      var calls = 0;
+      FakeWebSocketChannel? channel;
+      final t = WebSocketTransport(
+        channelFactory: (u) {
+          calls++;
+          channel = FakeWebSocketChannel();
+          return channel!;
+        },
+        keepaliveInterval: const Duration(milliseconds: 100),
+        keepalivePongTimeout: const Duration(milliseconds: 300),
+      );
+      await t.connect(uri);
+
+      // Answer every ping with a pong well within the pong window.
+      final ponger = Timer.periodic(const Duration(milliseconds: 50), (_) {
+        channel?.simulateMessage('{"type":"pong"}');
+      });
+      addTearDown(ponger.cancel);
+
+      await Future<void>.delayed(const Duration(milliseconds: 700));
+      expect(calls, 1, reason: 'no reconnect while pongs arrive');
+      expect(t.status.value, ConnectionStatus.connected);
+
+      await t.close();
+    });
   });
 }
