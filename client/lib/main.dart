@@ -41,7 +41,7 @@ class HerdRelayApp extends StatefulWidget {
   State<HerdRelayApp> createState() => _HerdRelayAppState();
 }
 
-class _HerdRelayAppState extends State<HerdRelayApp> with WidgetsBindingObserver {
+class _HerdRelayAppState extends State<HerdRelayApp> {
   /// Root navigator so profile/add-device screens can be pushed on top of
   /// HomePage and popped from outside (e.g. in deep-link handlers).
   final GlobalKey<NavigatorState> _navKey = GlobalKey<NavigatorState>();
@@ -52,35 +52,14 @@ class _HerdRelayAppState extends State<HerdRelayApp> with WidgetsBindingObserver
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
     _bootstrap();
     _listenDeepLinks();
   }
 
   @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
     teardownRelayServices();
     super.dispose();
-  }
-
-  /// Pauses/resumes WS reconnects while the app is backgrounded: keeps the
-  /// reconnect loop from draining battery and avoids stale reconnects on
-  /// resume (iOS suspends network sockets ~30 s after backgrounding).
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (!getIt.isRegistered<RelayClient>()) return;
-    final client = getIt<RelayClient>();
-    switch (state) {
-      case AppLifecycleState.paused:
-      case AppLifecycleState.hidden:
-        client.pauseReconnect();
-      case AppLifecycleState.resumed:
-        client.resumeReconnect();
-      case AppLifecycleState.inactive:
-      case AppLifecycleState.detached:
-        break;
-    }
   }
 
   Future<void> _bootstrap() async {

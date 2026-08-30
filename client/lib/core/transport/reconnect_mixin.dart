@@ -1,20 +1,20 @@
 import 'dart:async';
-import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 
+import '../connection/retry_policy.dart';
 import 'transport.dart';
 
-/// Exponential-backoff reconnect loop, shared by every [Transport]
-/// implementation (WebSocket now, HTTP/gRPC later).
-///
-/// Delays follow the legacy client behavior: 1, 2, 4, … up to
-/// [maxReconnectDelay] (30 s). Only one reconnect timer exists at a time, and
-/// the host must call [markConnected] on a successful connect and
+/// Reconnect loop, shared by every [Transport] implementation (WebSocket now,
+/// HTTP/gRPC later). The delay schedule comes from a [RetryPolicy] — the
+/// default [ExponentialBackoff] reproduces the legacy client behavior
+/// (1 s, 2 s, 4 s, … up to 30 s). Only one reconnect timer exists at a time,
+/// and the host must call [markConnected] on a successful connect and
 /// [stopReconnects] from `close()`.
 ///
-/// The host (any [Transport]) implements three members:
+/// The host (any [Transport]) implements four members:
 /// - [reconnectNow] — opens a fresh connection;
+/// - [retryPolicy] — the delay schedule;
 /// - [isClosed] — true once the host is closed;
 /// - [status] — the host's connection status (from [Transport]).
 mixin ReconnectMixin {
@@ -22,14 +22,14 @@ mixin ReconnectMixin {
   int _attempt = 0;
   bool _reconnectPaused = false;
 
-  /// Upper bound for the exponential backoff.
-  static const Duration maxReconnectDelay = Duration(seconds: 30);
-
   /// True once the transport has been closed; stops all reconnects.
   bool get isClosed;
 
   /// The transport's connection status.
   ValueNotifier<ConnectionStatus> get status;
+
+  /// Delay schedule for reconnects (host-provided).
+  RetryPolicy get retryPolicy;
 
   /// Opens a fresh connection. Implemented by the host.
   Future<void> reconnectNow();
@@ -38,9 +38,9 @@ mixin ReconnectMixin {
   /// closed, or reconnects are paused.
   void scheduleReconnect() {
     if (isClosed || _reconnectTimer != null || _reconnectPaused) return;
-    final seconds = min(pow(2, _attempt).toInt(), maxReconnectDelay.inSeconds);
+    final delay = retryPolicy.nextDelay(_attempt);
     _attempt++;
-    _reconnectTimer = Timer(Duration(seconds: seconds), () {
+    _reconnectTimer = Timer(delay, () {
       _reconnectTimer = null;
       reconnectNow();
     });

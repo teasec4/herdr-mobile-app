@@ -3,25 +3,34 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
+import '../connection/retry_policy.dart';
 import 'reconnect_mixin.dart';
 import 'transport.dart';
 
-/// WebSocket [Transport]: raw text frames, auto-reconnect with exponential
-/// backoff (1, 2, 4, … 30 s), pause/resume for app lifecycle.
+/// WebSocket [Transport]: raw text frames, auto-reconnect with a [RetryPolicy]
+/// (default [ExponentialBackoff]: 1, 2, 4, … 30 s), pause/resume for app
+/// lifecycle.
 ///
 /// Deliberately protocol-agnostic: no JSON parsing, no requests, no events —
 /// see docs/09-refactoring-plan.md §2.1.
 class WebSocketTransport with ReconnectMixin implements Transport {
   /// [channelFactory] is injectable for tests: it substitutes a fake
   /// [WebSocketChannel] so reconnect/send/receive can be tested with no real
-  /// network. Production uses [WebSocketChannel.connect].
-  WebSocketTransport({WebSocketChannel Function(Uri uri)? channelFactory})
-      : _channelFactory = channelFactory ?? WebSocketChannel.connect {
+  /// network. Production uses [WebSocketChannel.connect]. [retryPolicy]
+  /// defaults to [ExponentialBackoff].
+  WebSocketTransport({
+    WebSocketChannel Function(Uri uri)? channelFactory,
+    RetryPolicy? retryPolicy,
+  })  : _channelFactory = channelFactory ?? WebSocketChannel.connect,
+        retryPolicy = retryPolicy ?? ExponentialBackoff() {
     status = ValueNotifier<ConnectionStatus>(ConnectionStatus.disconnected);
     _messages = StreamController<String>.broadcast();
   }
 
   final WebSocketChannel Function(Uri uri) _channelFactory;
+
+  @override
+  final RetryPolicy retryPolicy;
 
   @override
   late final ValueNotifier<ConnectionStatus> status;
