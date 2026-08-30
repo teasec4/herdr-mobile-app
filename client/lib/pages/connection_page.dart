@@ -8,6 +8,7 @@ import '../models/pair_config.dart';
 import '../services/config_store.dart';
 import '../services/relay_client.dart';
 import '../utils/toast_service.dart';
+import '../widgets/manual_mode_dialog.dart';
 
 /// Connection screen: the active pair, live status, connection test,
 /// available modes from the relay, saved devices, and pair-link entry —
@@ -165,6 +166,14 @@ class _ConnectionPageState extends State<ConnectionPage> {
     }
   }
 
+  /// Opens the manual-mode dialog (custom host/port with live availability
+  /// check) and applies the resulting config (AUTO_MODE_SWITCHING_PLAN, Phase 3).
+  Future<void> _openManualMode() async {
+    final cfg = await showManualModeDialog(context, config: widget.config);
+    if (cfg == null) return;
+    await widget.onSwitch(cfg);
+  }
+
   Future<void> _switchProfile(PairConfig config) async {
     await widget.onSwitch(config);
     if (mounted) Navigator.of(context).pop();
@@ -245,6 +254,9 @@ class _ConnectionPageState extends State<ConnectionPage> {
 
   Widget _deviceCard(ThemeData theme) {
     final c = widget.config;
+    // LAN-only profile: the badge + hint warn that the relay is unreachable
+    // away from home (AUTO_MODE_SWITCHING_PLAN, Phase 1.2).
+    final lanOnly = c.endpoints.length == 1 && c.endpoints.containsKey('lan');
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -262,11 +274,28 @@ class _ConnectionPageState extends State<ConnectionPage> {
                       style: theme.textTheme.titleMedium),
                 ),
                 Chip(label: Text(c.mode)),
+                if (lanOnly)
+                  const Padding(
+                    padding: EdgeInsets.only(left: 4),
+                    child: Tooltip(
+                      message: 'Only reachable on local WiFi',
+                      child: Icon(Icons.warning_amber,
+                          color: Colors.orange, size: 20),
+                    ),
+                  ),
               ],
             ),
             const SizedBox(height: 4),
             Text('${c.host}:${c.port}',
                 style: theme.textTheme.bodyMedium),
+            if (lanOnly) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Tip: enable Tailscale on both devices for remote access',
+                style: theme.textTheme.bodySmall
+                    ?.copyWith(color: Colors.orange),
+              ),
+            ],
             const SizedBox(height: 8),
             SelectableText(
               c.wsUri.toString(),
@@ -384,6 +413,12 @@ class _ConnectionPageState extends State<ConnectionPage> {
                   groupValue: widget.config.mode,
                   onChanged: (_) => _switchMode(mode),
                 ),
+            const SizedBox(height: 4),
+            TextButton.icon(
+              onPressed: _openManualMode,
+              icon: const Icon(Icons.tune),
+              label: const Text('Switch mode manually'),
+            ),
           ],
         ),
       ),

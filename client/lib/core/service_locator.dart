@@ -93,6 +93,9 @@ void setupRelayServices(
       _ => WebSocketTransport(),
     };
     final retryPolicy = ExponentialBackoff();
+    // Expose the transport so ConnectionFallbackManager (main.dart) can watch
+    // the connection state and auto-switch to another saved endpoint.
+    getIt.registerSingleton<Transport>(transport);
     getIt.registerSingleton<ConnectionManager>(
       ConnectionManager(transport, retryPolicy),
     );
@@ -138,5 +141,8 @@ Future<void> teardownRelayServices() async {
   if (getIt.isRegistered<ConnectionManager>()) {
     getIt<ConnectionManager>().dispose();
     getIt.unregister<ConnectionManager>();
+  }
+  if (getIt.isRegistered<Transport>()) {
+    getIt.unregister<Transport>();
   }
 }

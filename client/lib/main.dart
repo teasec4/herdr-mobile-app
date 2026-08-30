@@ -2,7 +2,9 @@ import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'core/connection/connection_fallback_manager.dart';
 import 'core/service_locator.dart';
+import 'core/transport/transport.dart';
 import 'models/pair_config.dart';
 import 'pages/connection_page.dart';
 import 'pages/home_page.dart';
@@ -49,6 +51,11 @@ class _HerdRelayAppState extends State<HerdRelayApp> {
   PairConfig? _config;
   bool _loading = true;
 
+  /// Watches the live transport and auto-switches to another saved endpoint
+  /// when the current mode becomes unreachable (docs/AUTO_MODE_SWITCHING_PLAN.md,
+  /// Phase 2). Re-armed via [_reattachFallback] on every config change.
+  ConnectionFallbackManager? _fallbackManager;
+
   @override
   void initState() {
     super.initState();
@@ -58,6 +65,8 @@ class _HerdRelayAppState extends State<HerdRelayApp> {
 
   @override
   void dispose() {
+    _fallbackManager?.dispose();
+    _fallbackManager = null;
     teardownRelayServices();
     super.dispose();
   }
@@ -77,11 +86,58 @@ class _HerdRelayAppState extends State<HerdRelayApp> {
   Future<void> _setConfig(PairConfig config) async {
     await teardownRelayServices();
     setupRelayServices(config, clientFactory: widget.clientFactory);
+    _reattachFallback(config);
     if (!mounted) return;
     setState(() {
       _config = config;
       _loading = false;
     });
+  }
+
+  /// (Re)arms the auto-fallback manager for the transport just created for
+  /// [config]. Widget tests inject a fake client and no Transport is
+  /// registered, so nothing is armed there.
+  void _reattachFallback(PairConfig config) {
+    if (getIt.isRegistered<Transport>()) {
+      final transport = getIt<Transport>();
+      if (_fallbackManager == null) {
+        _fallbackManager = ConnectionFallbackManager(
+          transport: transport,
+          config: config,
+          onFallback: _onAutoFallback,
+        );
+      } else {
+        // Keep the same manager so the set of already-failed modes survives
+        // the reconnect; otherwise an outage would bounce between the first
+        // two dead endpoints and never reach funnel/gateway.
+        _fallbackManager!.attach(transport, config);
+      }
+    } else {
+      _fallbackManager?.dispose();
+      _fallbackManager = null;
+    }
+  }
+
+  /// Applies a candidate config from [ConnectionFallbackManager]: tell the
+  /// user, remember the new endpoint set, and reconnect (which re-arms the
+  /// manager for the next hop).
+  Future<void> _onAutoFallback(PairConfig config) async {
+    final nav = _navKey.currentContext;
+    if (nav != null) {
+      ScaffoldMessenger.of(nav).showSnackBar(
+        SnackBar(
+          content: Text('Relay unreachable — switched to ${config.mode} automatically'),
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
+    try {
+      await getIt<ConfigStore>().saveProfile(config);
+      await _setConfig(config);
+    } catch (_) {
+      // Save or reconnect failed; the current transport's own reconnect loop
+      // keeps retrying the original endpoint, so nothing is lost.
+    }
   }
 
   /// Deep links `herdrelay://pair?...` (Android intent-filter / iOS
@@ -126,6 +182,10 @@ class _HerdRelayAppState extends State<HerdRelayApp> {
     final next = await store.loadActive();
     if (!mounted) return;
     if (next == null) {
+      // No profile left: disarm the fallback manager, otherwise it would keep
+      // retrying the now-forgotten relay's endpoints in the background.
+      _fallbackManager?.dispose();
+      _fallbackManager = null;
       setState(() => _config = null);
     } else {
       await _setConfig(next);

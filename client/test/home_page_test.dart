@@ -3,6 +3,7 @@ import 'package:client/models/pair_config.dart';
 import 'package:client/models/relay_agent.dart';
 import 'package:client/models/relay_event.dart';
 import 'package:client/pages/agent_page.dart';
+import 'package:client/pages/help_page.dart';
 import 'package:client/pages/home_page.dart';
 import 'package:client/services/relay_client.dart';
 import 'package:flutter/material.dart';
@@ -257,12 +258,25 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('показывает три пункта: Connection, Add, Forget', (tester) async {
+    testWidgets('показывает четыре пункта: Connection, Add, Forget, Help',
+        (tester) async {
       await pumpHome(tester);
       await openMenu(tester);
       expect(find.text('Connection…'), findsOneWidget);
       expect(find.text('Add device…'), findsOneWidget);
       expect(find.text('Forget device'), findsOneWidget);
+      expect(find.text('Help'), findsOneWidget);
+    });
+
+    testWidgets('«Help» открывает HelpPage', (tester) async {
+      await pumpHome(tester);
+      await openMenu(tester);
+
+      await tester.tap(find.text('Help'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(HelpPage), findsOneWidget);
+      expect(find.text('Connection issues'), findsOneWidget);
     });
 
     testWidgets('«Connection…» вызывает onRequestSwitch', (tester) async {

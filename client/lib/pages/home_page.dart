@@ -12,6 +12,7 @@ import '../utils/async_value.dart';
 import '../widgets/mode_picker_sheet.dart';
 import '../widgets/status_chip.dart';
 import 'agent_page.dart';
+import 'help_page.dart';
 import 'run_page.dart';
 import 'spaces_page.dart';
 
@@ -119,6 +120,14 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  /// Opens the in-app help & troubleshooting screen
+  /// (AUTO_MODE_SWITCHING_PLAN, Phase 5.1).
+  void _openHelp() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const HelpPage()),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -184,6 +193,8 @@ class _HomePageState extends State<HomePage> {
                   widget.onAddDevice();
                 case 'forget':
                   _confirmForget();
+                case 'help':
+                  _openHelp();
               }
             },
             itemBuilder: (context) => const [
@@ -198,6 +209,10 @@ class _HomePageState extends State<HomePage> {
               PopupMenuItem(
                 value: 'forget',
                 child: Text('Forget device'),
+              ),
+              PopupMenuItem(
+                value: 'help',
+                child: Text('Help'),
               ),
             ],
           ),

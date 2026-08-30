@@ -27,6 +27,7 @@ void main() {
   /// work) and returns the fake client.
   Future<FakeRelayClient> pumpConnection(
     WidgetTester tester, {
+    PairConfig? profileConfig,
     List<RelayModeInfo> modes = const [
       RelayModeInfo(
           mode: 'lan',
@@ -43,9 +44,10 @@ void main() {
     void Function()? onForgetActive,
     void Function(String)? onLink,
   }) async {
+    final cfg = profileConfig ?? config;
     final fake = FakeRelayClient();
-    await setupTestDependencies(fake, config);
-    await getIt<ConfigStore>().saveProfile(config);
+    await setupTestDependencies(fake, cfg);
+    await getIt<ConfigStore>().saveProfile(cfg);
 
     await tester.pumpWidget(
       MaterialApp(
@@ -56,7 +58,7 @@ void main() {
                 onPressed: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
                     builder: (_) => ConnectionPage(
-                      config: config,
+                      config: cfg,
                       onSwitch: (c) async => onSwitch?.call(c),
                       onForgetActive: () async => onForgetActive?.call(),
                       onLink: (l) async => onLink?.call(l),
@@ -222,5 +224,41 @@ void main() {
 
     // Profile removed from the list; the card still shows the active config.
     expect(find.text('No saved devices yet'), findsOneWidget);
+  });
+
+  // --- Phase 1.2: LAN-only badge + hint ----------------------------------
+
+  testWidgets('LAN-only профиль показывает warning-иконку и подсказку',
+      (tester) async {
+    await pumpConnection(
+      tester,
+      profileConfig: const PairConfig(
+        host: '192.168.1.5',
+        port: 8375,
+        mode: 'lan',
+        token: '0123456789abcdef0123456789abcdef',
+        endpoints: {'lan': RelayEndpoint(host: '192.168.1.5', port: 8375)},
+      ),
+    );
+
+    expect(find.byIcon(Icons.warning_amber), findsOneWidget);
+    expect(find.textContaining('Tip: enable Tailscale'), findsOneWidget);
+  });
+
+  // --- Phase 3: manual mode entry ----------------------------------------
+
+  testWidgets('«Switch mode manually» открывает и закрывает ручной режим',
+      (tester) async {
+    await pumpConnection(tester);
+
+    await scrollTo(tester, find.text('Switch mode manually'));
+    await tester.tap(find.text('Switch mode manually'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Manual Connection'), findsOneWidget);
+
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(find.text('Manual Connection'), findsNothing);
   });
 }

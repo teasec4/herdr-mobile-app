@@ -134,6 +134,10 @@ class WebSocketTransport with ReconnectMixin implements Transport {
       if (_closed) return;
       lastError = '$e';
       ws.sink.close();
+      // A failed connect leaves the socket dead: report disconnected so
+      // upper layers (e.g. ConnectionFallbackManager) see the outage
+      // instead of a stuck "connecting" state.
+      status.value = ConnectionStatus.disconnected;
       scheduleReconnect();
     }
   }
