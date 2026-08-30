@@ -26,9 +26,6 @@ func buildMux(token string, h *httpTransport.Handler, wsHandler *ws.Handler) htt
 	mux.HandleFunc("/api/events/pane.agent_status_changed", authMiddleware(token, func(w http.ResponseWriter, r *http.Request) {
 		h.HandlePluginEvent(w, r, "pane.agent_status_changed")
 	}))
-	mux.HandleFunc("/api/events/pane.updated", authMiddleware(token, func(w http.ResponseWriter, r *http.Request) {
-		h.HandlePluginEvent(w, r, "pane.updated")
-	}))
 
 	// WebSocket
 	mux.HandleFunc("/ws", authMiddleware(token, wsHandler.ServeHTTP))
