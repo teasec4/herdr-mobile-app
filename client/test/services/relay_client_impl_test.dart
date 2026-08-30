@@ -57,6 +57,63 @@ void main() {
       await client.close();
     });
 
+    test('session maps the response into workspaces and panes', () async {
+      final t = FakeTransport();
+      final client = RelayClientImpl(config(), transport: t);
+      await pumpEventQueue();
+
+      final future = client.session();
+      await pumpEventQueue();
+      final sent = jsonDecode(t.sentMessages.single) as Map<String, dynamic>;
+      expect(sent['method'], 'session.snapshot');
+
+      t.simulateMessage(jsonEncode({
+        'type': 'response',
+        'id': sent['id'],
+        'ok': true,
+        'result': {
+          'workspaces': [
+            {
+              'workspace_id': 'wH',
+              'label': 'herdr_relay',
+              'agent_status': 'working',
+              'pane_count': 3,
+            },
+          ],
+          'panes': [
+            {
+              'pane_id': 'wH:p8',
+              'workspace_id': 'wH',
+              'tab_id': 'wH:t1',
+              'agent': 'kimi',
+              'agent_status': 'working',
+            },
+            {
+              'pane_id': 'w7:p1',
+              'workspace_id': 'w7',
+              'tab_id': 'w7:t1',
+              'agent_status': 'unknown',
+            },
+          ],
+          'focused_workspace_id': 'wH',
+        },
+      }));
+
+      final session = await future;
+      expect(session.workspaces, hasLength(1));
+      expect(session.workspaces[0].id, 'wH');
+      expect(session.workspaces[0].label, 'herdr_relay');
+      expect(session.workspaces[0].paneCount, 3);
+      expect(session.panes, hasLength(2));
+      expect(session.panes[0].agent, 'kimi');
+      expect(session.panes[0].isAgentPane, isTrue);
+      expect(session.panes[1].agent, '');
+      expect(session.panes[1].isAgentPane, isFalse);
+      expect(session.focusedWorkspaceId, 'wH');
+
+      await client.close();
+    });
+
     test('output/keys/prompt send the right method and params', () async {
       final t = FakeTransport();
       final client = RelayClientImpl(config(), transport: t);

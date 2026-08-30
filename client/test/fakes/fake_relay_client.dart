@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:client/models/relay_agent.dart';
 import 'package:client/models/relay_event.dart';
+import 'package:client/models/relay_session.dart';
 import 'package:client/services/relay_client.dart';
 import 'package:flutter/foundation.dart';
 
@@ -21,6 +22,12 @@ class FakeRelayClient implements RelayClient {
 
   /// Snapshot that `snapshot()` will return.
   List<RelayAgent> agents = const [];
+
+  /// Session that `session()` will return (workspaces/panes).
+  RelaySession sessionData = const RelaySession(
+    workspaces: [],
+    panes: [],
+  );
 
   /// Text that `output()` returns for any agent.
   String outputText = '';
@@ -44,6 +51,9 @@ class FakeRelayClient implements RelayClient {
     }
     return agents;
   }
+
+  @override
+  Future<RelaySession> session() async => sessionData;
 
   @override
   Future<String> output(String target, {int lines = 200, String format = 'text'}) async {

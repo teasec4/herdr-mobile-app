@@ -12,6 +12,7 @@ class RelayAgent {
     required this.status,
     this.cwd,
     this.focused = false,
+    this.workspaceId = '',
   });
 
   /// pane_id is the only valid target for agent operations.
@@ -27,6 +28,9 @@ class RelayAgent {
   final String? cwd;
 
   final bool focused;
+
+  /// Workspace (space) this agent's pane belongs to ('' when unknown).
+  final String workspaceId;
 
   /// Blocked — waiting for the user's response ("needs my reply").
   bool get isBlocked => status.toLowerCase() == 'blocked';
@@ -54,6 +58,7 @@ class RelayAgent {
       status: (json['agent_status'] ?? json['status'] ?? 'unknown').toString(),
       cwd: json['cwd'] as String?,
       focused: json['focused'] == true,
+      workspaceId: (json['workspace_id'] ?? '').toString(),
     );
   }
 

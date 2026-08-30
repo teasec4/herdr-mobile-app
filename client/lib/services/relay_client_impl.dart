@@ -11,6 +11,7 @@ import '../core/transport/websocket_transport.dart';
 import '../models/pair_config.dart';
 import '../models/relay_agent.dart';
 import '../models/relay_event.dart';
+import '../models/relay_session.dart';
 import 'relay_client.dart';
 
 /// [RelayClient] built on the layered stack (docs/09-refactoring-plan.md §2.3):
@@ -97,6 +98,12 @@ class RelayClientImpl implements RelayClient {
         .whereType<Map>()
         .map((m) => RelayAgent.fromJson(m.cast<String, dynamic>()))
         .toList();
+  }
+
+  @override
+  Future<RelaySession> session() async {
+    final result = await _rpc.request('session.snapshot', const {});
+    return RelaySession.fromJson(result);
   }
 
   @override

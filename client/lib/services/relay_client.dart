@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import '../models/relay_agent.dart';
 import '../models/relay_event.dart';
+import '../models/relay_session.dart';
 
 // Re-export the protocol exception so UI/tests keep importing it from this
 // library (docs/09-refactoring-plan.md, decision #3).
@@ -26,6 +27,10 @@ abstract class RelayClient {
 
   /// List of agents (`agents.snapshot`).
   Future<List<RelayAgent>> snapshot();
+
+  /// Full session (`session.snapshot`): workspaces, panes (agent panes and
+  /// plain terminals) and focused targets.
+  Future<RelaySession> session();
 
   /// Agent terminal output (`agent.output`).
   Future<String> output(String target, {int lines = 200, String format = 'text'});
