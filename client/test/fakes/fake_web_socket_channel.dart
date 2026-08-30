@@ -18,7 +18,6 @@ class FakeWebSocketChannel with StreamChannelMixin<dynamic> implements WebSocket
   final Completer<void> _ready = Completer<void>();
   final StreamController<dynamic> _incoming = StreamController<dynamic>();
   late final FakeWebSocketSink _sink = FakeWebSocketSink(sent);
-  int _closeCount = 0;
 
   /// Frames the client sent through the sink.
   final List<dynamic> sent = [];
@@ -54,10 +53,6 @@ class FakeWebSocketChannel with StreamChannelMixin<dynamic> implements WebSocket
 
   /// Closes the inbound stream (like a remote close).
   void simulateDone() => _incoming.close();
-
-  /// How many times the client closed the sink (i.e. gave up on this channel).
-  int get closeCount => _closeCount;
-  void _recordClose() => _closeCount++;
 }
 
 /// Sink half of [FakeWebSocketChannel]: records `add` calls, `close` is a no-op
@@ -87,7 +82,4 @@ class FakeWebSocketSink implements WebSocketSink {
     if (!_done.isCompleted) _done.complete();
     return _done.future;
   }
-
-  @override
-  Future flush() async {}
 }

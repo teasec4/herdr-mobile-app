@@ -55,14 +55,14 @@ mixin ReconnectMixin {
   /// disconnect notifications: `onDone` and `onError` can both fire).
   bool get hasScheduledReconnect => _reconnectTimer != null;
 
-  @override
+  /// Pauses the reconnect loop; see [Transport.pause].
   void pause() {
     _reconnectPaused = true;
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
   }
 
-  @override
+  /// Resumes the reconnect loop; see [Transport.resume].
   void resume() {
     _reconnectPaused = false;
     if (!isClosed && status.value != ConnectionStatus.connected) {

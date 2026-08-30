@@ -7,6 +7,7 @@ import '../services/action_parser_service.dart';
 import '../services/command_history_service.dart';
 import '../services/config_store.dart';
 import '../services/relay_client.dart';
+import '../services/relay_client_impl.dart';
 
 final getIt = GetIt.instance;
 
@@ -39,8 +40,9 @@ void setupRelayServices(PairConfig config, {RelayClient Function(PairConfig)? cl
     getIt.unregister<RelayClient>();
   }
 
-  // Register new RelayClient
-  final client = (clientFactory ?? WsRelayClient.new)(config);
+  // Register new RelayClient (layered implementation by default; widget tests
+  // inject a FakeRelayClient via clientFactory).
+  final client = (clientFactory ?? RelayClientImpl.new)(config);
   getIt.registerSingleton<RelayClient>(client);
 
   // Register AgentRepository (depends on RelayClient)

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:client/_legacy/ws_relay_client.dart';
 import 'package:client/models/pair_config.dart';
 import 'package:client/models/relay_event.dart';
 import 'package:client/services/relay_client.dart';

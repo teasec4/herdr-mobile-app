@@ -45,6 +45,9 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  # StreamChannelMixin for the fake WebSocketChannel used in tests
+  # (test/fakes/fake_web_socket_channel.dart).
+  stream_channel: ^2.1.2
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
