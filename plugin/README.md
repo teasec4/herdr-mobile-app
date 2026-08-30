@@ -98,7 +98,25 @@ pairing link). Override with env `HERDR_RELAY_TOKEN_FILE`.
 | `on-event.sh` | `[[events]]`: forward `pane.agent_status_changed` to the relay |
 | `open-pane.sh` | `[[actions]]`: open a plugin pane by id |
 | `setup-menu.sh` | `[[panes]]`: pane with relay status and the pairing QR |
+| `redeploy.sh` | dev loop: rebuild relay + restart service + re-link plugin |
 | `bin/herdrelay` | built Go relay (artifact of `install.sh`) |
+
+## Redeploy after code changes
+
+After changing Go code, hook scripts, or `herdr-plugin.toml`, apply everything
+with one command (rebuilds the relay, restarts the launchd service, re-links
+the plugin so herdr re-reads the manifest/scripts, then health-checks):
+
+```bash
+bash plugin/redeploy.sh
+# → building relay binary...
+# → restarting launchd service (com.herdrelay.relay)...
+# → re-linking herdr plugin (herdrelay.events)...
+# ✓ relay is up on :8375
+# ✓ /api/rpc agents.snapshot ok
+```
+
+The phone reconnects as-is: the pairing link/token do not change on redeploy.
 
 Deep dive into the plugin model, the manifest, and installing into herdr — see
 [docs/02-herdr-integration.md](../docs/02-herdr-integration.md).
