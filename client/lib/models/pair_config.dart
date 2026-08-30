@@ -138,6 +138,14 @@ class PairConfig {
     return Uri.parse('$scheme://$_authority$portSuffix/healthz');
   }
 
+  /// HTTP base of the relay (no path) for the HTTP fallback transport
+  /// (`/api/rpc`, `/api/events/stream`).
+  Uri get httpBaseUri {
+    final scheme = mode == 'funnel' ? 'https' : 'http';
+    final portSuffix = mode == 'funnel' ? '' : ':$port';
+    return Uri.parse('$scheme://$_authority$portSuffix');
+  }
+
   Map<String, dynamic> toJson() => {
         'host': host,
         'port': port,

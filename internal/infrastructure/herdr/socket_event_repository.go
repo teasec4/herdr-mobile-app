@@ -77,6 +77,12 @@ func (r *SocketEventRepository) Subscribe(events chan<- domain.Event) error {
 	}
 }
 
+// debounceInterval paces scroll_changed forwarding per pane: herdr emits it on
+// every scroll/output change and it carries no revision (docs/10-herdr-api.md
+// gotcha #5), so forwarding every frame would spam the client and hammer the
+// herdr CLI subprocess behind every agent.output request.
+const debounceInterval = 500 * time.Millisecond
+
 // subscription is a single entry of the events.subscribe `subscriptions` list:
 // {"type":"pane.updated"} or {"type":"pane.scroll_changed","pane_id":"wH:p3"}.
 type subscription struct {
@@ -110,11 +116,15 @@ func (r *SocketEventRepository) subscribeOnce(events chan<- domain.Event, subscr
 
 	// Subscribe to everything in a single events.subscribe message. pane.updated
 	// fires once per pane (existing panes included on subscribe); scroll_changed
-	// subscriptions are re-applied for every known pane id.
-	subs := make([]subscription, 0, len(subscribed)+1)
+	// and agent_status_changed subscriptions are re-applied for every known
+	// pane id. Status changes come over the socket even without the plugin hook.
+	subs := make([]subscription, 0, len(subscribed)*2+1)
 	subs = append(subs, subscription{Type: "pane.updated"})
 	for paneID := range subscribed {
-		subs = append(subs, subscription{Type: "pane.scroll_changed", PaneID: paneID})
+		subs = append(subs,
+			subscription{Type: "pane.scroll_changed", PaneID: paneID},
+			subscription{Type: "pane.agent_status_changed", PaneID: paneID},
+		)
 	}
 
 	if err := r.subscribe(conn, subs...); err != nil {
@@ -125,6 +135,9 @@ func (r *SocketEventRepository) subscribeOnce(events chan<- domain.Event, subscr
 
 	scanner := bufio.NewScanner(conn)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+
+	// Per-pane last forward time for scroll_changed debounce (D4).
+	lastScroll := make(map[string]time.Time)
 
 	for scanner.Scan() {
 		var notification socketNotification
@@ -156,6 +169,16 @@ func (r *SocketEventRepository) subscribeOnce(events chan<- domain.Event, subscr
 			}
 
 		case "pane.scroll_changed":
+			// Debounce per pane: herdr emits this on every scroll/output
+			// change without a revision, so forwarding every frame would
+			// spam clients and the herdr CLI subprocess.
+			paneID := paneIDFrom(notification.Data)
+			if paneID != "" {
+				if last, ok := lastScroll[paneID]; ok && time.Since(last) < debounceInterval {
+					continue
+				}
+				lastScroll[paneID] = time.Now()
+			}
 			// scroll_changed maps to output_changed for clients.
 			notification.Event = "pane.output_changed"
 		}
@@ -213,9 +236,8 @@ func paneIDFrom(data json.RawMessage) string {
 // connection causes herdr 0.8.0 to drop it.
 func (r *SocketEventRepository) subscribe(conn net.Conn, subs ...subscription) error {
 	req := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"id":      fmt.Sprintf("sub-%d", time.Now().UnixNano()),
-		"method":  "events.subscribe",
+		"id":     fmt.Sprintf("sub-%d", time.Now().UnixNano()),
+		"method": "events.subscribe",
 		"params": map[string]interface{}{
 			"subscriptions": subs,
 		},

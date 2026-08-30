@@ -4,6 +4,7 @@ package domain
 type Agent struct {
 	Agent                 string `json:"agent"`
 	AgentStatus           string `json:"agent_status"`
+	DisplayAgent          string `json:"display_agent,omitempty"`
 	Cwd                   string `json:"cwd"`
 	Focused               bool   `json:"focused"`
 	PaneID                string `json:"pane_id"`

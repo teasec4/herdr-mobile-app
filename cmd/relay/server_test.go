@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -427,5 +428,123 @@ func TestLoadIdentityRaceCondition(t *testing.T) {
 		if id.RelayID != first.RelayID {
 			t.Fatalf("relay_id mismatch at index %d: %s != %s", i, id.RelayID, first.RelayID)
 		}
+	}
+}
+
+// TestRPCEndpoint verifies the HTTP fallback dispatch: POST /api/rpc accepts a
+// relay request frame and answers with the same response frame the WS handler
+// would send.
+func TestRPCEndpoint(t *testing.T) {
+	ts := testServer(t, "secret")
+	defer ts.Close()
+
+	post := func(body string) *http.Response {
+		t.Helper()
+		req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/rpc", strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer secret")
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("rpc request failed: %v", err)
+		}
+		return res
+	}
+
+	t.Run("unknown method returns error frame", func(t *testing.T) {
+		res := post(`{"type":"request","id":7,"method":"nope","params":{}}`)
+		defer res.Body.Close()
+		var frame struct {
+			Type  string `json:"type"`
+			ID    int    `json:"id"`
+			OK    *bool  `json:"ok"`
+			Error *struct {
+				Code    string `json:"code"`
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if err := json.NewDecoder(res.Body).Decode(&frame); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if frame.Type != "response" || frame.ID != 7 {
+			t.Fatalf("unexpected envelope: %+v", frame)
+		}
+		if frame.OK != nil || frame.Error == nil || frame.Error.Code != "unknown_method" {
+			t.Fatalf("expected unknown_method error frame, got %+v", frame)
+		}
+	})
+
+	t.Run("agents.snapshot returns ok frame with agents", func(t *testing.T) {
+		res := post(`{"type":"request","id":8,"method":"agents.snapshot","params":{}}`)
+		defer res.Body.Close()
+		var frame struct {
+			Type   string `json:"type"`
+			ID     int    `json:"id"`
+			OK     bool   `json:"ok"`
+			Result struct {
+				Agents []domain.Agent `json:"agents"`
+			} `json:"result"`
+		}
+		if err := json.NewDecoder(res.Body).Decode(&frame); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if !frame.OK || len(frame.Result.Agents) != 1 || frame.Result.Agents[0].Agent != "codex" {
+			t.Fatalf("unexpected snapshot frame: %+v", frame)
+		}
+	})
+
+	t.Run("rejects malformed frames", func(t *testing.T) {
+		res := post(`not json`)
+		defer res.Body.Close()
+		if res.StatusCode != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d", res.StatusCode)
+		}
+	})
+}
+
+// TestEventStreamSSE verifies the SSE fallback: events broadcast into the
+// event service are streamed as `data: <frame>` lines.
+func TestEventStreamSSE(t *testing.T) {
+	agentService := service.NewAgentService(stubAgentRepo{})
+	eventService := service.NewEventService(stubEventRepo{})
+	identity := domain.Identity{RelayID: "relay-0123456789abcdef", Name: "test-host"}
+	pairing := service.NewPairingService(stubDetector{}, identity, "lan", "8375", "", "secret")
+	hub := ws.NewHub()
+	httpHandler := httpTransport.NewHandler(agentService, eventService, pairing)
+	wsHandler := ws.NewHandler(hub, agentService, eventService)
+	ts := httptest.NewServer(buildMux("secret", httpHandler, wsHandler))
+	defer ts.Close()
+
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/api/events/stream", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("sse connect: %v", err)
+	}
+	defer res.Body.Close()
+	if ct := res.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/event-stream") {
+		t.Fatalf("unexpected content-type %q", ct)
+	}
+
+	eventService.Broadcast(domain.AgentStatusChangedEvent{PaneID: "p1", AgentStatus: "blocked"})
+
+	line, err := bufio.NewReader(res.Body).ReadString('\n')
+	if err != nil {
+		t.Fatalf("read sse line: %v", err)
+	}
+	if !strings.HasPrefix(line, "data: ") {
+		t.Fatalf("expected 'data: ' line, got %q", line)
+	}
+	var frame struct {
+		Type  string                          `json:"type"`
+		Event string                          `json:"event"`
+		Data  domain.AgentStatusChangedEvent  `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &frame); err != nil {
+		t.Fatalf("decode sse payload: %v", err)
+	}
+	if frame.Type != "event" || frame.Event != "pane.agent_status_changed" {
+		t.Fatalf("unexpected sse frame: %+v", frame)
+	}
+	if frame.Data.PaneID != "p1" || frame.Data.AgentStatus != "blocked" {
+		t.Fatalf("unexpected event data: %+v", frame.Data)
 	}
 }

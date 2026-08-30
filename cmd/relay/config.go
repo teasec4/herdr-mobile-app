@@ -45,7 +45,9 @@ func loadConfig() (Config, error) {
 		Token:        os.Getenv("HERDRELAY_TOKEN"),
 		TokenFile:    envOr("HERDRELAY_TOKEN_FILE", filepath.Join(dir, "herdrelay.token")),
 		IdentityFile: envOr("HERDRELAY_IDENTITY_FILE", filepath.Join(dir, "herdrelay.id")),
-		Socket:       envOr("HERDR_SOCKET", filepath.Join(dir, "herdr.sock")),
+		// HERDR_SOCKET_PATH is what the herdr CLI honors (docs/10-herdr-api.md
+		// gotcha #10); HERDR_SOCKET is kept as a legacy fallback.
+		Socket:       envOr("HERDR_SOCKET_PATH", envOr("HERDR_SOCKET", filepath.Join(dir, "herdr.sock"))),
 		HerdrBin:     firstNonEmpty(os.Getenv("HERDRELAY_HERDR_BIN"), os.Getenv("HERDR_BIN_PATH"), "herdr"),
 	}
 	if l := os.Getenv("HERDRELAY_LISTEN"); l != "" {

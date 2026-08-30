@@ -1,12 +1,35 @@
 # 09 — План рефакторинга: модульная архитектура клиента + дефекты логики
 
-> Статус: **утверждён** (решения §4 зафиксированы 30.08) · Ветка: `refactor/modular-architecture` (создать)
+> Статус: **реализация завершена (Фазы 0–4, дефекты D1–D9)** — ветка `refactor/modular-architecture`
 > Область: только Flutter-клиент (`client/`). Go-сервер не меняется.
 > Связанные документы: [01 — Архитектура](01-architecture.md), [05 — Flutter-приложение](05-flutter-app.md), [08 — План исполнения](08-execution-plan.md), [10 — herdr API](10-herdr-api.md).
 
 > **Два плана в одном:** (А) перенос архитектуры клиента на слои (§1–§8);
 > (Б) исправления логики, найденные при сверке кода с [10 — herdr API](10-herdr-api.md) (§1.4).
 > Фиксы (Б) не требуют архитектурных изменений и выполняются в начале соответствующих фаз.
+
+## 0. Статус реализации
+
+| Фаза | Статус | Коммит |
+| --- | --- | --- |
+| Серверные фиксы D2–D6, D9 | ✅ | `f724b1a` |
+| Фаза 0 — baseline-тесты + D1/D8 | ✅ | `965b7f9` |
+| Фаза 1 — Transport | ✅ | `5357948` (+ keepalive D7 в `dc106ca`~) |
+| Фаза 2 — Protocol | ✅ | `13d94c2` |
+| Фаза 3 — Client на слоях | ✅ | `402072c` |
+| Фаза 4 — Connection Manager | ✅ | `dc106ca` |
+| Фаза 5 — HTTP fallback (RPC + SSE) | ✅ | сервер `36149fa`, клиент `2e4bdb1` |
+| README модулей (контракты) | ✅ | — |
+
+Итог: `WsRelayClient` (362 строки) удалён; на его месте `core/transport` +
+`core/protocol` + `core/connection` + `services/relay_client_impl.dart`
+(128 тестов зелёные, `dart analyze` — 0 warnings/errors).
+
+**Живая проверка (herdr 0.8.0, protocol 19):** новый релей на `:18375` —
+`/healthz` ✓, `/api/snapshot` (3 реальных агента) ✓, `/api/rpc`
+(ok-frame + error-frame `unknown_method`) ✓, `/api/events/stream` (SSE
+держится) ✓, `/pair` ✓, WS `connect → ping→pong → snapshot→response` ✓.
+Фикс D2 подтверждён живьём: snapshot идёт через `HERDR_SOCKET_PATH`.
 
 ## 1. Контекст и мотивация
 
@@ -48,17 +71,17 @@
 несоответствия. Они исправляются **до или в начале** соответствующей фазы, независимо
 от архитектурного переноса.
 
-| # | Приоритет | Где | Дефект | Доказательство | Фикс |
-|---|---|---|---|---|---|
-| **D1** | 🔴 Критично | `client/lib/models/relay_event.dart` | `pane.agent_status_changed` парсится через `data['status']`, а сервер шлёт `agent_status` → статус в реальном времени **всегда `unknown`** (agent_page обновляет статус из события) | `internal/domain/event.go` — `AgentStatusChangedEvent` c json-тегом `agent_status`; docs/10 §5.3 (пример data) | `data?['agent_status'] ?? data?['status']` |
-| **D2** | 🔴 Критично | `internal/infrastructure/herdr/cli_repository.go:30` | Subprocess'у шлётся `HERDR_SOCKET`, но CLI **игнорирует** эту переменную (работает только `HERDR_SOCKET_PATH`) → все herdr-операции идут на дефолтный сокет, named session сломан | docs/10 §3.1, грабли №10 (проверено живьём) | слать `HERDR_SOCKET_PATH`; `cmd/relay/config.go` — читать `HERDR_SOCKET_PATH` (fallback на `HERDR_SOCKET`) |
-| **D3** | 🟠 Важно | `internal/infrastructure/herdr/socket_event_repository.go` | Нет подписки `pane.agent_status_changed` → статусы агентов приходят только через плагин-хук; без установленного плагина живых статусов нет | docs/10 §5.2 (scoped-подписка существует), §8 (сейчас статусы = хук) | добавить per-pane подписку `pane.agent_status_changed` + маппинг в `domain.ParseEvent` |
-| **D4** | 🟠 Важно | клиент `agent_page.dart` + сервер | `pane.scroll_changed` не несёт `revision` (всегда 0) → клиент дебаунсит 400 ms, но каждый тик = WS-запрос = subprocess herdr CLI; при активном выводе — лишняя нагрузка | docs/10 грабли №5; `agent_page.dart:102-115` | серверный дебаунс `scroll_changed` (пери-pane, ≥500 ms) в `socket_event_repository` |
-| **D5** | 🟡 Средне | `cmd/relay/router.go:29` | Маршрут `/api/events/pane.updated` мёртвый: хук `pane.updated` не может быть зарегистрирован (линковщик отклоняет как unknown event) | docs/10 грабли №1 | удалить маршрут (или пометить deprecated) |
-| **D6** | 🟡 Средне | релей→клиент | Snapshot не содержит `display_agent` (herdr его отдаёт) → на телефоне теряется отображаемое имя агента | docs/10 §6.1 (PaneInfo.display_agent); `client/lib/models/relay_agent.dart:51` | добавить `DisplayAgent` в `domain.Agent` и прокинуть в `RelayAgent` |
-| **D7** | 🟡 Средне | клиент | Нет keepalive: никто не инициирует ping (клиент и сервер только отвечают) → мёртвое WS-соединение (NAT/сон телефона) не детектится до первого запроса | `relay_client.dart` (`case 'ping'` — только ответ); `ws/handler.go` | периодический ping в Transport (Фаза 1) |
-| **D8** | 🟢 Низко | `client/lib/models/relay_agent.dart:23` | Комментарий о статусах устарел («done, running, waiting, error») — herdr 0.8.0: `idle/working/blocked/done/unknown` | docs/10 §6.2 | поправить доки |
-| **D9** | 🟢 Низко | `socket_event_repository.go:216` | `"jsonrpc":"2.0"` в subscribe — лишнее поле (в схеме herdr его нет; безвредно) | docs/10 §3.2 | убрать при правке D3 |
+| # | Приоритет | Где | Дефект | Доказательство | Фикс | Статус |
+|---|---|---|---|---|---|---|
+| **D1** | 🔴 Критично | `client/lib/models/relay_event.dart` | `pane.agent_status_changed` парсится через `data['status']`, а сервер шлёт `agent_status` → статус в реальном времени **всегда `unknown`** (agent_page обновляет статус из события) | `internal/domain/event.go` — `AgentStatusChangedEvent` c json-тегом `agent_status`; docs/10 §5.3 (пример data) | `data?['agent_status'] ?? data?['status']` | ✅ |
+| **D2** | 🔴 Критично | `internal/infrastructure/herdr/cli_repository.go:30` | Subprocess'у шлётся `HERDR_SOCKET`, но CLI **игнорирует** эту переменную (работает только `HERDR_SOCKET_PATH`) → все herdr-операции идут на дефолтный сокет, named session сломан | docs/10 §3.1, грабли №10 (проверено живьём) | слать `HERDR_SOCKET_PATH`; `cmd/relay/config.go` — читать `HERDR_SOCKET_PATH` (fallback на `HERDR_SOCKET`) | ✅ |
+| **D3** | 🟠 Важно | `internal/infrastructure/herdr/socket_event_repository.go` | Нет подписки `pane.agent_status_changed` → статусы агентов приходят только через плагин-хук; без установленного плагина живых статусов нет | docs/10 §5.2 (scoped-подписка существует), §8 (сейчас статусы = хук) | добавить per-pane подписку `pane.agent_status_changed` + маппинг в `domain.ParseEvent` | ✅ |
+| **D4** | 🟠 Важно | клиент `agent_page.dart` + сервер | `pane.scroll_changed` не несёт `revision` (всегда 0) → клиент дебаунсит 400 ms, но каждый тик = WS-запрос = subprocess herdr CLI; при активном выводе — лишняя нагрузка | docs/10 грабли №5; `agent_page.dart:102-115` | серверный дебаунс `scroll_changed` (пери-pane, ≥500 ms) в `socket_event_repository` | ✅ |
+| **D5** | 🟡 Средне | `cmd/relay/router.go:29` | Маршрут `/api/events/pane.updated` мёртвый: хук `pane.updated` не может быть зарегистрирован (линковщик отклоняет как unknown event) | docs/10 грабли №1 | удалить маршрут (или пометить deprecated) | ✅ |
+| **D6** | 🟡 Средне | релей→клиент | Snapshot не содержит `display_agent` (herdr его отдаёт) → на телефоне теряется отображаемое имя агента | docs/10 §6.1 (PaneInfo.display_agent); `client/lib/models/relay_agent.dart:51` | добавить `DisplayAgent` в `domain.Agent` и прокинуть в `RelayAgent` | ✅ (сервер; клиент уже читал `display_agent`) |
+| **D7** | 🟡 Средне | клиент | Нет keepalive: никто не инициирует ping (клиент и сервер только отвечают) → мёртвое WS-соединение (NAT/сон телефона) не детектится до первого запроса | `relay_client.dart` (`case 'ping'` — только ответ); `ws/handler.go` | периодический ping в Transport (Фаза 1) | ✅ (`WebSocketTransport` keepalive, 20 s / pong 10 s) |
+| **D8** | 🟢 Низко | `client/lib/models/relay_agent.dart:23` | Комментарий о статусах устарел («done, running, waiting, error») — herdr 0.8.0: `idle/working/blocked/done/unknown` | docs/10 §6.2 | поправить доки | ✅ |
+| **D9** | 🟢 Низко | `socket_event_repository.go:216` | `"jsonrpc":"2.0"` в subscribe — лишнее поле (в схеме herdr его нет; безвредно) | docs/10 §3.2 | убрать при правке D3 | ✅ |
 
 **Привязка к фазам:** D1, D8 → Фаза 0 (baseline-тест «event → статус» должен быть красным до фикса, зелёным после); D2, D5, D6 → серверные фиксы, выполняются первым коммитом (не зависят от рефакторинга); D3, D4, D9 → серверные улучшения, с ними же; D7 → Фаза 1 (keepalive в `Transport`).
 
@@ -246,11 +269,11 @@ class FixedDelay      implements RetryPolicy { ... }
 
 ### Фаза 4 — Connection Manager (неделя 4)
 
-1. `core/connection/retry_policy.dart` — интерфейс + `ExponentialBackoff`, `FixedDelay` (перенос формулы 1..30 c).
+1. `core/transport/retry_policy.dart` — интерфейс + `ExponentialBackoff`, `FixedDelay` (перенос формулы 1..30 c; живёт в transport, чтобы не было зависимости transport → connection).
 2. `core/connection/connection_manager.dart` — lifecycle из `main.dart` (`WidgetsBindingObserver` → `transport.pause()/resume()`), подключение RetryPolicy.
 3. `main.dart` — убрать `WidgetsBindingObserver`; `service_locator.dart` регистрирует `ConnectionManager` рядом с client/repo.
 4. Удаление `_legacy/WsRelayClient`.
-5. Тесты: `connection_manager_test.dart` (paused/hidden → pause, resumed → resume; disposal без утечки observer), `retry_policy_test.dart`.
+5. Тесты: `connection_manager_test.dart` (paused/hidden → pause, resumed → resume; disposal без утечки observer), `retry_policy_test.dart` (в `test/core/transport/`).
 
 **Критерий готовности:** приложение само паузит reconnect в background и возобновляет в foreground (поведение из main.dart сохранено, теперь тестируемое). Battery drain закрыт.
 
@@ -291,6 +314,7 @@ client/lib/
 │   │   ├── transport.dart              # interface + ConnectionStatus
 │   │   ├── websocket_transport.dart
 │   │   ├── reconnect_mixin.dart        # backoff + pause/resume
+│   │   ├── retry_policy.dart           # ExponentialBackoff/FixedDelay
 │   │   ├── http_health.dart            # healthz (3 попытки)
 │   │   └── http_transport.dart         # Фаза 5 (future fallback)
 │   ├── protocol/
@@ -298,8 +322,7 @@ client/lib/
 │   │   ├── request_response_manager.dart
 │   │   └── relay_exception.dart
 │   ├── connection/
-│   │   ├── connection_manager.dart     # lifecycle (из main.dart)
-│   │   └── retry_policy.dart
+│   │   └── connection_manager.dart     # lifecycle (из main.dart)
 │   └── service_locator.dart
 ├── models/                             # без изменений
 ├── services/
@@ -311,9 +334,9 @@ client/lib/
 
 client/test/
 ├── core/
-│   ├── transport/  (websocket_transport_test, http_health_test)
+│   ├── transport/  (websocket_transport_test, http_health_test, retry_policy_test)
 │   ├── protocol/   (relay_protocol_test, request_response_manager_test)
-│   └── connection/ (connection_manager_test, retry_policy_test)
+│   └── connection/ (connection_manager_test)
 ├── services/       (relay_client_impl_test, relay_client_test ← baseline)
 └── fakes/          (fake_transport.dart, fake_relay_client.dart ← существующий)
 ```
@@ -368,19 +391,19 @@ expect(transport.sentMessages, contains('{"type":"ping"}'));
 
 **До начала:**
 - [x] Утвердить решения §4 (зафиксировать ADR) — **сделано 30.08**
-- [ ] Создать ветку `refactor/modular-architecture`
-- [ ] Серверные фиксы D2/D3/D4/D5/D6/D9 (не зависят от рефакторинга)
-- [ ] Фаза 0: baseline-тесты на `WsRelayClient` (эталон поведения), красный тест на D1 до фикса
+- [x] Создать ветку `refactor/modular-architecture`
+- [x] Серверные фиксы D2/D3/D4/D5/D6/D9 (не зависят от рефакторинга)
+- [x] Фаза 0: baseline-тесты на `WsRelayClient` (эталон поведения), красный тест на D1 до фикса
 - [ ] `flutter analyze` + `flutter test` зелёные на baseline
 
 **Во время:**
-- [ ] Каждый слой: unit-тесты + README
-- [ ] Baseline-тесты зелёные после каждой фазы
-- [ ] `RelayClient`-интерфейс не меняется (UI не трогаем)
+- [x] Каждый слой: unit-тесты + README
+- [x] Baseline-тесты зелёные после каждой фазы
+- [x] `RelayClient`-интерфейс не меняется (UI не трогали)
 
 **После:**
 - [ ] Code review с фокусом на boundaries (нет cross-layer зависимостей)
-- [ ] Удалён `_legacy/WsRelayClient`
+- [x] Удалён `_legacy/WsRelayClient`
 - [ ] Benchmark: время reconnect, latency запросов
 
 ## 12. Риски

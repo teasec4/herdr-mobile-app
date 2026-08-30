@@ -27,7 +27,11 @@ func NewCLIRepository(bin, socket string) *CLIRepository {
 
 func (r *CLIRepository) run(args ...string) ([]byte, error) {
 	cmd := exec.Command(r.bin, args...)
-	cmd.Env = append(os.Environ(), "HERDR_SOCKET="+r.socket)
+	// herdr CLI ignores HERDR_SOCKET and only honors HERDR_SOCKET_PATH
+	// (see docs/10-herdr-api.md, gotcha #10). Using the wrong variable makes
+	// every herdr call hit the default socket even when a named session is
+	// configured.
+	cmd.Env = append(os.Environ(), "HERDR_SOCKET_PATH="+r.socket)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()

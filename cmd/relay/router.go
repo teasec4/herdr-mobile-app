@@ -26,12 +26,14 @@ func buildMux(token string, h *httpTransport.Handler, wsHandler *ws.Handler) htt
 	mux.HandleFunc("/api/events/pane.agent_status_changed", authMiddleware(token, func(w http.ResponseWriter, r *http.Request) {
 		h.HandlePluginEvent(w, r, "pane.agent_status_changed")
 	}))
-	mux.HandleFunc("/api/events/pane.updated", authMiddleware(token, func(w http.ResponseWriter, r *http.Request) {
-		h.HandlePluginEvent(w, r, "pane.updated")
-	}))
 
 	// WebSocket
 	mux.HandleFunc("/ws", authMiddleware(token, wsHandler.ServeHTTP))
+
+	// HTTP fallback for clients that cannot use WebSockets: the RPC twin of
+	// /ws and the SSE event stream.
+	mux.HandleFunc("/api/rpc", authMiddleware(token, h.HandleRPC))
+	mux.HandleFunc("/api/events/stream", authMiddleware(token, h.HandleEventStream))
 
 	// Pairing endpoint
 	mux.HandleFunc("/pair", authMiddleware(token, h.HandlePair))
