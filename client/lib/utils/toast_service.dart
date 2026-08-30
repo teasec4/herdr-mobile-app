@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../services/relay_client.dart';
+
 enum ToastType { success, error, info, warning }
 
 class ToastService {
@@ -54,6 +56,15 @@ class ToastService {
   }
 
   static String _formatError(Object error) {
+    // Relay protocol errors map to actionable advice instead of a raw code.
+    if (error is RelayException) {
+      return switch (error.code) {
+        'not_connected' => 'Cannot reach relay. Check your network connection.',
+        'timeout' => 'Relay did not respond in time. Try again.',
+        'unauthorized' => 'Invalid token. Please scan the QR code again.',
+        _ => error.message.isEmpty ? error.code : error.message,
+      };
+    }
     if (error is Exception) {
       return error.toString().replaceFirst('Exception: ', '');
     }

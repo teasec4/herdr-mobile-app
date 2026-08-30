@@ -25,7 +25,19 @@ func loadToken(cfg Config) (string, error) {
 	if err := os.MkdirAll(filepath.Dir(cfg.TokenFile), 0o700); err != nil {
 		return "", err
 	}
-	if err := os.WriteFile(cfg.TokenFile, []byte(tok+"\n"), 0o600); err != nil {
+
+	// Atomic create with O_EXCL to prevent race condition
+	f, err := os.OpenFile(cfg.TokenFile, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		if os.IsExist(err) {
+			// Another process won the race, re-read the file
+			return loadToken(cfg)
+		}
+		return "", err
+	}
+	defer f.Close()
+
+	if _, err := f.WriteString(tok + "\n"); err != nil {
 		return "", err
 	}
 	return tok, nil

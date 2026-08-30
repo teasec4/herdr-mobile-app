@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:client/models/relay_agent.dart';
 import 'package:client/models/relay_event.dart';
-import 'package:client/services/relay_client.dart' hide RelayEvent;
+import 'package:client/services/relay_client.dart';
 import 'package:flutter/foundation.dart';
 
 /// Fake relay client for widget tests: no network, controlled from the test.
@@ -16,6 +16,7 @@ class FakeRelayClient implements RelayClient {
 
   final StreamController<RelayEvent> _eventsController = StreamController.broadcast();
 
+  @override
   Stream<RelayEvent> get events => _eventsController.stream;
 
   /// Snapshot that `snapshot()` will return.
@@ -58,6 +59,20 @@ class FakeRelayClient implements RelayClient {
 
   @override
   Future<bool> healthz() async => true;
+
+  @override
+  void pauseReconnect() {
+    _paused = true;
+  }
+
+  @override
+  void resumeReconnect() {
+    _paused = false;
+  }
+
+  /// True while [pauseReconnect] is in effect (lifecycle test hook).
+  bool _paused = false;
+  bool get reconnectPaused => _paused;
 
   @override
   Future<void> close() async {}

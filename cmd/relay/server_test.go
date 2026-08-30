@@ -8,24 +8,73 @@ import (
 	"testing"
 
 	"github.com/gorilla/websocket"
+
+	"herdrelay/internal/domain"
+	"herdrelay/internal/infrastructure/netdetect"
+	"herdrelay/internal/service"
+	httpTransport "herdrelay/internal/transport/http"
+	"herdrelay/internal/transport/ws"
 )
 
-// stubHerdr is a fake AgentAPI for tests (no herdr subprocess needed).
-type stubHerdr struct{}
+// stubAgentRepo is a fake agent repository (no herdr subprocess needed).
+type stubAgentRepo struct{}
 
-func (stubHerdr) Snapshot() (*Snapshot, error) {
-	return &Snapshot{Agents: []Agent{{Agent: "codex", AgentStatus: "working", PaneID: "wF:p5"}}}, nil
+func (stubAgentRepo) Snapshot() (*domain.Snapshot, error) {
+	return &domain.Snapshot{Agents: []domain.Agent{{Agent: "codex", AgentStatus: "working", PaneID: "wF:p5"}}}, nil
 }
-func (stubHerdr) Read(target string, lines int, format string) (string, error) { return "hello\nworld\n", nil }
-func (stubHerdr) Keys(target string, keys []string) error                      { return nil }
-func (stubHerdr) Prompt(target, text string) error                             { return nil }
+func (stubAgentRepo) ReadOutput(target string, lines int, format string) (string, error) { return "hello\nworld\n", nil }
+func (stubAgentRepo) SendKeys(target string, keys []string) error                         { return nil }
+func (stubAgentRepo) SendPrompt(target, text string) error                                { return nil }
 
+// stubEventRepo is a fake event repository.
+type stubEventRepo struct{}
+
+func (stubEventRepo) Subscribe(events chan<- domain.Event) error { return nil }
+func (stubEventRepo) Close() error                               { return nil }
+
+// stubDetector simulates a machine with LAN + Tailscale + Funnel available.
+type stubDetector struct{}
+
+func (stubDetector) LANIP() string { return "192.168.1.5" }
+func (stubDetector) Tailscale() *netdetect.TailscaleInfo {
+	return &netdetect.TailscaleInfo{DNSName: "mac.tailnet.ts.net"}
+}
+func (stubDetector) TailscaleReachable(host, port string) bool { return true }
+func (stubDetector) FunnelEnabled() bool                        { return true }
+
+// testServer wires the relay exactly like main.go and serves it via httptest.
 func testServer(t *testing.T, token string) *httptest.Server {
 	t.Helper()
-	srv := newServer(Config{Mode: "lan", Listen: ":8375"}, token, stubHerdr{})
-	ts := httptest.NewServer(srv.routes())
+	agentService := service.NewAgentService(stubAgentRepo{})
+	eventService := service.NewEventService(stubEventRepo{})
+	identity := domain.Identity{RelayID: "relay-0123456789abcdef", Name: "test-host"}
+	pairing := service.NewPairingService(stubDetector{}, identity, "lan", "8375", "", token)
+	hub := ws.NewHub()
+
+	// main.go wiring: forward broadcast events to the WS hub
+	events := eventService.Subscribe()
+	go func() {
+		for event := range events {
+			hub.BroadcastEvent(event)
+		}
+	}()
+
+	httpHandler := httpTransport.NewHandler(agentService, eventService, pairing)
+	wsHandler := ws.NewHandler(hub, agentService, eventService)
+	ts := httptest.NewServer(buildMux(token, httpHandler, wsHandler))
 	t.Cleanup(ts.Close)
 	return ts
+}
+
+func wsConn(t *testing.T, ts *httptest.Server, token string) *websocket.Conn {
+	t.Helper()
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws?token=" + token
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { conn.Close() })
+	return conn
 }
 
 func TestAuth(t *testing.T) {
@@ -60,7 +109,7 @@ func TestSnapshotAPI(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
-	var snap Snapshot
+	var snap domain.Snapshot
 	if err := json.NewDecoder(resp.Body).Decode(&snap); err != nil {
 		t.Fatal(err)
 	}
@@ -71,12 +120,7 @@ func TestSnapshotAPI(t *testing.T) {
 
 func TestWSRequestResponse(t *testing.T) {
 	ts := testServer(t, "secret-token")
-	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws?token=secret-token"
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer conn.Close()
+	conn := wsConn(t, ts, "secret-token")
 
 	// ping -> pong
 	if err := conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"ping"}`)); err != nil {
@@ -86,7 +130,7 @@ func TestWSRequestResponse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var pong frame
+	var pong ws.Frame
 	if err := json.Unmarshal(raw, &pong); err != nil || pong.Type != "pong" {
 		t.Fatalf("expected pong, got %s", raw)
 	}
@@ -99,7 +143,7 @@ func TestWSRequestResponse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var resp frame
+	var resp ws.Frame
 	if err := json.Unmarshal(raw, &resp); err != nil {
 		t.Fatal(err)
 	}
@@ -111,47 +155,11 @@ func TestWSRequestResponse(t *testing.T) {
 	}
 }
 
-func TestEventBroadcast(t *testing.T) {
-	ts := testServer(t, "secret-token")
-	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws?token=secret-token"
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer conn.Close()
-
-	// emulate a plugin event
-	body := strings.NewReader(`{"event":"agent_status_changed","data":{"agent":"codex","status":"blocked"}}`)
-	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/events?token=secret-token", body)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp.Body.Close()
-
-	_, raw, err := conn.ReadMessage()
-	if err != nil {
-		t.Fatal(err)
-	}
-	var ev frame
-	if err := json.Unmarshal(raw, &ev); err != nil {
-		t.Fatal(err)
-	}
-	if ev.Type != "event" || ev.Event != "agent_status_changed" {
-		t.Fatalf("unexpected event: %s", raw)
-	}
-}
-
 // TestHerdrEventBroadcast verifies a raw HERDR_PLUGIN_EVENT_JSON payload from a
 // herdr hook is normalized to pane.agent_status_changed and reaches the WS client.
 func TestHerdrEventBroadcast(t *testing.T) {
 	ts := testServer(t, "secret-token")
-	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws?token=secret-token"
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer conn.Close()
+	conn := wsConn(t, ts, "secret-token")
 
 	body := strings.NewReader(`{"data":{"pane_id":"wF:p5","agent":"codex","agent_status":"blocked","cwd":"/tmp/x"}}`)
 	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/events/herdr?token=secret-token", body)
@@ -166,24 +174,109 @@ func TestHerdrEventBroadcast(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var ev frame
+	var ev ws.Frame
 	if err := json.Unmarshal(raw, &ev); err != nil {
 		t.Fatal(err)
 	}
 	if ev.Type != "event" || ev.Event != "pane.agent_status_changed" {
 		t.Fatalf("unexpected event: %s", raw)
 	}
-	// data must be a valid JSON object with agent_status
 	data, ok := ev.Data.(map[string]any)
 	if !ok || data["agent_status"] != "blocked" {
 		t.Fatalf("unexpected data: %v", ev.Data)
 	}
 }
 
-func TestPairLink(t *testing.T) {
-	l := pairLink("lan", map[string]string{"host": "192.168.1.5", "port": "8375"}, "abc")
-	if !strings.HasPrefix(l, "herdrelay://pair?") || !strings.Contains(l, "mode=lan") || !strings.Contains(l, "token=abc") {
-		t.Fatalf("unexpected link: %s", l)
+func TestPairEndpoint(t *testing.T) {
+	ts := testServer(t, "secret-token")
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/pair", nil)
+	req.Header.Set("Authorization", "Bearer secret-token")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	var info domain.PairInfo
+	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+		t.Fatal(err)
+	}
+	if info.Primary != "lan" {
+		t.Fatalf("expected primary=lan, got %q", info.Primary)
+	}
+	lan, ok := info.URLs["lan"]
+	if !ok || !lan.Available {
+		t.Fatalf("expected available lan mode, got %+v", info.URLs)
+	}
+	if !strings.HasPrefix(lan.Link, "herdrelay://pair?") || !strings.Contains(lan.Link, "mode=lan") || !strings.Contains(lan.Link, "token=secret-token") {
+		t.Fatalf("unexpected link: %s", lan.Link)
+	}
+	if info.UniversalQR == "" || strings.Contains(info.UniversalQR, "mode=") {
+		t.Fatalf("expected a mode-less universal QR link, got %q", info.UniversalQR)
+	}
+	if !strings.Contains(lan.Link, "relay_id=relay-0123456789abcdef") || !strings.Contains(lan.Link, "name=test-host") {
+		t.Fatalf("expected relay identity in link, got %s", lan.Link)
+	}
+	if !strings.Contains(info.UniversalQR, "relay_id=relay-0123456789abcdef") {
+		t.Fatalf("expected relay_id in universal QR, got %q", info.UniversalQR)
+	}
+	if info.RelayID != "relay-0123456789abcdef" {
+		t.Fatalf("expected relay_id relay-0123456789abcdef, got %q", info.RelayID)
+	}
+	if info.Name != "test-host" {
+		t.Fatalf("expected name test-host, got %q", info.Name)
+	}
+}
+
+func TestFetchPairInfo(t *testing.T) {
+	ts := testServer(t, "secret-token")
+	info, err := fetchPairInfo(ts.URL, "secret-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Primary != "lan" {
+		t.Fatalf("expected primary=lan, got %q", info.Primary)
+	}
+	lan, ok := info.URLs["lan"]
+	if !ok || !lan.Available {
+		t.Fatalf("expected available lan mode, got %+v", info.URLs)
+	}
+	if !strings.Contains(lan.Link, "relay_id=relay-0123456789abcdef") {
+		t.Fatalf("expected relay_id in link, got %s", lan.Link)
+	}
+	if info.Name != "test-host" {
+		t.Fatalf("expected name test-host, got %q", info.Name)
+	}
+
+	// Wrong token must produce an error, not a decoded PairInfo.
+	if _, err := fetchPairInfo(ts.URL, "wrong-token"); err == nil {
+		t.Fatal("expected error with wrong token")
+	}
+}
+
+func TestLoadIdentityCreatesFile(t *testing.T) {
+	dir := t.TempDir()
+	cfg := Config{IdentityFile: dir + "/sub/herdrelay.id"}
+
+	id1, err := loadIdentity(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(id1.RelayID) != 32 {
+		t.Fatalf("expected 32-hex relay_id, got %d chars (%q)", len(id1.RelayID), id1.RelayID)
+	}
+	if id1.Name == "" {
+		t.Fatal("expected non-empty name")
+	}
+	id2, err := loadIdentity(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id1.RelayID != id2.RelayID {
+		t.Fatal("relay_id should be stable across runs")
+	}
+	if id2.Name == "" {
+		t.Fatal("expected name to be refreshed from host")
 	}
 }
 
@@ -213,5 +306,126 @@ func TestLoadTokenCreatesFile(t *testing.T) {
 	}
 	if tok3 != "from-env" {
 		t.Fatal("env token should win over file")
+	}
+}
+
+func TestVerifyTokenConstantTime(t *testing.T) {
+	// Verify that wrong tokens are rejected (functional test)
+	req := httptest.NewRequest("GET", "/test", nil)
+
+	// No token
+	if verifyToken(req, "secret") {
+		t.Fatal("expected false with no token")
+	}
+
+	// Wrong Bearer token
+	req.Header.Set("Authorization", "Bearer wrong")
+	if verifyToken(req, "secret") {
+		t.Fatal("expected false with wrong Bearer token")
+	}
+
+	// Correct Bearer token
+	req.Header.Set("Authorization", "Bearer secret")
+	if !verifyToken(req, "secret") {
+		t.Fatal("expected true with correct Bearer token")
+	}
+
+	// Wrong query token
+	req.Header.Del("Authorization")
+	req2 := httptest.NewRequest("GET", "/test?token=wrong", nil)
+	if verifyToken(req2, "secret") {
+		t.Fatal("expected false with wrong query token")
+	}
+
+	// Correct query token
+	req3 := httptest.NewRequest("GET", "/test?token=secret", nil)
+	if !verifyToken(req3, "secret") {
+		t.Fatal("expected true with correct query token")
+	}
+}
+
+func TestLoadTokenRaceCondition(t *testing.T) {
+	// Test that concurrent loadToken calls produce the same token
+	dir := t.TempDir()
+	cfg := Config{TokenFile: dir + "/tok"}
+
+	const numGoroutines = 5
+	tokens := make(chan string, numGoroutines)
+	errs := make(chan error, numGoroutines)
+
+	for i := 0; i < numGoroutines; i++ {
+		go func() {
+			tok, err := loadToken(cfg)
+			if err != nil {
+				errs <- err
+				return
+			}
+			tokens <- tok
+		}()
+	}
+
+	// Collect all results
+	var results []string
+	for i := 0; i < numGoroutines; i++ {
+		select {
+		case tok := <-tokens:
+			results = append(results, tok)
+		case err := <-errs:
+			t.Fatal(err)
+		}
+	}
+
+	// All goroutines should get the same token
+	if len(results) != numGoroutines {
+		t.Fatalf("expected %d results, got %d", numGoroutines, len(results))
+	}
+	first := results[0]
+	for i, tok := range results {
+		if tok != first {
+			t.Fatalf("token mismatch at index %d: %s != %s", i, tok, first)
+		}
+	}
+}
+
+func TestLoadIdentityRaceCondition(t *testing.T) {
+	// Test that concurrent loadIdentity calls produce the same relay_id
+	dir := t.TempDir()
+	cfg := Config{IdentityFile: dir + "/id"}
+
+	const numGoroutines = 5
+	identities := make(chan domain.Identity, numGoroutines)
+	errs := make(chan error, numGoroutines)
+
+	for i := 0; i < numGoroutines; i++ {
+		go func() {
+			id, err := loadIdentity(cfg)
+			if err != nil {
+				errs <- err
+				return
+			}
+			identities <- id
+		}()
+	}
+
+	// Collect all results
+	var results []domain.Identity
+	for i := 0; i < numGoroutines; i++ {
+		select {
+		case id := <-identities:
+			results = append(results, id)
+		case err := <-errs:
+			t.Fatal(err)
+		}
+	}
+
+	// All goroutines should get the same relay_id
+	if len(results) != numGoroutines {
+		t.Fatalf("expected %d results, got %d", numGoroutines, len(results))
+	}
+	first := results[0]
+	for i, id := range results {
+		if id.RelayID != first.RelayID {
+			t.Fatalf("relay_id mismatch at index %d: %s != %s", i, id.RelayID, first.RelayID)
+		}
 	}
 }

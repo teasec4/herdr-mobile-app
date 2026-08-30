@@ -9,6 +9,8 @@ class PairConfig {
     required this.port,
     required this.mode,
     required this.token,
+    this.relayId,
+    this.name,
   });
 
   /// Relay host: IP or DNS name (for tailscale, a name like `mac.local.c.tailnet.ts.net`).
@@ -23,6 +25,12 @@ class PairConfig {
   /// Pair secret (64 hex), also used as the WS token (`?token=` in the query).
   final String token;
 
+  /// Stable relay identity (32 hex), unique per relay machine.
+  final String? relayId;
+
+  /// Human-readable relay name (hostname of the relay machine).
+  final String? name;
+
   static const int defaultPort = 8375;
   static const String defaultMode = 'lan';
 
@@ -31,6 +39,21 @@ class PairConfig {
 
   /// Minimum token length to filter out obvious typos.
   static const int _minTokenLength = 16;
+
+  /// Unique key used to deduplicate profiles of the same relay.
+  ///
+  /// Relies on the stable [relayId] when present, otherwise falls back to
+  /// `host:port` (older relays that do not embed their identity yet).
+  String get profileKey => relayId ?? '$host:$port';
+
+  /// Name shown in the profile picker, falling back to the host.
+  String get displayName => name ?? host;
+
+  /// Trims the value; empty strings become null.
+  static String? _nonEmpty(String? v) {
+    final t = v?.trim();
+    return (t == null || t.isEmpty) ? null : t;
+  }
 
   /// Parses a pair link from a QR code or pasted text.
   ///
@@ -69,9 +92,17 @@ class PairConfig {
       throw FormatException('Invalid port: $portRaw');
     }
 
-    final token = uri.queryParameters['token'] ?? '';
+    final token = (uri.queryParameters['token'] ?? '').trim();
     if (token.length < _minTokenLength) {
       throw const FormatException('Token too short — corrupted link');
+    }
+    // Token is embedded raw into the `wsUri` query string. Reject characters
+    // that would corrupt the URL (a real token is hex and never contains these).
+    if (token.contains('&') ||
+        token.contains('#') ||
+        token.contains(' ') ||
+        token.contains('?')) {
+      throw const FormatException('Token contains invalid characters — corrupted link');
     }
 
     final mode = uri.queryParameters['mode'] ?? defaultMode;
@@ -79,7 +110,14 @@ class PairConfig {
       throw FormatException('Invalid mode: $mode');
     }
 
-    return PairConfig(host: host, port: port, mode: mode, token: token);
+    return PairConfig(
+      host: host,
+      port: port,
+      mode: mode,
+      token: token,
+      relayId: _nonEmpty(uri.queryParameters['relay_id']),
+      name: _nonEmpty(uri.queryParameters['name']),
+    );
   }
 
   /// Host wrapped in square brackets for IPv6 (`Uri.host` strips the brackets).
@@ -105,6 +143,18 @@ class PairConfig {
         'port': port,
         'mode': mode,
         'token': token,
+        if (relayId != null) 'relay_id': relayId,
+        if (name != null) 'name': name,
+      };
+
+  /// JSON with the token masked — safe for logs and crash reports.
+  Map<String, dynamic> toJsonSafe() => {
+        'host': host,
+        'port': port,
+        'mode': mode,
+        'token': '${token.substring(0, 8)}***',
+        if (relayId != null) 'relay_id': relayId,
+        if (name != null) 'name': name,
       };
 
   factory PairConfig.fromJson(Map<String, dynamic> json) => PairConfig(
@@ -112,6 +162,8 @@ class PairConfig {
         port: (json['port'] as num?)?.toInt() ?? defaultPort,
         mode: json['mode'] as String? ?? defaultMode,
         token: json['token'] as String,
+        relayId: json['relay_id'] as String?,
+        name: json['name'] as String?,
       );
 
   @override

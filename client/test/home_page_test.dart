@@ -25,12 +25,17 @@ void main() {
     await teardownTestDependencies();
   });
 
-  Future<void> pumpHome(WidgetTester tester) async {
+  Future<void> pumpHome(
+    WidgetTester tester, {
+    Future<void> Function()? onSwitch,
+  }) async {
     await tester.pumpWidget(
       MaterialApp(
         home: HomePage(
           config: config,
-          onDisconnect: () async {},
+          onRequestSwitch: onSwitch ?? () async {},
+          onAddDevice: () async {},
+          onForgetDevice: () async {},
         ),
       ),
     );
@@ -84,5 +89,56 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('alice'), findsOneWidget);
+  });
+
+  group('меню устройств', () {
+    Future<void> openMenu(WidgetTester tester) async {
+      await tester.tap(find.byType(PopupMenuButton<String>));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('показывает три пункта: Switch, Add, Forget', (tester) async {
+      await pumpHome(tester);
+      await openMenu(tester);
+      expect(find.text('Switch device…'), findsOneWidget);
+      expect(find.text('Add device…'), findsOneWidget);
+      expect(find.text('Forget device'), findsOneWidget);
+    });
+
+    testWidgets('«Switch device…» вызывает onRequestSwitch', (tester) async {
+      var switched = false;
+      await pumpHome(tester, onSwitch: () async => switched = true);
+      await openMenu(tester);
+
+      await tester.tap(find.text('Switch device…'));
+      await tester.pumpAndSettle();
+      expect(switched, isTrue);
+    });
+
+    testWidgets('«Forget device» спрашивает подтверждение и забывает', (tester) async {
+      var forgot = false;
+      await pumpHome(tester);
+      // Re-pump with a recording callback to verify the flow.
+      await tester.pumpWidget(
+        MaterialApp(
+          home: HomePage(
+            config: config,
+            onRequestSwitch: () async {},
+            onAddDevice: () async {},
+            onForgetDevice: () async => forgot = true,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await openMenu(tester);
+
+      await tester.tap(find.text('Forget device'));
+      await tester.pumpAndSettle();
+      expect(find.text('Forget this device?'), findsOneWidget);
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Forget'));
+      await tester.pumpAndSettle();
+      expect(forgot, isTrue);
+    });
   });
 }

@@ -13,15 +13,17 @@ import (
 
 // Handler handles HTTP API requests.
 type Handler struct {
-	agentService *service.AgentService
-	eventService *service.EventService
+	agentService   *service.AgentService
+	eventService   *service.EventService
+	pairingService *service.PairingService
 }
 
 // NewHandler creates a new HTTP handler.
-func NewHandler(agentService *service.AgentService, eventService *service.EventService) *Handler {
+func NewHandler(agentService *service.AgentService, eventService *service.EventService, pairingService *service.PairingService) *Handler {
 	return &Handler{
-		agentService: agentService,
-		eventService: eventService,
+		agentService:   agentService,
+		eventService:   eventService,
+		pairingService: pairingService,
 	}
 }
 
@@ -36,6 +38,16 @@ func (h *Handler) HandleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+// HandlePair returns the connection info (URLs, token, universal QR) a
+// client needs to reach this relay.
+func (h *Handler) HandlePair(w http.ResponseWriter, r *http.Request) {
+	if h.pairingService == nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "pairing not configured"})
+		return
+	}
+	writeJSON(w, http.StatusOK, h.pairingService.PairInfo())
+}
+
 // HandleSnapshot returns the current snapshot of all agents.
 func (h *Handler) HandleSnapshot(w http.ResponseWriter, r *http.Request) {
 	snap, err := h.agentService.GetSnapshot()
@@ -47,9 +59,10 @@ func (h *Handler) HandleSnapshot(w http.ResponseWriter, r *http.Request) {
 }
 
 // HandleAgent handles agent-specific operations:
-//   GET  /api/agents/<id>/output?lines=N&format=text|ansi
-//   POST /api/agents/<id>/keys   {"keys":["esc"]}
-//   POST /api/agents/<id>/prompt {"text":"hello"}
+//
+//	GET  /api/agents/<id>/output?lines=N&format=text|ansi
+//	POST /api/agents/<id>/keys   {"keys":["esc"]}
+//	POST /api/agents/<id>/prompt {"text":"hello"}
 func (h *Handler) HandleAgent(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/api/agents/")
 	parts := strings.Split(path, "/")
@@ -174,5 +187,6 @@ func (h *Handler) HandlePluginEvent(w http.ResponseWriter, r *http.Request, even
 	}
 
 	h.eventService.Broadcast(event)
+	log.Printf("http: plugin event %s broadcast", eventName)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }

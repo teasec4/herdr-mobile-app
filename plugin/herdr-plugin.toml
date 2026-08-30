@@ -43,9 +43,22 @@ id = "show-pair-link"
 title = "HerdRelay: show phone link / QR"
 command = ["bash", "open-pane.sh", "setup"]
 
+# "Configure mode" — switch lan / tailscale / funnel / gateway without rebuild.
+[[actions]]
+id = "configure-relay"
+title = "HerdRelay: configure mode (lan/tailscale/funnel/gateway)"
+command = ["bash", "open-pane.sh", "configure"]
+
 # Setup pane: relay status and the QR for the phone.
 [[panes]]
 id = "setup"
 title = "HerdRelay: Setup"
 placement = "zoomed"
 command = ["bash", "setup-menu.sh"]
+
+# Configure pane: interactive mode selection menu.
+[[panes]]
+id = "configure"
+title = "HerdRelay: Configure mode"
+placement = "zoomed"
+command = ["bash", "configure.sh"]

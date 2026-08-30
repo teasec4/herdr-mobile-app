@@ -45,7 +45,7 @@ void setupRelayServices(PairConfig config, {RelayClient Function(PairConfig)? cl
 
   // Register AgentRepository (depends on RelayClient)
   getIt.registerSingleton<AgentRepository>(
-    AgentRepository(getIt<RelayClient>()),
+    AgentRepository(getIt<RelayClient>(), getIt<SharedPreferences>()),
   );
 }
 

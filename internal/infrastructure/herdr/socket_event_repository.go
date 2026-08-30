@@ -3,6 +3,7 @@ package herdr
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -11,6 +12,14 @@ import (
 
 	"herdrelay/internal/domain"
 )
+
+// errRestart signals that a new pane was discovered and the connection was
+// intentionally closed so that the outer loop reconnects with the full
+// subscription set. herdr 0.8.0 drops a connection when a second reactive
+// events.subscribe is written mid-stream, so new pane subscriptions are always
+// applied by restarting the connection with the complete subscription list
+// instead of writing a second subscribe on the live connection.
+var errRestart = errors.New("new pane discovered, restarting subscription")
 
 // SocketEventRepository implements EventRepository using herdr's Unix socket.
 type SocketEventRepository struct {
@@ -31,6 +40,10 @@ func NewSocketEventRepository(socket string) *SocketEventRepository {
 func (r *SocketEventRepository) Subscribe(events chan<- domain.Event) error {
 	backoff := 2 * time.Second
 
+	// Known pane ids are tracked across reconnects so every new connection
+	// subscribes to everything in a single events.subscribe message.
+	subscribed := make(map[string]bool)
+
 	for {
 		r.mu.Lock()
 		if r.closed {
@@ -40,7 +53,14 @@ func (r *SocketEventRepository) Subscribe(events chan<- domain.Event) error {
 		}
 		r.mu.Unlock()
 
-		if err := r.subscribeOnce(events); err != nil {
+		err := r.subscribeOnce(events, subscribed)
+		if err != nil {
+			if errors.Is(err, errRestart) {
+				// New pane discovered: reconnect immediately with the full
+				// subscription set.
+				backoff = 2 * time.Second
+				continue
+			}
 			log.Printf("herdr socket: %v (retrying in %s)", err, backoff)
 			time.Sleep(backoff)
 			if backoff < 30*time.Second {
@@ -49,12 +69,29 @@ func (r *SocketEventRepository) Subscribe(events chan<- domain.Event) error {
 			continue
 		}
 
+		// Clean EOF: reconnect, but pace it to avoid a hot loop if herdr
+		// closes idle connections.
 		backoff = 2 * time.Second
-		time.Sleep(time.Second) // avoid hot reconnect loop
+		log.Printf("herdr socket: connection closed, reconnecting")
+		time.Sleep(time.Second)
 	}
 }
 
-func (r *SocketEventRepository) subscribeOnce(events chan<- domain.Event) error {
+// subscription is a single entry of the events.subscribe `subscriptions` list:
+// {"type":"pane.updated"} or {"type":"pane.scroll_changed","pane_id":"wH:p3"}.
+type subscription struct {
+	Type   string `json:"type"`
+	PaneID string `json:"pane_id,omitempty"`
+}
+
+// socketNotification is a single decoded frame from the herdr socket, whether
+// a response frame (subscription_started), keepalive, or an event notification.
+type socketNotification struct {
+	Event string          `json:"event"`
+	Data  json.RawMessage `json:"data"`
+}
+
+func (r *SocketEventRepository) subscribeOnce(events chan<- domain.Event, subscribed map[string]bool) error {
 	conn, err := net.Dial("unix", r.socket)
 	if err != nil {
 		return fmt.Errorf("dial herdr socket: %w", err)
@@ -71,56 +108,59 @@ func (r *SocketEventRepository) subscribeOnce(events chan<- domain.Event) error 
 		conn.Close()
 	}()
 
-	// Subscribe to global pane.updated event
-	if err := r.subscribe(conn, "pane.updated", nil); err != nil {
-		return fmt.Errorf("subscribe to pane.updated: %w", err)
+	// Subscribe to everything in a single events.subscribe message. pane.updated
+	// fires once per pane (existing panes included on subscribe); scroll_changed
+	// subscriptions are re-applied for every known pane id.
+	subs := make([]subscription, 0, len(subscribed)+1)
+	subs = append(subs, subscription{Type: "pane.updated"})
+	for paneID := range subscribed {
+		subs = append(subs, subscription{Type: "pane.scroll_changed", PaneID: paneID})
 	}
 
-	log.Printf("herdr socket: connected to %s", r.socket)
+	if err := r.subscribe(conn, subs...); err != nil {
+		return fmt.Errorf("subscribe: %w", err)
+	}
+
+	log.Printf("herdr socket: connected to %s (%d pane subscriptions)", r.socket, len(subscribed))
 
 	scanner := bufio.NewScanner(conn)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
 	for scanner.Scan() {
-		var notification struct {
-			Event string          `json:"event"`
-			Data  json.RawMessage `json:"data"`
-		}
+		var notification socketNotification
 
 		if err := json.Unmarshal(scanner.Bytes(), &notification); err != nil || notification.Event == "" {
-			continue // response frames, keepalives, etc.
+			continue // response frames (subscription_started), keepalives, etc.
 		}
 
-		// Handle pane.updated to subscribe to scroll changes for new panes
-		if notification.Event == "pane.updated" {
-			var data struct {
-				PaneID string `json:"pane_id"`
+		switch notification.Event {
+		case "pane_updated", "pane.updated":
+			// herdr emits pane_updated (underscore) with pane_id nested under
+			// data.pane. Extract it and normalize to the client-visible
+			// pane.updated event with a flat payload.
+			paneID := paneIDFrom(notification.Data)
+			if paneID == "" {
+				continue
 			}
-			if json.Unmarshal(notification.Data, &data) == nil && data.PaneID != "" {
-				// Subscribe to scroll_changed for this pane
-				_ = r.subscribe(conn, "pane.scroll_changed", map[string]interface{}{
-					"pane_id": data.PaneID,
-				})
-			}
-		}
+			notification.Event = "pane.updated"
+			notification.Data, _ = json.Marshal(map[string]string{"pane_id": paneID})
 
-		// Map scroll_changed to output_changed for clients
-		if notification.Event == "pane.scroll_changed" {
+			if !subscribed[paneID] {
+				// New pane: remember it and restart the connection with the
+				// full subscription set. Writing a second subscribe on this
+				// live connection makes herdr drop it.
+				subscribed[paneID] = true
+				log.Printf("herdr socket: discovered new pane %s, restarting to subscribe scroll_changed", paneID)
+				emitEvent(events, notification)
+				return errRestart
+			}
+
+		case "pane.scroll_changed":
+			// scroll_changed maps to output_changed for clients.
 			notification.Event = "pane.output_changed"
 		}
 
-		// Parse and send typed event
-		event, err := domain.ParseEvent(notification.Event, notification.Data)
-		if err != nil {
-			log.Printf("herdr socket: failed to parse event %s: %v", notification.Event, err)
-			continue
-		}
-
-		select {
-		case events <- event:
-		case <-time.After(5 * time.Second):
-			log.Printf("herdr socket: event channel blocked, dropping event %s", notification.Event)
-		}
+		emitEvent(events, notification)
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -130,15 +170,54 @@ func (r *SocketEventRepository) subscribeOnce(events chan<- domain.Event) error 
 	return nil
 }
 
-// subscribe sends a JSON-RPC subscribe request to herdr socket.
-func (r *SocketEventRepository) subscribe(conn net.Conn, event string, params interface{}) error {
+// emitEvent parses and forwards a single socket notification to the events
+// channel, dropping it if the channel is blocked for too long.
+func emitEvent(events chan<- domain.Event, notification socketNotification) {
+	event, err := domain.ParseEvent(notification.Event, notification.Data)
+	if err != nil {
+		log.Printf("herdr socket: failed to parse event %s: %v", notification.Event, err)
+		return
+	}
+
+	select {
+	case events <- event:
+	case <-time.After(5 * time.Second):
+		log.Printf("herdr socket: event channel blocked, dropping event %s", notification.Event)
+	}
+}
+
+// paneIDFrom extracts the pane id from a pane_updated / pane.updated payload,
+// which herdr emits either flat ({"pane_id": ...}) or nested
+// ({"pane": {"pane_id": ...}}).
+func paneIDFrom(data json.RawMessage) string {
+	var flat struct {
+		PaneID string `json:"pane_id"`
+	}
+	if json.Unmarshal(data, &flat) == nil && flat.PaneID != "" {
+		return flat.PaneID
+	}
+	var nested struct {
+		Pane struct {
+			PaneID string `json:"pane_id"`
+		} `json:"pane"`
+	}
+	if json.Unmarshal(data, &nested) == nil {
+		return nested.Pane.PaneID
+	}
+	return ""
+}
+
+// subscribe sends a JSON-RPC events.subscribe request to herdr's socket. The
+// full subscription set is always sent in a single message; herdr treats
+// subscriptions as cumulative, and writing a second subscribe on a live
+// connection causes herdr 0.8.0 to drop it.
+func (r *SocketEventRepository) subscribe(conn net.Conn, subs ...subscription) error {
 	req := map[string]interface{}{
 		"jsonrpc": "2.0",
-		"id":      fmt.Sprintf("sub-%s-%d", event, time.Now().UnixNano()),
-		"method":  "subscribe",
+		"id":      fmt.Sprintf("sub-%d", time.Now().UnixNano()),
+		"method":  "events.subscribe",
 		"params": map[string]interface{}{
-			"event":  event,
-			"params": params,
+			"subscriptions": subs,
 		},
 	}
 

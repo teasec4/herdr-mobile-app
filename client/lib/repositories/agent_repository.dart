@@ -1,19 +1,71 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/relay_agent.dart';
 import '../models/relay_event.dart';
-import '../services/relay_client.dart' hide RelayEvent;
+import '../services/relay_client.dart';
 
 /// Repository for agent operations
 /// Provides typed interface over RelayClient
 class AgentRepository {
+  /// Cache key for the last successful agent snapshot, shown when the relay is
+  /// offline so the user still sees the last known agent list.
+  static const String _cacheKey = 'last_snapshot';
+
   final RelayClient _client;
+  final SharedPreferences _prefs;
 
-  AgentRepository(this._client);
+  AgentRepository(this._client, this._prefs);
 
-  /// Get all agents snapshot
+  /// Get all agents snapshot.
+  ///
+  /// On success the result is cached; on failure the last cached snapshot is
+  /// returned (with its timestamp) so an offline relay shows stale-but-useful
+  /// data instead of an empty error screen. Rethrows only when no cache exists.
   Future<List<RelayAgent>> getAgents() async {
-    return await _client.snapshot();
+    try {
+      final agents = await _client.snapshot();
+      await _cacheAgents(agents);
+      return agents;
+    } catch (_) {
+      final cached = await _loadCachedAgents();
+      if (cached.isNotEmpty) return cached;
+      rethrow;
+    }
+  }
+
+  /// When the last successful snapshot was cached (null if never).
+  Future<DateTime?> lastCachedAt() async {
+    final raw = _prefs.getString('$_cacheKey:ts');
+    if (raw == null) return null;
+    return DateTime.tryParse(raw);
+  }
+
+  Future<void> _cacheAgents(List<RelayAgent> agents) async {
+    await _prefs.setString(
+      _cacheKey,
+      jsonEncode([for (final a in agents) a.toJson()]),
+    );
+    await _prefs.setString(
+      '$_cacheKey:ts',
+      DateTime.now().toIso8601String(),
+    );
+  }
+
+  Future<List<RelayAgent>> _loadCachedAgents() async {
+    final raw = _prefs.getString(_cacheKey);
+    if (raw == null) return const [];
+    try {
+      final list = jsonDecode(raw) as List<dynamic>;
+      return list
+          .map((e) => RelayAgent.fromJson(e as Map<String, dynamic>))
+          .toList();
+    } catch (_) {
+      // Corrupt cache: drop it rather than crashing.
+      return const [];
+    }
   }
 
   /// Get agent output

@@ -49,6 +49,12 @@ abstract class RelayClient {
   /// Quick check that the relay is alive via http /healthz.
   Future<bool> healthz();
 
+  /// Pauses reconnect attempts while the app is in the background.
+  void pauseReconnect();
+
+  /// Resumes reconnect attempts when the app returns to the foreground.
+  void resumeReconnect();
+
   /// Closes the client: stops reconnects and events.
   Future<void> close();
 }
@@ -84,6 +90,7 @@ class WsRelayClient implements RelayClient {
   Timer? _reconnectTimer;
   int _attempt = 0;
   bool _closed = false;
+  bool _reconnectPaused = false;
   int _nextId = 1;
   final Map<int, Completer<Map<String, dynamic>>> _pending = {};
 
@@ -132,13 +139,41 @@ class WsRelayClient implements RelayClient {
   }
 
   /// Quick check that the relay is alive via http /healthz.
+  ///
+  /// A single check can fail on a transient network blip, so it retries a few
+  /// times with a short backoff before reporting the relay as offline.
   @override
   Future<bool> healthz() async {
-    try {
-      final res = await http.get(config.healthUri).timeout(const Duration(seconds: 3));
-      return res.statusCode == 200;
-    } catch (_) {
-      return false;
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        final res = await http
+            .get(config.healthUri)
+            .timeout(const Duration(seconds: 3));
+        if (res.statusCode == 200) return true;
+      } catch (_) {
+        // transient failure — fall through and retry
+      }
+      if (attempt < 2) {
+        await Future.delayed(Duration(milliseconds: 200 * (attempt + 1)));
+      }
+    }
+    return false;
+  }
+
+  /// Pauses reconnect attempts while the app is in the background.
+  @override
+  void pauseReconnect() {
+    _reconnectPaused = true;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+  }
+
+  /// Resumes reconnect attempts when the app returns to the foreground.
+  @override
+  void resumeReconnect() {
+    _reconnectPaused = false;
+    if (status.value != RelayStatus.connected) {
+      _scheduleReconnect();
     }
   }
 
@@ -158,9 +193,16 @@ class WsRelayClient implements RelayClient {
 
   Future<void> _connect() async {
     if (_closed) return;
+
+    // Cancel any previous subscription before opening a new connection, so a
+    // stale stream can't deliver messages into the new connection's handlers.
+    await _sub?.cancel();
+    _sub = null;
+
     status.value = RelayStatus.connecting;
     final ws = WebSocketChannel.connect(Uri.parse(config.wsUri.toString()));
     _channel = ws;
+
     try {
       await ws.ready;
       if (_closed) {
@@ -170,7 +212,18 @@ class WsRelayClient implements RelayClient {
       _attempt = 0;
       lastError = null;
       status.value = RelayStatus.connected;
-      _sub = ws.stream.listen(_onMessage, onDone: _onDisconnect, onError: (_) => _onDisconnect());
+
+      // Single handler for both done and error; cancelOnError stops the stream
+      // after the first error so onDone can't fire a second disconnect.
+      _sub = ws.stream.listen(
+        _onMessage,
+        onDone: _onDisconnect,
+        onError: (e) {
+          lastError = '$e';
+          _onDisconnect();
+        },
+        cancelOnError: true,
+      );
     } catch (e) {
       if (_closed) return;
       lastError = '$e';
@@ -225,6 +278,11 @@ class WsRelayClient implements RelayClient {
 
   void _onDisconnect() {
     if (_closed) return;
+
+    // Prevent duplicate reconnect scheduling: onError and onDone can both fire
+    // for a failed stream (unless cancelOnError stops it first).
+    if (_reconnectTimer != null) return;
+
     lastError ??= 'Relay connection lost';
     _sub?.cancel();
     _sub = null;
@@ -255,7 +313,7 @@ class WsRelayClient implements RelayClient {
   }
 
   void _scheduleReconnect() {
-    if (_closed || _reconnectTimer != null) return;
+    if (_closed || _reconnectTimer != null || _reconnectPaused) return;
     final seconds = min(pow(2, _attempt).toInt(), _maxReconnectDelay.inSeconds);
     _attempt++;
     _reconnectTimer = Timer(Duration(seconds: seconds), () {

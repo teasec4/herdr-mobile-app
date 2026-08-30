@@ -55,6 +55,31 @@ void main() {
       );
     });
 
+    test('token с недопустимыми символами бросает FormatException', () {
+      // Кодированные `&`, `#`, `?` и пробел (в середине) попадают в token
+      // после декодирования query-строки и должны отклоняться — они сломали
+      // бы wsUri или недопустимы в токене.
+      for (final bad in [
+        'a' * 16 + '%26b=1', // & → токен становится двумя параметрами
+        'a' * 16 + '%23frag', // # → обрезает query
+        'a' * 16 + '%3Fx', // ? → обрезает query
+        'a' * 16 + ' x', // пробел внутри токена (передаётся напрямую через fromUri)
+      ]) {
+        expect(
+          () => PairConfig.fromLink('herdrelay://pair?host=x&token=$bad'),
+          throwsFormatException,
+          reason: 'token должен отклоняться: $bad',
+        );
+      }
+    });
+
+    test('token с пробелами по краям обрезается', () {
+      final config = PairConfig.fromLink(
+        'herdrelay://pair?host=x&token=${'d' * 16}%20%20',
+      );
+      expect(config.token, 'd' * 16);
+    });
+
     test('нечисловой port бросает FormatException', () {
       expect(
         () => PairConfig.fromLink('herdrelay://pair?host=x&port=abc&token=${'c' * 64}'),
@@ -120,6 +145,69 @@ void main() {
       });
       expect(restored.port, PairConfig.defaultPort);
       expect(restored.mode, PairConfig.defaultMode);
+    });
+
+    test('toJsonSafe маскирует token', () {
+      final config = PairConfig.fromLink(
+        'herdrelay://pair?host=my-mac&token=${'g' * 64}'
+        '&relay_id=relay-123&name=My%20Mac',
+      );
+      final safe = config.toJsonSafe();
+      expect(safe['token'], '${'g' * 8}***');
+      expect(safe['token'], isNot(contains('g' * 16)));
+      expect(safe['host'], config.host);
+      expect(safe['relay_id'], 'relay-123');
+      expect(safe['name'], 'My Mac');
+    });
+  });
+
+  group('PairConfig relay identity', () {
+    test('парсит relay_id и name из ссылки', () {
+      final config = PairConfig.fromLink(
+        'herdrelay://pair?host=192.168.1.5&token=${'a' * 64}'
+        '&relay_id=relay-0123456789abcdef&name=My%20Mac',
+      );
+      expect(config.relayId, 'relay-0123456789abcdef');
+      expect(config.name, 'My Mac');
+      expect(config.profileKey, 'relay-0123456789abcdef');
+      expect(config.displayName, 'My Mac');
+    });
+
+    test('без relay_id/name — profileKey из host:port, displayName = host', () {
+      final config = PairConfig.fromLink(
+        'herdrelay://pair?host=my-mac&port=9000&token=${'b' * 64}',
+      );
+      expect(config.relayId, isNull);
+      expect(config.name, isNull);
+      expect(config.profileKey, 'my-mac:9000');
+      expect(config.displayName, 'my-mac');
+    });
+
+    test('пустые relay_id/name превращаются в null', () {
+      final config = PairConfig.fromLink(
+        'herdrelay://pair?host=h&token=${'c' * 64}&relay_id=&name=%20',
+      );
+      expect(config.relayId, isNull);
+      expect(config.name, isNull);
+    });
+
+    test('toJson/fromJson сохраняют relay_id и name', () {
+      final config = PairConfig.fromLink(
+        'herdrelay://pair?host=my-mac&token=${'d' * 64}'
+        '&relay_id=relay-123&name=My%20Mac',
+      );
+      final restored = PairConfig.fromJson(config.toJson());
+      expect(restored.relayId, 'relay-123');
+      expect(restored.name, 'My Mac');
+    });
+
+    test('fromJson терпит отсутствие relay_id и name', () {
+      final restored = PairConfig.fromJson({
+        'host': 'h',
+        'token': 'x' * 64,
+      });
+      expect(restored.relayId, isNull);
+      expect(restored.name, isNull);
     });
   });
 }

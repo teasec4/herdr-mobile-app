@@ -34,10 +34,32 @@
 
 | режим | содержимое QR | когда |
 | --- | --- | --- |
-| `lan` | `herdrelay://pair?mode=lan&host=192.168.1.50&port=8375&token=T` | телефон в одной Wi-Fi с ноутом |
-| `tailscale` (B1) | `herdrelay://pair?mode=tailscale&host=macbook-pro.tail85247a.ts.net&port=8375&token=T` | телефон в той же tailnet |
-| `funnel` (B2) | `herdrelay://pair?mode=funnel&host=macbook-pro.tail85247a.ts.net&token=T` | телефону Tailscale не нужен (публичный HTTPS) |
-| `gateway` (C) | `herdrelay://pair?mode=gateway&url=wss://gw.example.com/ws&token=T` | VPS-гейтвей (опция) |
+| `lan` | `herdrelay://pair?mode=lan&host=192.168.1.50&port=8375&relay_id=R&name=macbook&token=T` | телефон в одной Wi-Fi с ноутом |
+| `tailscale` (B1) | `herdrelay://pair?mode=tailscale&host=macbook-pro.tail85247a.ts.net&port=8375&relay_id=R&name=macbook&token=T` | телефон в той же tailnet |
+| `funnel` (B2) | `herdrelay://pair?mode=funnel&host=macbook-pro.tail85247a.ts.net&relay_id=R&name=macbook&token=T` | телефону Tailscale не нужен (публичный HTTPS) |
+| `gateway` (C) | `herdrelay://pair?mode=gateway&url=wss://gw.example.com/ws&relay_id=R&name=macbook&token=T` | VPS-гейтвей (опция) |
+
+`relay_id` и `name` — идентичность релея (см. ниже).
+
+### Идентичность релея (relay_id)
+
+Каждая ссылка пары несёт стабильный `relay_id` (32 hex, генерируется при первом
+запуске релея, хранится в `~/.config/herdr/herdrelay.id`) и человекочитаемый
+`name` (имя хоста). Клиент использует `relay_id`, чтобы распознать один и тот
+же релей при смене сессии или переезде на другую машину, и показывает `name` в
+списке сохранённых подключений. Посмотреть свои `relay_id`/`name`:
+`herdrelay status`.
+
+### Профили подключений (несколько машин/режимов)
+
+Клиент хранит несколько профилей пары (переключение `Switch` / добавление
+`Add` / удаление `Forget`):
+
+- **Add** — новый QR добавляет профиль, не стирая прежние.
+- **Switch** — выбор между сохранёнными профилями: удобно при смене сети
+  (`lan` дома → `tailscale` в дороге → `funnel`/`gateway` из интернета) или
+  при работе с несколькими компьютерами.
+- **Forget** — удаляет профиль.
 
 Приложение парсит ссылку, складывает в `shared_preferences` base URL + токен
 и подключается. Если хост резолвится в недоступный адрес — показывает ошибку
@@ -70,6 +92,27 @@
 Wizard-пейн в herdr показывает крупный QR выбранного режима и кнопки выбора
 (по умолчанию — первый доступный: `lan` → `tailscale` → `funnel` → `gateway`).
 На этом же экране — «показать/сбросить токен» (ротация, если QR засветился).
+
+## Проверка состояния: `herdrelay status`
+
+`herdrelay status` печатает режим, адрес, идентичность релея (`relay_id`
+и `name`), пути конфига и живое состояние:
+
+- если релей запущен — `primary`-режим, список всех доступных режимов с URL и
+  подсказку `herdrelay pair --qr`;
+- если не запущен — «Статус: НЕ ЗАПУЩЕН» и как поднять службу;
+- exit code 0 = релей работает, 1 = нет (удобно для скриптов и проверок).
+
+## Смена режима
+
+Переключить режим без пересборки бинарника — экшен плагина
+«HerdRelay: configure mode», либо вручную:
+`bash plugin/configure.sh <mode> [gateway_url]` (`lan | tailscale | funnel | gateway`).
+Скрипт переписывает launchd-конфиг (`HERDRELAY_MODE`, для `gateway` —
+`HERDRELAY_GATEWAY_URL`) и перезапускает службу через launchctl; при выборе
+`funnel` пытается включить `tailscale funnel 8375`. После смены режима
+обновите QR на телефоне (`herdrelay pair --qr`) — повторный скан переключает
+режим существующего профиля.
 
 ## Флоу для OSS-пользователя (без VPS)
 

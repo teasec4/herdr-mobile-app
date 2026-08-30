@@ -20,3 +20,6 @@ client/*.iml
 
 # логи релея/плагина
 herdrelay*.log
+
+# Claude Code: локальные настройки (не для git)
+.claude/settings.local.json

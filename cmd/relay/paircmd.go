@@ -1,12 +1,8 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
-	"strings"
 
 	"github.com/mdp/qrterminal/v3"
 )
@@ -35,25 +31,8 @@ func runPairCmd(args []string) int {
 		return 1
 	}
 	base := "http://127.0.0.1:" + listenPort(cfg)
-	req, err := http.NewRequest("GET", base+"/pair", nil)
+	info, err := fetchPairInfo(base, token)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "herdrelay pair: %v\n", err)
-		return 1
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "herdrelay pair: релей не отвечает (%v) — запустите его (launchctl start / install.sh)\n", err)
-		return 1
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		fmt.Fprintf(os.Stderr, "herdrelay pair: релей ответил %s: %s\n", resp.Status, strings.TrimSpace(string(b)))
-		return 1
-	}
-	var info pairInfo
-	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
 		fmt.Fprintf(os.Stderr, "herdrelay pair: %v\n", err)
 		return 1
 	}

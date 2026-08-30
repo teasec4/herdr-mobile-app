@@ -15,12 +15,25 @@ import 'agent_page.dart';
 
 /// Main screen: connection status and the list of agents on the computer.
 class HomePage extends StatefulWidget {
-  const HomePage({super.key, required this.config, required this.onDisconnect});
+  const HomePage({
+    super.key,
+    required this.config,
+    required this.onRequestSwitch,
+    required this.onAddDevice,
+    required this.onForgetDevice,
+  });
 
   final PairConfig config;
 
-  /// Unpair the device (clear the saved pair and return to the scanner).
-  final Future<void> Function() onDisconnect;
+  /// Open the profile picker to switch to another paired relay.
+  final Future<void> Function() onRequestSwitch;
+
+  /// Open the scanner to pair with an additional relay.
+  final Future<void> Function() onAddDevice;
+
+  /// Forget the active relay (remove the saved pair, return to the scanner)
+  /// without unpairing other profiles.
+  final Future<void> Function() onForgetDevice;
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -30,6 +43,7 @@ class _HomePageState extends State<HomePage> {
   late final AgentRepository _repository;
   StreamSubscription<events.RelayEvent>? _eventSubscription;
   AsyncValue<List<RelayAgent>> _agentsState = const AsyncIdle();
+  Timer? _refreshDebounce;
 
   @override
   void initState() {
@@ -42,6 +56,7 @@ class _HomePageState extends State<HomePage> {
 
   @override
   void dispose() {
+    _refreshDebounce?.cancel();
     _repository.status.removeListener(_onStatusChanged);
     _eventSubscription?.cancel();
     super.dispose();
@@ -63,13 +78,14 @@ class _HomePageState extends State<HomePage> {
     // DEBUG: log all events
     print('[HomePage] Event received: $event');
 
-    // The plugin fires these events on agent status changes —
-    // re-read the snapshot so the list stays fresh.
+    // The plugin fires these events on agent status changes — re-read the
+    // snapshot so the list stays fresh. Debounce a burst of events (e.g. a
+    // batch task flipping many agents at once) into a single snapshot request.
     if (event is events.AgentStatusChanged || event is events.PaneUpdated) {
-      // Small delay to let herdr update its internal state before we snapshot
-      Future.delayed(const Duration(milliseconds: 150), () {
+      _refreshDebounce?.cancel();
+      _refreshDebounce = Timer(const Duration(milliseconds: 300), () {
         if (mounted) {
-          print('[HomePage] Refreshing after event $event');
+          print('[HomePage] Refreshing after event burst');
           _refresh();
         }
       });
@@ -102,7 +118,32 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _disconnect() async {
     await _repository.close();
-    await widget.onDisconnect();
+    await widget.onForgetDevice();
+  }
+
+  Future<void> _confirmForget() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Forget this device?'),
+        content: const Text(
+          'The saved pair will be removed. You can scan its QR again to reconnect.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Forget'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await _disconnect();
+    }
   }
 
   @override
@@ -164,12 +205,27 @@ class _HomePageState extends State<HomePage> {
           ),
           PopupMenuButton<String>(
             onSelected: (v) {
-              if (v == 'disconnect') _disconnect();
+              switch (v) {
+                case 'switch':
+                  widget.onRequestSwitch();
+                case 'add':
+                  widget.onAddDevice();
+                case 'forget':
+                  _confirmForget();
+              }
             },
             itemBuilder: (context) => const [
               PopupMenuItem(
-                value: 'disconnect',
-                child: Text('Disconnect device'),
+                value: 'switch',
+                child: Text('Switch device…'),
+              ),
+              PopupMenuItem(
+                value: 'add',
+                child: Text('Add device…'),
+              ),
+              PopupMenuItem(
+                value: 'forget',
+                child: Text('Forget device'),
               ),
             ],
           ),

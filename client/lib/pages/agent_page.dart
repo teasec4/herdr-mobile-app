@@ -48,7 +48,9 @@ class _AgentPageState extends State<AgentPage> {
   Timer? _outputDebounce;
 
   /// Last seen `revision` from a `pane.output_changed` event; older/equal
-  /// revisions are ignored (out-of-order delivery safety).
+  /// revisions are ignored (out-of-order delivery safety). The server's
+  /// events carry no revision (parsed as 0), so the guard only engages when
+  /// a revision is actually present.
   int? _lastRevision;
 
   /// Command history and navigation state.
@@ -99,8 +101,12 @@ class _AgentPageState extends State<AgentPage> {
     // Output changed: debounce and refresh
     if (event is OutputChanged) {
       if (event.paneId != _agent.id) return;
-      if (_lastRevision != null && event.revision <= _lastRevision!) return;
-      _lastRevision = event.revision;
+      // herdr's pane.scroll_changed carries no revision (always 0), so the
+      // revision guard only applies when a revision is actually present.
+      if (event.revision > 0) {
+        if (_lastRevision != null && event.revision <= _lastRevision!) return;
+        _lastRevision = event.revision;
+      }
       _outputDebounce?.cancel();
       _outputDebounce =
           Timer(const Duration(milliseconds: 400), () => _refresh(silent: true));

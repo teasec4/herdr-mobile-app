@@ -55,4 +55,14 @@ class RelayAgent {
       focused: json['focused'] == true,
     );
   }
+
+  /// Serializes back to the snapshot shape (round-trips with [fromJson]) so a
+  /// successful snapshot can be cached for offline use.
+  Map<String, dynamic> toJson() => {
+        'pane_id': id,
+        'agent': agent,
+        'agent_status': status,
+        if (cwd != null) 'cwd': cwd,
+        'focused': focused,
+      };
 }
