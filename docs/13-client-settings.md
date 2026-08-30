@@ -1,6 +1,6 @@
 # 13 — Настройки клиента: запоминание UI-состояния (анализ + решения)
 
-Статус: **согласовано к анализу (реализация позже)** · Дата: 2026-08-30
+Статус: **частично реализовано (30.08)** · Дата: 2026-08-30
 Основание: аудит «что не запоминается между запусками/открытиями». Каждый пункт сверен с кодом
 (файл:строка) на момент написания.
 
@@ -8,10 +8,22 @@
 
 | Что | Механизм | Где |
 |---|---|---|
-| Вывод терминала | in-memory, revision-based (кэш вывода с `knownRevision` — **в работе** у параллельной сессии; revision-guard уже на месте) | `agent_repository.dart`, `agent_page.dart` |
-| Снапшоты агентов | persistent offline fallback (`last_snapshot` + `:ts`) | `agent_repository.dart` |
+| Вывод терминала | in-memory, revision-based (кэш вывода с `knownRevision`; revision-guard на месте) | `agent_repository.dart`, `agent_page.dart` |
+| Снапшоты агентов | persistent offline fallback (`last_snapshot` + `:ts`) | `agent_repository.dart` → `AppSettings` |
 | Профили пар | multi-device (`pair_profiles`/`active_profile`) | `config_store.dart` |
 | История команд | per-agent, 100 max | `command_history_service.dart` |
+| Endpoints режимов | per-profile (`PairConfig.endpoints`: mode → host:port) | `pair_config.dart`, `mode_picker_sheet.dart` |
+
+## 0.1 Реализовано (30.08)
+
+- **AppSettings** (`services/app_settings.dart`) — типизированный key-centralized слой над
+  SharedPreferences: `homeTabIndex`, `terminalFontSize` (9–20, кнопки A−/A+ на AgentPage),
+  `autoScrollFollow`, кэш снапшота агентов. HomePage восстанавливает таб, AgentPage — размер
+  шрифта и автоскролл.
+- **Режим = endpoint** (`PairConfig.endpoints`): профиль помнит адреса всех режимов релея;
+  переключение — `connectVia` (адреса других режимов сохраняются); каждый успешный `/pair`
+  дописывает адреса (`withEndpoints`); офлайн-переключение из сохранённых endpoints + ручной
+  ввод с хостом, следующим за режимом. Детали: [05 — Flutter](05-flutter-app.md) → бейдж режима.
 
 ## 1. Проблемы (сверено с кодом)
 

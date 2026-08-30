@@ -33,6 +33,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `pane.output_changed` events collapses to a single RPC
 - Full test suite green: 202 Flutter tests, `flutter analyze` no new issues
 
+#### Flutter Client (settings + offline mode switching)
+- **AppSettings** (`services/app_settings.dart`): типизированный слой над SharedPreferences
+  (homeTabIndex, terminalFontSize 9–20 + кнопки A−/A+ на AgentPage, autoScrollFollow, кэш
+  снапшота). HomePage восстанавливает выбранный таб, AgentPage — размер шрифта и автоскролл.
+- **Офлайн-переключение режимов**: пикер работал только через `/pair` (недоступный релей =
+  «курица и яйцо»); добавлены сохранённые endpoints профиля + ручной ввод (хост следует за
+  режимом, токен из профиля) — см. ниже.
+- **Режим = endpoint** (`PairConfig.endpoints`): профиль помнит адреса всех режимов релея
+  (LAN-IP, tailnet-имя, funnel); ссылка пары сидирует endpoint, каждый `/pair` дописывает
+  адреса, переключение `connectVia` не теряет остальные; офлайн-свитч из «Saved modes for
+  this relay». Шит сделан скроллящимся.
+- Тесты: endpoints round-trip/seed/legacy/connectVia/fromUrl, выбор из `/pair` с merge,
+  офлайн-переключение, хост следует за режимом. Итог: 225 Flutter-тестов, analyze 0 ошибок.
+
 ## [0.2.0] - 2026-08-30
 
 ### Changed (big refactor, docs/09-refactoring-plan.md)

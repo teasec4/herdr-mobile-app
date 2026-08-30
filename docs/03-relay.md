@@ -101,6 +101,11 @@ HERDR_SOCKET=~/.config/herdr/herdr.sock
 herdr, телефон сканирует. В `funnel`-режиме релей вызывает
 `tailscale funnel <port>`; в `lan`/`tailscale` порт доступен без `serve`.
 
+Клиент кэширует ответ `/pair` в профиль пары (`PairConfig.endpoints`: адрес
+каждого режима) — при недоступном релее (например, tailscale выключен дома)
+переключение режимов работает по сохранённым адресам без сети
+(см. [05 — Flutter](05-flutter-app.md) → бейдж режима).
+
 ## Какие данные берём из снимка
 
 `herdr api snapshot` отдаёт за один вызов:
