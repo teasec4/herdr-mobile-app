@@ -117,6 +117,20 @@ func (r *CLIRepository) SendPrompt(target, text string) error {
 	return err
 }
 
+// ReadPaneOutput reads a pane's terminal output (works for plain terminals
+// without an agent, unlike agent read): `herdr pane read <paneID> --lines N
+// --format F`.
+func (r *CLIRepository) ReadPaneOutput(paneID string, lines int, format string) (string, error) {
+	if format == "" {
+		format = "text"
+	}
+	out, err := r.run("pane", "read", paneID, "--lines", fmt.Sprintf("%d", lines), "--format", format)
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
 // SendText writes literal text into a pane (plain terminal input): `herdr
 // pane send-text <paneID> <text>`.
 func (r *CLIRepository) SendText(paneID, text string) error {

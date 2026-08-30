@@ -77,6 +77,11 @@ class AgentRepository {
     return await _client.output(agentId, lines: lines, format: 'ansi');
   }
 
+  /// Get a plain-terminal pane output (pane.read — no agent needed).
+  Future<String> getPaneOutput(String paneId, {int lines = 500}) async {
+    return await _client.paneOutput(paneId, lines: lines, format: 'ansi');
+  }
+
   /// Send prompt to agent
   Future<void> sendPrompt(String agentId, String text) async {
     await _client.prompt(agentId, text);

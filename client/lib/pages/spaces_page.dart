@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../core/service_locator.dart';
 import '../models/relay_agent.dart';
+import '../models/relay_event.dart' as events;
 import '../models/relay_session.dart';
 import '../services/relay_client.dart';
 import '../widgets/status_chip.dart';
@@ -23,18 +24,35 @@ class _SpacesPageState extends State<SpacesPage> {
   bool _loading = true;
   Object? _error;
   bool _wasDisconnected = false;
+  StreamSubscription<events.RelayEvent>? _eventSub;
+  Timer? _refreshDebounce;
 
   @override
   void initState() {
     super.initState();
     _load();
     getIt<RelayClient>().status.addListener(_onConnectionStatus);
+    _eventSub = getIt<RelayClient>().events.listen(_onEvent);
   }
 
   @override
   void dispose() {
+    _refreshDebounce?.cancel();
+    _eventSub?.cancel();
     getIt<RelayClient>().status.removeListener(_onConnectionStatus);
     super.dispose();
+  }
+
+  /// Workspace statuses come from a session snapshot; agent status events
+  /// invalidate it, so re-read (debounced) to keep the list current.
+  void _onEvent(events.RelayEvent event) {
+    if (!mounted || _wasDisconnected) return;
+    if (event is events.AgentStatusChanged || event is events.PaneUpdated) {
+      _refreshDebounce?.cancel();
+      _refreshDebounce = Timer(const Duration(milliseconds: 300), () {
+        if (mounted) _load();
+      });
+    }
   }
 
   /// Reloads the session after a reconnect — events during the gap were lost.

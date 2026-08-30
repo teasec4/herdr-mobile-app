@@ -107,6 +107,17 @@ class RelayClientImpl implements RelayClient {
   }
 
   @override
+  Future<String> paneOutput(
+      String paneId, {int lines = 200, String format = 'text'}) async {
+    final result = await _rpc.request('pane.output', {
+      'pane_id': paneId,
+      'lines': lines,
+      'format': format,
+    });
+    return result['output'] as String? ?? '';
+  }
+
+  @override
   Future<void> sendText(String paneId, String text) async {
     await _rpc.request('pane.send_text', {'pane_id': paneId, 'text': text});
   }

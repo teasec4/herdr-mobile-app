@@ -28,6 +28,7 @@ func (stubAgentRepo) Snapshot() (*domain.Snapshot, error) {
 	}, nil
 }
 func (stubAgentRepo) ReadOutput(target string, lines int, format string) (string, error) { return "hello\nworld\n", nil }
+func (stubAgentRepo) ReadPaneOutput(paneID string, lines int, format string) (string, error) { return "shell-out\n", nil }
 func (stubAgentRepo) SendKeys(target string, keys []string) error                         { return nil }
 func (stubAgentRepo) SendPrompt(target, text string) error                                { return nil }
 func (stubAgentRepo) SendText(paneID, text string) error                                   { return nil }

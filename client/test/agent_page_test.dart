@@ -239,4 +239,25 @@ Please choose an option:
     expect(find.text('второй\n'), findsNothing);
     expect(find.text('первый\n'), findsOneWidget);
   });
+
+  testWidgets('пустой терминал читает вывод через pane.output', (tester) async {
+    client.outputText = 'shell-out\n';
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AgentPage(
+          agent: RelayAgent(
+            id: 'w7:p1',
+            agent: 'w7:p1',
+            status: 'unknown',
+            isPlainTerminal: true,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('shell-out\n'), findsOneWidget);
+    expect(client.paneOutputCalls, 1,
+        reason: 'plain terminal must read via pane.output, not agent.output');
+  });
 }

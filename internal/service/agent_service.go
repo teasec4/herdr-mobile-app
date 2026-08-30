@@ -62,6 +62,21 @@ func (s *AgentService) SendPrompt(target, text string) error {
 	return s.repo.SendPrompt(target, text)
 }
 
+// GetPaneOutput reads a pane's terminal output (plain terminals included).
+func (s *AgentService) GetPaneOutput(paneID string, lines int, format string) (*domain.AgentOutput, error) {
+	if lines <= 0 {
+		lines = 200
+	}
+	if format == "" {
+		format = "text"
+	}
+	output, err := s.repo.ReadPaneOutput(paneID, lines, format)
+	if err != nil {
+		return nil, err
+	}
+	return &domain.AgentOutput{Target: paneID, Output: output}, nil
+}
+
 // SendText writes literal text into a pane (plain terminal input).
 func (s *AgentService) SendText(paneID, text string) error {
 	if paneID == "" {

@@ -45,6 +45,10 @@ abstract class RelayClient {
   /// Agent terminal output (`agent.output`).
   Future<String> output(String target, {int lines = 200, String format = 'text'});
 
+  /// Pane terminal output (`pane.output`) — works for plain terminals
+  /// without an agent, unlike [output].
+  Future<String> paneOutput(String paneId, {int lines = 200, String format = 'text'});
+
   /// Sends key combinations to the agent (`agent.keys`): ['enter'], ['ctrl', 'c'].
   Future<void> keys(String target, List<String> keys);
 

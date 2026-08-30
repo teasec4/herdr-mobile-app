@@ -11,6 +11,10 @@ type AgentRepository interface {
 	// ReadOutput reads the terminal output of an agent.
 	ReadOutput(target string, lines int, format string) (string, error)
 
+	// ReadPaneOutput reads a pane's terminal output (works for plain
+	// terminals without an agent).
+	ReadPaneOutput(paneID string, lines int, format string) (string, error)
+
 	// SendKeys sends key sequences to an agent.
 	SendKeys(target string, keys []string) error
 

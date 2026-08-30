@@ -38,6 +38,9 @@ class FakeRelayClient implements RelayClient {
   /// Number of `session()` calls (reconnect tests).
   int sessionCalls = 0;
 
+  /// Number of `paneOutput()` calls (plain-terminal reads).
+  int paneOutputCalls = 0;
+
   /// Number of `snapshot()` calls (tests assert pages do NOT re-fetch on
   /// status events).
   int snapshotCalls = 0;
@@ -77,6 +80,13 @@ class FakeRelayClient implements RelayClient {
   Future<RelaySession> session() async {
     sessionCalls++;
     return sessionData;
+  }
+
+  @override
+  Future<String> paneOutput(
+      String paneId, {int lines = 200, String format = 'text'}) async {
+    paneOutputCalls++;
+    return outputText;
   }
 
   @override

@@ -141,7 +141,9 @@ class _AgentPageState extends State<AgentPage> {
         await _refreshAgentFromSnapshot();
       }
 
-      final output = await _repository.getOutput(_agent.id, lines: 500);
+      final output = _agent.isPlainTerminal
+          ? await _repository.getPaneOutput(_agent.id, lines: 500)
+          : await _repository.getOutput(_agent.id, lines: 500);
       if (!mounted) return;
       setState(() {
         _output = output;

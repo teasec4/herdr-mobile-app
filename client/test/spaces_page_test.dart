@@ -1,4 +1,5 @@
 import 'package:client/models/pair_config.dart';
+import 'package:client/models/relay_event.dart';
 import 'package:client/models/relay_session.dart';
 import 'package:client/pages/agent_page.dart';
 import 'package:client/pages/run_page.dart';
@@ -143,5 +144,24 @@ void main() {
       expect(button.onPressed, isNull);
       expect(find.textContaining('No free pane'), findsOneWidget);
     });
+  });
+
+  testWidgets('событие статуса перечитывает session (live-статус)', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(home: Scaffold(body: SpacesPage())),
+    );
+    await tester.pumpAndSettle();
+    final before = client.sessionCalls;
+
+    client.emit(AgentStatusChanged(
+      paneId: 'wH:p8',
+      status: 'blocked',
+      workspaceId: 'wH',
+    ));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+
+    expect(client.sessionCalls, greaterThan(before),
+        reason: 'status events must re-read the session');
   });
 }

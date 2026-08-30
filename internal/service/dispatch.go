@@ -65,6 +65,21 @@ func (s *AgentService) Dispatch(method string, params json.RawMessage) (interfac
 		}
 		return map[string]bool{"ok": true}, nil
 
+	case "pane.output":
+		var p struct {
+			PaneID string `json:"pane_id"`
+			Lines  int    `json:"lines"`
+			Format string `json:"format"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, badParams()
+		}
+		output, err := s.GetPaneOutput(p.PaneID, p.Lines, p.Format)
+		if err != nil {
+			return nil, herdrError(err)
+		}
+		return output, nil
+
 	case "pane.send_text":
 		var p struct {
 			PaneID string `json:"pane_id"`
