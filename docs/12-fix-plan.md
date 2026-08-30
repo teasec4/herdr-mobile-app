@@ -157,7 +157,7 @@ CLI herdr без таймаутов, синхронный broadcast, нет give
 
 ### Фаза C — Slow consumer
 
-#### C1. Per-client очередь в WS-hub
+#### C1. Per-client очередь в WS-hub — ✅ реализовано (queue 128, slow consumer закрывается, broadcast не блокируется; hub_test)
 - **Проблема**: D3.
 - **Решение**: `hub.go` — у каждого `Client` канал-очередь (напр. 64) + writer-goroutine;
   `Broadcast` кладёт сообщение неблокирующе, при переполнении — drop-oldest (или дроп нового +
@@ -187,7 +187,9 @@ CLI herdr без таймаутов, синхронный broadcast, нет give
 - **Тесты**: `http_transport_test.dart` — таймаут/сетевая ошибка/401 → в `_messages` приходит
   error-фрейм; `request_response_manager` фейлит запрос сразу.
 
-#### D3. Agent-страница: debounce статуса + без лишнего snapshot
+#### D3. Agent-страница: debounce статуса + без лишнего snapshot — ✅ (в f7a701f)
+
+**Доп. (после аудита): reconnect catch-up** — HomePage/SpacesPage/RunPage перечитывают данные при переходе disconnected→connected (события за разрыв теряются): `_wasDisconnected` + refresh/`_load()`; тест home_page_test «после реконнекта список перечитывается».
 - **Проблема**: D1 (клиентская часть), E4.
 - **Решение**: `agent_page.dart:117-131` — debounce refresh по `AgentStatusChanged` (300–400 мс,
   как у output); после A2 событие несёт `display_agent/cwd/workspace_id` → `_refreshAgentFromSnapshot()`

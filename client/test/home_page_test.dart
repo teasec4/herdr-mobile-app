@@ -4,6 +4,7 @@ import 'package:client/models/relay_agent.dart';
 import 'package:client/models/relay_event.dart';
 import 'package:client/pages/agent_page.dart';
 import 'package:client/pages/home_page.dart';
+import 'package:client/services/relay_client.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -267,5 +268,23 @@ void main() {
       expect(find.text('Retry'), findsOneWidget);
       expect(calls, 1);
     });
+  });
+
+  testWidgets('после реконнекта список перечитывается (catch-up)', (tester) async {
+    client.agents = [agent('p:alice', 'alice', 'done')];
+    await pumpHome(tester);
+    await goToAgents(tester);
+    final before = client.snapshotCalls;
+    expect(before, greaterThanOrEqualTo(1));
+
+    // Drop the connection: no refresh while offline.
+    client.status.value = RelayStatus.disconnected;
+    await tester.pumpAndSettle();
+    expect(client.snapshotCalls, before);
+
+    // Reconnect: the list is re-read to catch events lost during the gap.
+    client.status.value = RelayStatus.connected;
+    await tester.pumpAndSettle();
+    expect(client.snapshotCalls, before + 1);
   });
 }

@@ -60,6 +60,11 @@ class _HomePageState extends State<HomePage> with RouteAware {
   Timer? _refreshDebounce;
   int _tabIndex = 0; // 0 = Spaces, 1 = Agents, 2 = Run
 
+  /// True once the connection dropped: on the next connected state the list
+  /// is re-read, because events that arrived during the gap were lost
+  /// (docs/12-fix-plan.md, reconnect catch-up).
+  bool _wasDisconnected = false;
+
   /// True while another route (AgentPage/WorkspacePage) is pushed on top: the
   /// list is not visible, so live events are ignored until we come back
   /// (didPopNext refreshes to catch up). Avoids hidden snapshot fetches.
@@ -105,13 +110,20 @@ class _HomePageState extends State<HomePage> with RouteAware {
 
   void _onStatusChanged() {
     if (!mounted || _paused) return;
-    // On reconnect, reload the list
-    if (_repository.status.value == RelayStatus.connected && _agentsState.hasError) {
-      _refresh();
+    final status = _repository.status.value;
+    if (status == RelayStatus.connected) {
+      // Catch up after a disconnect (events during the gap were lost) or an
+      // earlier failure — always re-read the list.
+      if (_wasDisconnected || _agentsState.hasError) {
+        _wasDisconnected = false;
+        _refresh();
+        return;
+      }
     } else {
-      // Connection badge (online/connecting/offline) re-render.
-      setState(() {});
+      _wasDisconnected = true;
     }
+    // Connection badge (online/connecting/offline) re-render.
+    setState(() {});
   }
 
   void _onEvent(events.RelayEvent event) {

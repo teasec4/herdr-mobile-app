@@ -40,6 +40,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	client := NewClient(conn)
 	h.hub.Register(client)
+	go client.StartWriter()
 	defer func() {
 		h.hub.Unregister(client)
 		client.Close()

@@ -22,11 +22,31 @@ class _SpacesPageState extends State<SpacesPage> {
   RelaySession? _session;
   bool _loading = true;
   Object? _error;
+  bool _wasDisconnected = false;
 
   @override
   void initState() {
     super.initState();
     _load();
+    getIt<RelayClient>().status.addListener(_onConnectionStatus);
+  }
+
+  @override
+  void dispose() {
+    getIt<RelayClient>().status.removeListener(_onConnectionStatus);
+    super.dispose();
+  }
+
+  /// Reloads the session after a reconnect — events during the gap were lost.
+  void _onConnectionStatus() {
+    if (!mounted) return;
+    final s = getIt<RelayClient>().status.value;
+    if (s == RelayStatus.connected && _wasDisconnected) {
+      _wasDisconnected = false;
+      _load();
+    } else if (s != RelayStatus.connected) {
+      _wasDisconnected = true;
+    }
   }
 
   Future<void> _load() async {

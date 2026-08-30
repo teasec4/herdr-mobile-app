@@ -35,6 +35,9 @@ class FakeRelayClient implements RelayClient {
   /// When true, `snapshot()` throws [RelayException].
   bool snapshotError = false;
 
+  /// Number of `session()` calls (reconnect tests).
+  int sessionCalls = 0;
+
   /// Number of `snapshot()` calls (tests assert pages do NOT re-fetch on
   /// status events).
   int snapshotCalls = 0;
@@ -71,7 +74,10 @@ class FakeRelayClient implements RelayClient {
   }
 
   @override
-  Future<RelaySession> session() async => sessionData;
+  Future<RelaySession> session() async {
+    sessionCalls++;
+    return sessionData;
+  }
 
   @override
   Future<void> sendText(String paneId, String text) async {

@@ -2,6 +2,7 @@ package ws
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"sync"
 
@@ -81,27 +82,70 @@ func (h *Hub) ClientCount() int {
 	return len(h.clients)
 }
 
-// Client represents a single WebSocket connection.
+// sendQueue is the per-client outgoing buffer. A slow consumer that fills
+// the queue is closed instead of blocking the broadcast loop (docs/12-fix-
+// plan.md C1).
+const sendQueue = 128
+
+// Client represents a single WebSocket connection. Outgoing frames go
+// through an internal queue drained by [Client.StartWriter], so a broadcast
+// never blocks on a slow reader.
 type Client struct {
 	conn *websocket.Conn
-	mu   sync.Mutex
+	send chan []byte
+	done chan struct{}
+	once sync.Once
 }
 
 // NewClient creates a new WebSocket client.
 func NewClient(conn *websocket.Conn) *Client {
-	return &Client{conn: conn}
+	return &Client{
+		conn: conn,
+		send: make(chan []byte, sendQueue),
+		done: make(chan struct{}),
+	}
 }
 
-// Write sends data to the client.
+// StartWriter drains the outgoing queue; run it as a goroutine after the
+// client is registered (or before writing anything).
+func (c *Client) StartWriter() {
+	for {
+		select {
+		case msg := <-c.send:
+			if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+				log.Printf("ws: write error: %v", err)
+				c.Close()
+				return
+			}
+		case <-c.done:
+			return
+		}
+	}
+}
+
+// Write enqueues a frame. Returns an error (and closes the client) when the
+// queue is full — the consumer is too slow, keeping the connection would
+// only accumulate lag; the client reconnects and re-reads the snapshot.
 func (c *Client) Write(data []byte) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.conn.WriteMessage(websocket.TextMessage, data)
+	select {
+	case c.send <- data:
+		return nil
+	default:
+		log.Printf("ws: client queue full, closing slow consumer")
+		c.Close()
+		return errors.New("ws: slow consumer, connection closed")
+	}
 }
 
-// Close closes the client connection.
+// Close closes the client connection (idempotent).
 func (c *Client) Close() error {
-	return c.conn.Close()
+	c.once.Do(func() {
+		close(c.done)
+		if c.conn != nil {
+			_ = c.conn.Close()
+		}
+	})
+	return nil
 }
 
 // ReadMessage reads a message from the client.
