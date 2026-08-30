@@ -68,13 +68,32 @@ abstract class RelayClient {
 /// as separate frames without an id. Auto-reconnect with exponential backoff
 /// 1, 2, 4, ..., up to 30 s.
 class WsRelayClient implements RelayClient {
-  WsRelayClient(this.config) {
+  /// [channelFactory] and the two timeouts are injectable for tests: the
+  /// factory substitutes a fake [WebSocketChannel] (no real network) and the
+  /// timeouts shrink the request/reconnect waits. Production uses the
+  /// defaults. These hooks disappear once the client moves onto the layered
+  /// architecture (docs/09-refactoring-plan.md, Phase 0).
+  WsRelayClient(
+    this.config, {
+    WebSocketChannel Function(Uri uri)? channelFactory,
+    this.requestTimeout = const Duration(seconds: 15),
+    this.connectWait = const Duration(seconds: 8),
+  }) : _channelFactory = channelFactory ?? WebSocketChannel.connect {
     status = ValueNotifier<RelayStatus>(RelayStatus.disconnected);
     _events = StreamController<RelayEvent>.broadcast();
     _connect();
   }
 
   final PairConfig config;
+
+  final WebSocketChannel Function(Uri uri) _channelFactory;
+
+  /// Request timeout (15 s in production, shrunk in tests).
+  final Duration requestTimeout;
+
+  /// How long a cold-start request waits for the connection before failing
+  /// with `not_connected` (8 s in production, shrunk in tests).
+  final Duration connectWait;
 
   /// Connection status; subscribe to changes to update the UI.
   @override
@@ -97,9 +116,7 @@ class WsRelayClient implements RelayClient {
   /// Last connection error (shown to the user instead of a generic message).
   String? lastError;
 
-  static const Duration _requestTimeout = Duration(seconds: 15);
   static const Duration _maxReconnectDelay = Duration(seconds: 30);
-  static const Duration _connectWait = Duration(seconds: 8);
 
   // --- public operations --------------------------------------------------------------------
 
@@ -200,7 +217,7 @@ class WsRelayClient implements RelayClient {
     _sub = null;
 
     status.value = RelayStatus.connecting;
-    final ws = WebSocketChannel.connect(Uri.parse(config.wsUri.toString()));
+    final ws = _channelFactory(Uri.parse(config.wsUri.toString()));
     _channel = ws;
 
     try {
@@ -293,7 +310,7 @@ class WsRelayClient implements RelayClient {
     _scheduleReconnect();
   }
 
-  /// Waits up to [_connectWait] for the status to become [RelayStatus.connected]
+  /// Waits up to [connectWait] for the status to become [RelayStatus.connected]
   /// (the WS may still be establishing on a cold start / reconnect backoff).
   Future<void> _waitForConnected() async {
     if (status.value == RelayStatus.connected) return;
@@ -306,7 +323,7 @@ class WsRelayClient implements RelayClient {
 
     status.addListener(listener);
     try {
-      await completer.future.timeout(_connectWait, onTimeout: () {});
+      await completer.future.timeout(connectWait, onTimeout: () {});
     } finally {
       status.removeListener(listener);
     }
@@ -345,7 +362,7 @@ class WsRelayClient implements RelayClient {
     final completer = Completer<Map<String, dynamic>>();
     _pending[id] = completer;
     _sendFrame({'type': 'request', 'id': id, 'method': method, 'params': params});
-    final timer = Timer(_requestTimeout, () {
+    final timer = Timer(requestTimeout, () {
       if (_pending.remove(id) != null) {
         completer.completeError(const RelayException('timeout', 'Relay did not respond'));
       }

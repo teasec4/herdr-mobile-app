@@ -20,7 +20,8 @@ class RelayAgent {
   /// Agent name (codex, kimi, ...). May be empty.
   final String agent;
 
-  /// Status from herdr: done, running, waiting, error, ...
+  /// Status from herdr: idle, working, blocked, done, unknown
+  /// (docs/10-herdr-api.md §6.2).
   final String status;
 
   final String? cwd;

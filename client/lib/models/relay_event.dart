@@ -10,7 +10,10 @@ sealed class RelayEvent {
     return switch (name) {
       'pane.agent_status_changed' => AgentStatusChanged(
           paneId: data?['pane_id'] as String? ?? '',
-          status: data?['status'] as String? ?? 'unknown',
+          // The relay sends agent_status (mirroring herdr's
+          // pane.agent_status_changed payload, docs/10-herdr-api.md §5.3);
+          // 'status' is accepted for compatibility with older relays.
+          status: (data?['agent_status'] ?? data?['status']) as String? ?? 'unknown',
         ),
       'pane.updated' => PaneUpdated(
           paneId: data?['pane_id'] as String? ?? '',
