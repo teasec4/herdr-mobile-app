@@ -195,10 +195,10 @@ check_staleness() {
 
 # Показать логи
 show_logs() {
-  echo -e "${COLOR_BLUE}━━━ Логи relay (последние 20 строк) ━━━${COLOR_RESET}"
   LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/herdrelay"
   LOG_FILE="$LOG_DIR/relay.err.log"
   if [[ -f "$LOG_FILE" ]]; then
+    echo -e "${COLOR_BLUE}━━━ Логи relay (последние 20 строк) ━━━${COLOR_RESET}"
     tail -20 "$LOG_FILE"
     if [[ -s "$LOG_DIR/relay.log" ]]; then
       echo ""
@@ -208,6 +208,19 @@ show_logs() {
   else
     echo -e "${COLOR_YELLOW}⚠ Лог-файл не найден: $LOG_FILE${COLOR_RESET}"
   fi
+}
+
+# Обрезать логи до нуля (ротация вручную). Безопасно: процесс пишет с O_APPEND
+# (проверено), так что файл просто обнуляется, запись продолжается с начала.
+trim_logs() {
+  LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/herdrelay"
+  for f in "$LOG_DIR/relay.err.log" "$LOG_DIR/relay.log"; do
+    if [[ -f "$f" ]]; then
+      SIZE=$(stat -f "%z" "$f" 2>/dev/null || echo 0)
+      : > "$f"
+      echo -e "${COLOR_GREEN}✓ Обрезан: $f${COLOR_RESET} (было $SIZE байт)"
+    fi
+  done
 }
 
 # Полный статус
@@ -228,6 +241,7 @@ usage() {
   rebuild         То же, что update
   restart         Перезапустить relay
   logs            Показать последние логи
+  logs --trim     Обрезать логи до нуля (ротация вручную)
   token           Показать токен доступа
   api             Проверить только API
   help            Эта справка
@@ -259,7 +273,11 @@ case "${1:-status}" in
     status
     ;;
   logs)
-    show_logs
+    if [[ "$2" == "--trim" ]]; then
+      trim_logs
+    else
+      show_logs
+    fi
     ;;
   token)
     show_token

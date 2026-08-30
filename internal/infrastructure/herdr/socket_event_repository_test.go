@@ -281,3 +281,62 @@ func TestSocketEventRepositoryStatusFieldsAndRestart(t *testing.T) {
 	repo.Close()
 	<-done
 }
+
+// TestSocketEventRepositoryDropsDeadPane verifies that when herdr replies with a
+// pane_not_found error frame (the subscription references a pane that no longer
+// exists), the repository drops the dead pane from its subscription set and
+// reconnects with the remainder, instead of looping on the stale pane forever
+// (the reconnect-spam bug that grew relay.err.log unboundedly).
+func TestSocketEventRepositoryDropsDeadPane(t *testing.T) {
+	fake := startFakeHerdr(t, 0,
+		// Connection 1: a new pane arrives -> discovery, restart.
+		[]string{`{"event":"pane_updated","data":{"pane_id":"wH:p3"}}`},
+		// Connection 2: herdr rejects the stale pane -> must drop it and restart.
+		[]string{`{"id":"sub-0","error":{"code":"pane_not_found","message":"pane wH:p3 not found"}}`},
+		// Connection 3: stable connection, no notifications.
+		nil,
+	)
+
+	repo := NewSocketEventRepository(fake.ln.Addr().String())
+	events := make(chan domain.Event, 16)
+	done := make(chan struct{})
+	go func() {
+		repo.Subscribe(events)
+		close(done)
+	}()
+
+	// The discovered pane's pane.updated must still reach the client.
+	got := collectEvents(t, repo, events, 1)
+	pu, ok := got[0].(domain.PaneUpdatedEvent)
+	if !ok || pu.PaneID != "wH:p3" {
+		t.Fatalf("expected pane.updated for wH:p3, got %#v", got[0])
+	}
+
+	// Collect the three subscribe requests, in connection order.
+	subs := make([]string, 0, 3)
+	timeout := time.After(6 * time.Second)
+	for len(subs) < 3 {
+		select {
+		case s := <-fake.subs:
+			subs = append(subs, s)
+		case <-timeout:
+			t.Fatalf("timeout waiting for %d subscribes, got %d: %#v", 3, len(subs), subs)
+		}
+	}
+
+	// 1) initial subscribe: only pane.updated, no pane scope.
+	if strings.Contains(subs[0], `"wH:p3"`) {
+		t.Fatalf("initial subscribe must not scope the pane yet: %s", subs[0])
+	}
+	// 2) after discovery: the pane is scoped.
+	if !strings.Contains(subs[1], `"wH:p3"`) {
+		t.Fatalf("resubscribe after discovery must scope the pane: %s", subs[1])
+	}
+	// 3) after pane_not_found: the dead pane is dropped again.
+	if strings.Contains(subs[2], `"wH:p3"`) {
+		t.Fatalf("subscribe after pane_not_found must not scope the dead pane: %s", subs[2])
+	}
+
+	repo.Close()
+	<-done
+}

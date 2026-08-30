@@ -50,6 +50,14 @@
 ```
 Показывает последние 20 строк из `~/.local/state/herdrelay/relay.err.log`
 
+### Обрезать логи
+```bash
+./relay-status.sh logs --trim
+```
+Обнуляет `relay.err.log` и `relay.log`. Безопасно на ходу: процесс пишет с
+`O_APPEND`, запись просто продолжается с начала файла. Пригодится, когда лог
+разросся (например после диагностики или когда reconnect-цикл всё же насорил).
+
 ### Токен
 ```bash
 ./relay-status.sh token
@@ -144,6 +152,24 @@ export HERDRELAY_MODE=gateway    # требует HERDRELAY_GATEWAY_URL
 2. Проверьте токен в клиенте (должен совпадать с `~/.config/herdr/herdrelay.token`)
 3. Проверьте, что компьютер и телефон в одной сети
 4. Проверьте IP адрес компьютера: `ifconfig | grep "inet " | grep -v 127.0.0.1`
+
+### relay.err.log растёт очень быстро (по паре строк в секунду)
+Симптом: в логе одна за другой строки
+`herdr socket: connected to ... (N pane subscriptions)` и
+`herdr socket: connection closed, reconnecting` — раз в секунду, бесконечно.
+
+Причина (исправлена): relay держал в подписках pane_id, которого больше нет
+(таб/пэйн был закрыт, или pane_id поменялся при pane.moved). herdr отвечает на
+такую подписку JSON-RPC ошибкой `pane_not_found` и закрывает соединение; раньше
+relay игнорировал error-кадр, видел «чистый EOF» и переподключался с тем же
+мёртвым pane_id — вечный цикл.
+
+Что делать сейчас:
+1. Проверьте, не вернулась ли проблема: `./relay-status.sh logs` — должно быть
+   тихо (несколько строк в минуту, не в секунду).
+2. Если лог уже разросся: `./relay-status.sh logs --trim`.
+3. При повторе цикла: `./relay-status.sh update` (пересобрать + перезапустить) и
+   заглянуть в `docs/10-herdr-api.md` — подписка на мёртвый pane_id.
 
 ## Workflow после изменений
 

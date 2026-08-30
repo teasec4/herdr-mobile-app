@@ -7,19 +7,21 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
 	"herdrelay/internal/domain"
 )
 
-// errRestart signals that a new pane was discovered and the connection was
+// errRestart signals that the subscription set changed (a new pane was
+// discovered, or a dead pane must be dropped) and the connection was
 // intentionally closed so that the outer loop reconnects with the full
 // subscription set. herdr 0.8.0 drops a connection when a second reactive
-// events.subscribe is written mid-stream, so new pane subscriptions are always
+// events.subscribe is written mid-stream, so subscription changes are always
 // applied by restarting the connection with the complete subscription list
 // instead of writing a second subscribe on the live connection.
-var errRestart = errors.New("new pane discovered, restarting subscription")
+var errRestart = errors.New("subscription set changed, restarting")
 
 // revisionState tracks per-pane output revisions across reconnects
 // (docs/12-fix-plan.md D5). The maps are guarded by a mutex: subscribeOnce runs
@@ -101,6 +103,11 @@ func (r *SocketEventRepository) Subscribe(events chan<- domain.Event) error {
 	// client's revision guard wrongly skip a real output change.
 	revisions := newRevisionState()
 
+	// lastLog gates the periodic reconnect log lines: cyclic reconnects (herdr
+	// restarting, idle sockets, a stale pane) must not grow the log unboundedly,
+	// while a rare reconnect still gets logged with the pane count.
+	var lastLog time.Time
+
 	for {
 		r.mu.Lock()
 		if r.closed {
@@ -110,11 +117,11 @@ func (r *SocketEventRepository) Subscribe(events chan<- domain.Event) error {
 		}
 		r.mu.Unlock()
 
-		err := r.subscribeOnce(events, subscribed, revisions)
+		err := r.subscribeOnce(events, subscribed, revisions, &lastLog)
 		if err != nil {
 			if errors.Is(err, errRestart) {
-				// New pane discovered: reconnect immediately with the full
-				// subscription set.
+				// New pane discovered or a dead pane dropped: reconnect
+				// immediately with the updated subscription set.
 				backoff = 2 * time.Second
 				continue
 			}
@@ -132,7 +139,10 @@ func (r *SocketEventRepository) Subscribe(events chan<- domain.Event) error {
 		// Clean EOF: reconnect, but pace it to avoid a hot loop if herdr
 		// closes idle connections.
 		backoff = 2 * time.Second
-		log.Printf("herdr socket: connection closed, reconnecting")
+		if now := time.Now(); now.Sub(lastLog) >= 30*time.Second {
+			log.Printf("herdr socket: connection closed, reconnecting (%d pane subscriptions)", len(subscribed))
+			lastLog = now
+		}
 		if !r.sleep(time.Second) {
 			close(events)
 			return nil
@@ -165,13 +175,21 @@ type subscription struct {
 }
 
 // socketNotification is a single decoded frame from the herdr socket, whether
-// a response frame (subscription_started), keepalive, or an event notification.
+// a response frame (subscription_started), keepalive, error, or an event notification.
 type socketNotification struct {
 	Event string          `json:"event"`
 	Data  json.RawMessage `json:"data"`
+	Error *socketError    `json:"error"`
 }
 
-func (r *SocketEventRepository) subscribeOnce(events chan<- domain.Event, subscribed map[string]bool, revisions *revisionState) error {
+// socketError is the JSON-RPC error herdr replies with when a subscription
+// references a pane that no longer exists ("pane_not_found").
+type socketError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+func (r *SocketEventRepository) subscribeOnce(events chan<- domain.Event, subscribed map[string]bool, revisions *revisionState, lastLog *time.Time) error {
 	conn, err := net.Dial("unix", r.socket)
 	if err != nil {
 		return fmt.Errorf("dial herdr socket: %w", err)
@@ -205,7 +223,12 @@ func (r *SocketEventRepository) subscribeOnce(events chan<- domain.Event, subscr
 		return fmt.Errorf("subscribe: %w", err)
 	}
 
-	log.Printf("herdr socket: connected to %s (%d pane subscriptions)", r.socket, len(subscribed))
+	// Gate the per-connection log with the same window as the reconnect log:
+	// a pathological loop (dead pane) must not spam "connected" once per second.
+	if now := time.Now(); now.Sub(*lastLog) >= 30*time.Second {
+		log.Printf("herdr socket: connected to %s (%d pane subscriptions)", r.socket, len(subscribed))
+		*lastLog = now
+	}
 
 	scanner := bufio.NewScanner(conn)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
@@ -216,7 +239,33 @@ func (r *SocketEventRepository) subscribeOnce(events chan<- domain.Event, subscr
 	for scanner.Scan() {
 		var notification socketNotification
 
-		if err := json.Unmarshal(scanner.Bytes(), &notification); err != nil || notification.Event == "" {
+		if err := json.Unmarshal(scanner.Bytes(), &notification); err != nil {
+			continue // malformed frame
+		}
+
+		// herdr replies with a JSON-RPC error frame (no "event" field) and drops
+		// the connection when a subscription references a pane that no longer
+		// exists (e.g. the tab was closed, or pane.moved changed its id — gotcha
+		// #7). Without handling this, subscribeOnce returns a clean EOF and the
+		// outer loop reconnects with the same stale pane every second, forever.
+		// Drop the dead pane from the set and restart with the remainder.
+		if notification.Error != nil && notification.Error.Code == "pane_not_found" {
+			if dead := paneIDFromError(notification.Error.Message); dead != "" {
+				delete(subscribed, dead)
+				log.Printf("herdr socket: dropping dead pane %s from subscriptions", dead)
+				return errRestart
+			}
+			// Message didn't parse; clear all per-pane subscriptions so the
+			// reconnect starts from a bare pane.updated and re-discovers the
+			// live set. Safer than looping on a stale pane forever.
+			for p := range subscribed {
+				delete(subscribed, p)
+			}
+			log.Printf("herdr socket: unparsed pane_not_found %q, clearing pane subscriptions", notification.Error.Message)
+			return errRestart
+		}
+
+		if notification.Event == "" {
 			continue // response frames (subscription_started), keepalives, etc.
 		}
 
@@ -304,6 +353,17 @@ func emitEvent(events chan<- domain.Event, notification socketNotification) {
 	case <-time.After(5 * time.Second):
 		log.Printf("herdr socket: event channel blocked, dropping event %s", notification.Event)
 	}
+}
+
+// paneIDFromError extracts the pane id from herdr's pane_not_found error
+// message, which reads "pane wH:p9 not found". Returns "" when the message
+// does not match that shape.
+func paneIDFromError(message string) string {
+	fields := strings.Fields(message)
+	if len(fields) == 4 && fields[0] == "pane" && fields[2] == "not" && fields[3] == "found" {
+		return fields[1]
+	}
+	return ""
 }
 
 // paneIDFrom extracts the pane id from a pane_updated / pane.updated payload,
