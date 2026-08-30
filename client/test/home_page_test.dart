@@ -65,6 +65,13 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  /// Switches the bottom navigation to the Agents tab (the default tab is
+  /// Spaces).
+  Future<void> goToAgents(WidgetTester tester) async {
+    await tester.tap(find.text('Agents'));
+    await tester.pumpAndSettle();
+  }
+
   RelayAgent agent(String id, String name, String status) => RelayAgent.fromJson({
         'pane_id': id,
         'agent': name,
@@ -73,6 +80,7 @@ void main() {
 
   testWidgets('пустой список — заглушка «Агенты не найдены»', (tester) async {
     await pumpHome(tester);
+    await goToAgents(tester);
     expect(find.text('No agents found'), findsOneWidget);
   });
 
@@ -82,6 +90,7 @@ void main() {
       agent('p:alice', 'alice', 'blocked'),
     ];
     await pumpHome(tester);
+    await goToAgents(tester);
 
     final aliceY = tester.getTopLeft(find.text('alice')).dy;
     final bobY = tester.getTopLeft(find.text('bob')).dy;
@@ -93,6 +102,7 @@ void main() {
     client.agents = [agent('p:alice', 'alice', 'done')];
     client.outputText = 'вывод агента\n';
     await pumpHome(tester);
+    await goToAgents(tester);
 
     await tester.tap(find.text('alice'));
     await tester.pumpAndSettle();
@@ -104,6 +114,7 @@ void main() {
   testWidgets('ошибка снимка показывает «Повторить», повторный тап чинит', (tester) async {
     client.snapshotError = true;
     await pumpHome(tester);
+    await goToAgents(tester);
     expect(find.text('Retry'), findsOneWidget);
 
     client.snapshotError = false;

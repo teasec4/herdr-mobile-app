@@ -30,6 +30,7 @@ func (stubAgentRepo) Snapshot() (*domain.Snapshot, error) {
 func (stubAgentRepo) ReadOutput(target string, lines int, format string) (string, error) { return "hello\nworld\n", nil }
 func (stubAgentRepo) SendKeys(target string, keys []string) error                         { return nil }
 func (stubAgentRepo) SendPrompt(target, text string) error                                { return nil }
+func (stubAgentRepo) SendText(paneID, text string) error                                   { return nil }
 func (stubAgentRepo) StartAgent(name, kind, paneID string) error                          { return nil }
 func (stubAgentRepo) CreateWorkspace(label, cwd string) (string, string, error)           { return "w9", "test-ws", nil }
 

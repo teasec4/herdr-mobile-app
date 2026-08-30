@@ -32,6 +32,16 @@ abstract class RelayClient {
   /// plain terminals) and focused targets.
   Future<RelaySession> session();
 
+  /// Writes literal text into a pane (`pane.send_text`) — input for plain
+  /// terminals that have no agent.
+  Future<void> sendText(String paneId, String text);
+
+  /// Starts an agent of [kind] in an existing pane (`agent.start`).
+  Future<void> startAgent(String name, String kind, String paneId);
+
+  /// Creates a workspace (`workspace.create`) and returns its id.
+  Future<String> createWorkspace({String? label, String? cwd});
+
   /// Agent terminal output (`agent.output`).
   Future<String> output(String target, {int lines = 200, String format = 'text'});
 

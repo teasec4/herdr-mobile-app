@@ -17,6 +17,9 @@ type AgentRepository interface {
 	// SendPrompt sends a text prompt to an agent.
 	SendPrompt(target, text string) error
 
+	// SendText writes literal text into a pane (plain terminal input).
+	SendText(paneID, text string) error
+
 	// StartAgent launches an agent of the given kind into an existing pane.
 	StartAgent(name, kind, paneID string) error
 

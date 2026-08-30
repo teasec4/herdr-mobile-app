@@ -116,3 +116,10 @@ func (r *CLIRepository) SendPrompt(target, text string) error {
 	_, err := r.run("agent", "prompt", target, text)
 	return err
 }
+
+// SendText writes literal text into a pane (plain terminal input): `herdr
+// pane send-text <paneID> <text>`.
+func (r *CLIRepository) SendText(paneID, text string) error {
+	_, err := r.run("pane", "send-text", paneID, text)
+	return err
+}

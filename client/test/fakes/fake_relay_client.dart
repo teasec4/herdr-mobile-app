@@ -41,6 +41,15 @@ class FakeRelayClient implements RelayClient {
   /// Recorded `prompt(target, text)` calls.
   final List<(String, String)> prompts = [];
 
+  /// Recorded `sendText(paneId, text)` calls.
+  final List<(String, String)> sendTextCalls = [];
+
+  /// Recorded `startAgent(name, kind, paneId)` calls.
+  final List<(String, String, String)> startAgentCalls = [];
+
+  /// Id returned by `createWorkspace()`.
+  String newWorkspaceId = 'w-new';
+
   /// Recorded `keys(target, keys)` calls.
   final List<(String, List<String>)> keysCalls = [];
 
@@ -54,6 +63,21 @@ class FakeRelayClient implements RelayClient {
 
   @override
   Future<RelaySession> session() async => sessionData;
+
+  @override
+  Future<void> sendText(String paneId, String text) async {
+    sendTextCalls.add((paneId, text));
+  }
+
+  @override
+  Future<void> startAgent(String name, String kind, String paneId) async {
+    startAgentCalls.add((name, kind, paneId));
+  }
+
+  @override
+  Future<String> createWorkspace({String? label, String? cwd}) async {
+    return newWorkspaceId;
+  }
 
   @override
   Future<String> output(String target, {int lines = 200, String format = 'text'}) async {

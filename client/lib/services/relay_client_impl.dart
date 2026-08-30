@@ -107,6 +107,29 @@ class RelayClientImpl implements RelayClient {
   }
 
   @override
+  Future<void> sendText(String paneId, String text) async {
+    await _rpc.request('pane.send_text', {'pane_id': paneId, 'text': text});
+  }
+
+  @override
+  Future<void> startAgent(String name, String kind, String paneId) async {
+    await _rpc.request('agent.start', {
+      'name': name,
+      'kind': kind,
+      'pane_id': paneId,
+    });
+  }
+
+  @override
+  Future<String> createWorkspace({String? label, String? cwd}) async {
+    final result = await _rpc.request('workspace.create', {
+      if (label != null && label.isNotEmpty) 'label': label,
+      if (cwd != null && cwd.isNotEmpty) 'cwd': cwd,
+    });
+    return (result['workspace_id'] ?? '').toString();
+  }
+
+  @override
   Future<String> output(String target, {int lines = 200, String format = 'text'}) async {
     final result = await _rpc.request('agent.output', {
       'target': target,

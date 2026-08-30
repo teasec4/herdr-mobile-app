@@ -14,6 +14,8 @@ import '../utils/toast_service.dart';
 import '../widgets/mode_picker_sheet.dart';
 import '../widgets/status_chip.dart';
 import 'agent_page.dart';
+import 'run_page.dart';
+import 'spaces_page.dart';
 
 /// Main screen: connection status and the list of agents on the computer.
 class HomePage extends StatefulWidget {
@@ -55,6 +57,7 @@ class _HomePageState extends State<HomePage> {
   StreamSubscription<events.RelayEvent>? _eventSubscription;
   AsyncValue<List<RelayAgent>> _agentsState = const AsyncIdle();
   Timer? _refreshDebounce;
+  int _tabIndex = 0; // 0 = Spaces, 1 = Agents, 2 = Run
 
   @override
   void initState() {
@@ -277,10 +280,39 @@ class _HomePageState extends State<HomePage> {
       ),
       body: SafeArea(
         top: false,
-        child: RefreshIndicator(
-          onRefresh: _refresh,
-          child: _buildBody(connected),
+        child: IndexedStack(
+          index: _tabIndex,
+          children: [
+            // Tab order matches the NavigationBar: 0 Spaces, 1 Agents, 2 Run.
+            const SpacesPage(),
+            RefreshIndicator(
+              onRefresh: _refresh,
+              child: _buildBody(connected),
+            ),
+            const RunPage(),
+          ],
         ),
+      ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _tabIndex,
+        onDestinationSelected: (i) => setState(() => _tabIndex = i),
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.space_dashboard_outlined),
+            selectedIcon: Icon(Icons.space_dashboard),
+            label: 'Spaces',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.smart_toy_outlined),
+            selectedIcon: Icon(Icons.smart_toy),
+            label: 'Agents',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.play_circle_outline),
+            selectedIcon: Icon(Icons.play_circle),
+            label: 'Run',
+          ),
+        ],
       ),
     );
   }

@@ -65,6 +65,19 @@ func (s *AgentService) Dispatch(method string, params json.RawMessage) (interfac
 		}
 		return map[string]bool{"ok": true}, nil
 
+	case "pane.send_text":
+		var p struct {
+			PaneID string `json:"pane_id"`
+			Text   string `json:"text"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, badParams()
+		}
+		if err := s.SendText(p.PaneID, p.Text); err != nil {
+			return nil, herdrError(err)
+		}
+		return map[string]bool{"ok": true}, nil
+
 	case "workspace.create":
 		var p struct {
 			Label string `json:"label"`

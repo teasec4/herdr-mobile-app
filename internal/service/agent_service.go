@@ -62,6 +62,14 @@ func (s *AgentService) SendPrompt(target, text string) error {
 	return s.repo.SendPrompt(target, text)
 }
 
+// SendText writes literal text into a pane (plain terminal input).
+func (s *AgentService) SendText(paneID, text string) error {
+	if paneID == "" {
+		return ErrInvalidTarget
+	}
+	return s.repo.SendText(paneID, text)
+}
+
 // StartAgent launches an agent of the given kind into an existing pane.
 func (s *AgentService) StartAgent(name, kind, paneID string) error {
 	if name == "" {
