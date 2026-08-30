@@ -108,7 +108,11 @@ CLI, доступный релею (проверено):
 | --- | --- | --- |
 | **A. Протокол** | `session.snapshot` (полный), `agent.start`, `workspace.create`, `pane.send_text` в релее + CLI-обёртки + Go-тесты | ✅ `curl /api/rpc` отдаёт workspaces (проверено живьём) |
 | **B. Модели и навигация** | `RelayWorkspace`/`RelayPane`, `session()`; нижние вкладки Spaces/Agents/Run; экран workspace | ✅ видно 4 workspace и все panes на телефоне |
-| **C. Терминал pane** | `PanePage`-ввод (`send_text` для пустых), запуск агента из Run | ✅ ввод в пустой pane — `pane.send_text`; запуск из Run в свободный pane |
+| **C. Терминал pane** | `PanePage`-ввод (`send_text` для пустых), запуск агента из Run | ✅ ввод в пустой pane — `pane.send_text` (проверено живьём: `ok:true`); запуск из Run в свободный pane |
+
+Живая проверка протокола: `session.snapshot` → 4 workspace / 6 panes;
+`pane.send_text` → ok; `agent.start` с пустым kind → понятная ошибка
+(валидация). Полный запуск агента с телефона — ручной тест на устройстве.
 | **B. Модели и навигация** | `RelayWorkspace`/`RelayPane`, `RelayAgent.workspaceId`; нижние вкладки Spaces/Agents/Run; экран workspace | видно 4 workspace и все panes на телефоне |
 | **C. Терминал pane** | `PanePage` (send_text для пустых), запуск агента из Run и из меню pane | с телефона запущен агент в новом/существующем workspace |
 | **D. Полировка** | создание workspace в UI, ошибки/ретраи, события workspace.*, тесты | полный флоу без ноутбука |
