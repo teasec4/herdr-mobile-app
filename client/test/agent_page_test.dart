@@ -155,6 +155,39 @@ Please choose an option:
     expect(find.text('done'), findsOneWidget);
   });
 
+  testWidgets('статус-событие не перечитывает вывод и не делает снапшот', (tester) async {
+    client.outputText = 'первый\n';
+    await pumpAgent(tester);
+    // initState/_refresh do one snapshot (metadata) + one output read.
+    final snapshots = client.snapshotCalls;
+    final outputs = client.outputCalls;
+    expect(outputs, greaterThan(0));
+
+    client.outputText = 'второй\n';
+    client.emit(AgentStatusChanged(paneId: agent.id, status: 'working'));
+    await tester.pumpAndSettle();
+
+    // Status is applied locally; no extra snapshot/output traffic.
+    expect(find.text('working'), findsOneWidget);
+    expect(client.snapshotCalls, snapshots);
+    expect(client.outputCalls, outputs);
+    expect(find.text('второй\n'), findsNothing); // output not re-read
+  });
+
+  testWidgets('статус-событие с именем агента обновляет заголовок', (tester) async {
+    await pumpAgent(tester);
+
+    client.emit(AgentStatusChanged(
+      paneId: agent.id,
+      status: 'working',
+      agent: 'kimi',
+      workspaceId: 'wF',
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('kimi'), findsOneWidget);
+  });
+
   testWidgets('событие чужого агента не трогает экран', (tester) async {
     await pumpAgent(tester);
 

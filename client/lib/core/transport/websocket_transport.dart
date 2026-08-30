@@ -116,7 +116,10 @@ class WebSocketTransport with ReconnectMixin implements Transport {
       _sub = ws.stream.listen(
         (data) {
           if (data == keepaliveResponse) {
+            // Pong consumed by keepalive — do NOT forward it to _messages:
+            // upper layers would re-parse a frame that carries no payload.
             _onKeepalivePong();
+            return;
           }
           if (data is String) _messages.add(data);
         },

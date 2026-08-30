@@ -10,6 +10,7 @@ import '../models/relay_event.dart' as events;
 import '../repositories/agent_repository.dart';
 import '../services/relay_client.dart';
 import '../utils/async_value.dart';
+import '../utils/route_observer.dart';
 import '../utils/toast_service.dart';
 import '../widgets/mode_picker_sheet.dart';
 import '../widgets/status_chip.dart';
@@ -52,12 +53,17 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
+class _HomePageState extends State<HomePage> with RouteAware {
   late final AgentRepository _repository;
   StreamSubscription<events.RelayEvent>? _eventSubscription;
   AsyncValue<List<RelayAgent>> _agentsState = const AsyncIdle();
   Timer? _refreshDebounce;
   int _tabIndex = 0; // 0 = Spaces, 1 = Agents, 2 = Run
+
+  /// True while another route (AgentPage/WorkspacePage) is pushed on top: the
+  /// list is not visible, so live events are ignored until we come back
+  /// (didPopNext refreshes to catch up). Avoids hidden snapshot fetches.
+  bool _paused = false;
 
   @override
   void initState() {
@@ -69,60 +75,114 @@ class _HomePageState extends State<HomePage> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route != null) {
+      routeObserver.subscribe(this, route);
+    }
+  }
+
+  @override
   void dispose() {
+    routeObserver.unsubscribe(this);
     _refreshDebounce?.cancel();
     _repository.status.removeListener(_onStatusChanged);
     _eventSubscription?.cancel();
     super.dispose();
   }
 
+  @override
+  void didPushNext() {
+    _paused = true;
+  }
+
+  @override
+  void didPopNext() {
+    _paused = false;
+    if (mounted) _refresh(); // catch up while we were covered
+  }
+
   void _onStatusChanged() {
-    if (!mounted) return;
+    if (!mounted || _paused) return;
     // On reconnect, reload the list
     if (_repository.status.value == RelayStatus.connected && _agentsState.hasError) {
       _refresh();
     } else {
+      // Connection badge (online/connecting/offline) re-render.
       setState(() {});
     }
   }
 
   void _onEvent(events.RelayEvent event) {
-    if (!mounted) return;
+    if (!mounted || _paused) return;
 
-    // DEBUG: log all events
-    print('[HomePage] Event received: $event');
-
-    // The plugin fires these events on agent status changes — re-read the
-    // snapshot so the list stays fresh. Debounce a burst of events (e.g. a
-    // batch task flipping many agents at once) into a single snapshot request.
-    if (event is events.AgentStatusChanged || event is events.PaneUpdated) {
-      _refreshDebounce?.cancel();
-      _refreshDebounce = Timer(const Duration(milliseconds: 300), () {
-        if (mounted) {
-          print('[HomePage] Refreshing after event burst');
-          _refresh();
-        }
-      });
+    if (event is events.AgentStatusChanged) {
+      // The event carries the new status — update the tile in place instead of
+      // re-reading the whole snapshot (statuses flip often while agents work).
+      _applyStatusDelta(event);
+      return;
+    }
+    if (event is events.PaneUpdated) {
+      // A pane appeared/moved/changed — the list may need a full snapshot.
+      _scheduleRefresh();
     }
   }
 
+  /// Applies a status change locally from the event. A full snapshot is only
+  /// taken when the pane is not in the current list (unknown to us); pane.updated
+  /// covers genuinely new panes.
+  void _applyStatusDelta(events.AgentStatusChanged event) {
+    final current = _agentsState;
+    if (current is! AsyncData<List<RelayAgent>>) {
+      _scheduleRefresh(); // no list yet (loading/error) — fetch it
+      return;
+    }
+    if (!current.data.any((a) => a.id == event.paneId)) {
+      _scheduleRefresh(); // unknown pane — fall back to a snapshot
+      return;
+    }
+    setState(() {
+      _agentsState = AsyncData(RelayAgent.sorted([
+        for (final a in current.data)
+          if (a.id == event.paneId)
+            a.copyWith(
+              status: event.status,
+              agent: event.agent.isEmpty ? a.agent : event.agent,
+              workspaceId: event.workspaceId.isEmpty
+                  ? a.workspaceId
+                  : event.workspaceId,
+            )
+          else
+            a,
+      ]));
+    });
+  }
+
+  /// Debounces an event burst (e.g. a batch task flipping many agents) into a
+  /// single snapshot request.
+  void _scheduleRefresh() {
+    _refreshDebounce?.cancel();
+    _refreshDebounce = Timer(const Duration(milliseconds: 300), () {
+      if (mounted) _refresh();
+    });
+  }
+
   Future<void> _refresh() async {
-    setState(() => _agentsState = const AsyncLoading());
+    // Keep the current list on screen while refreshing; show the spinner only
+    // when there is nothing to show yet. This keeps the ListView mounted, so
+    // scroll position and tile state survive event bursts.
+    if (_agentsState is! AsyncData<List<RelayAgent>>) {
+      setState(() => _agentsState = const AsyncLoading());
+    }
     try {
-      print('[HomePage] Fetching snapshot...');
       final agents = await _repository.getAgents();
-      print('[HomePage] Got ${agents.length} agents:');
-      for (final a in agents) {
-        print('[HomePage]   ${a.id}: ${a.agent} (${a.status})');
-      }
       if (mounted) {
         setState(() {
           _agentsState = AsyncData(RelayAgent.sorted(agents));
         });
-        print('[HomePage] UI updated with ${agents.length} agents');
       }
     } catch (e) {
-      print('[HomePage] Refresh error: $e');
       if (mounted) {
         setState(() => _agentsState = AsyncError(e));
         ToastService.showError(context, e);
@@ -375,7 +435,13 @@ class _HomePageState extends State<HomePage> {
               );
             }
             final agent = data[i];
-            return _AgentTile(agent: agent, onTap: () => _openAgent(agent));
+            // Stable per-agent key: keeps tile state and scroll position across
+            // list rebuilds (status deltas / refreshes).
+            return _AgentTile(
+              key: ValueKey(agent.id),
+              agent: agent,
+              onTap: () => _openAgent(agent),
+            );
           },
         ),
     };
@@ -400,7 +466,7 @@ class _HomePageState extends State<HomePage> {
 }
 
 class _AgentTile extends StatelessWidget {
-  const _AgentTile({required this.agent, required this.onTap});
+  const _AgentTile({super.key, required this.agent, required this.onTap});
 
   final RelayAgent agent;
   final VoidCallback onTap;

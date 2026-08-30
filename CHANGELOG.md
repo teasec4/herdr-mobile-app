@@ -150,6 +150,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Понятные ошибки**: протокольные ошибки (`not_connected`/`timeout`/`unauthorized`) мапятся в человекочитаемый текст вместо сырого `toString()`.
 - **Валидация ссылки пары**: токен не короче 16 символов и без символов, ломающих query-строку; `PairConfig.toJsonSafe()` маскирует токен для логов.
 
+### Changed (event pipeline, устранение дублей — docs/12-fix-plan.md A1-A3)
+- **Один канал статусов**: убран плагинный хук (`on-event.sh` → `POST /api/events/herdr`) и роуты `/api/events/*` — статусы приходят только по socket-подписке (`events.subscribe`, `pane.agent_status_changed`). Одно изменение статуса = одно событие клиенту вместо двух.
+- **Agent-страница без лишних запросов**: событие `pane.agent_status_changed` обновляет статус локально (и имя/workspace из payload) — без повторного snapshot и перечитывания вывода; вывод читается только по `pane.output_changed` и ручному refresh.
+- **Событие статуса расширено**: `agent`, `display_agent`, `workspace_id`, `title` из herdr-payload доходят до клиента (`relay_event.dart`).
+- **Revision оживлён**: релей прикрепляет к `pane.output_changed` последний известный `revision` из `pane.updated` (только строго растущий) — клиентский revision-guard начинает работать, устаревшая ревизия не шлётся, чтобы не пропустить живой апдейт.
+- **AnsiTerminal мемоизация**: тот же текст → тот же инстанс `SelectableText` (без репарса ANSI и релэйаута) — дубли/статусные ребилды больше не пересобирают терминал.
+- **Pong не утекает в сообщения**: keepalive-pong потребляется транспортом, верхние слои не парсят пустой фрейм.
+- **Кэш агентов пишется только при изменении** списка (не на каждый снапшот).
+- **Прерываемый reconnect-цикл сокета**: `Close()` больше не ждёт backoff-сон (docs/12 B3).
+- **Debug-print убран** из `agent_page.dart` (и событийного пути `home_page.dart`).
+
 ### Planned
 - Remote API доступ (за пределами локальной сети)
 - Поддержка мульти-workspace

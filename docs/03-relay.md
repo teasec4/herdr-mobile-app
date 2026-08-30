@@ -9,10 +9,9 @@
    виден в `herdr status`; настраивается через env `HERDR_SOCKET`/конфиг).
 2. Обслуживать телефон: WS-канал (через гейтвей или напрямую) + HTTP fallback.
 3. Принимать события herdr и раздавать их подключённым клиентам:
-   - статусы агентов — через хук плагина (`pane.agent_status_changed` →
-     `on-event.sh` → локальный HTTP);
-   - живой вывод терминала (Б-lite) — через прямую сокет-подписку релея
-     (`pane.scroll_changed`, см. `socket_event_repository.go`).
+   - статусы агентов и живой вывод терминала — через прямую сокет-подписку
+     релея (`events.subscribe`: `pane.agent_status_changed` +
+     `pane.scroll_changed`, см. `socket_event_repository.go`);
 4. Аутентифицировать клиентов (bearer-токен пары).
 
 ## Связь с herdr: два варианта
@@ -119,28 +118,27 @@ herdr, телефон сканирует. В `funnel`-режиме релей в
 
 ## Обработка событий herdr
 
-У релея два независимых канала событий.
+У релея **один** канал событий — подписка по unix-сокету herdr
+(`events.subscribe`, `SocketEventRepository`). Плагинный хук
+(`on-event.sh` → `POST /api/events/herdr`) **удалён**: он дублировал
+статусы, которые сокет и так отдаёт (`pane.agent_status_changed` по pane_id),
+и каждое изменение статуса бродкастилось клиенту дважды — см.
+[12-fix-plan.md](12-fix-plan.md) A1.
 
-### Статусы: плагинный хук (плагин → релей)
-
-Плагин шлёт хук `on-event.sh` при `pane.agent_status_changed` → локальный
-HTTP POST на `127.0.0.1:8375/api/events/herdr`. Релей матчит событие в снимок
-и шлёт по активным клиентским WS-каналам
-`{"type":"event","event":"agent_status_changed",...}`. Так blocked/finished
-видны мгновенно.
-
-### Живой вывод (Б-lite): сокет-подписка (релей → herdr)
+### Статусы и живой вывод: сокет-подписка (релей → herdr)
 
 Хуки herdr не умеют события вывода (`pane.updated`, `pane.output_changed`,
 `pane.scroll_changed` — все отвергаются линковщиком как unknown event,
-проверено брутфорсом на herdr 0.8.0). Поэтому живой вывод тянется релеем
-напрямую по unix-сокету herdr (`~/.config/herdr/herdr.sock`) через
+проверено брутфорсом на herdr 0.8.0). Поэтому живой статус/вывод тянется
+релеем напрямую по unix-сокету herdr (`~/.config/herdr/herdr.sock`) через
 JSON-RPC-подписку `events.subscribe`:
 
 - **`pane.updated`** (глобальная) — узнаём о новых пейнах; новые pane_id
-  досылаются инкрементальной подпиской на том же коннекте.
+  досылаются переподключением с полным набором подписок (второй subscribe на
+  живом коннекте роняет его, herdr 0.8.0).
 - **`pane.scroll_changed`** (по одной на pane_id) — стреляет при изменении
   scrollable-вывода панели.
+- **`pane.agent_status_changed`** (по одной на pane_id) — смена статуса агента.
 
 Реализация — `internal/infrastructure/herdr/socket_event_repository.go`
 (`SocketEventRepository`): держит коннект с backoff-реконнектом 2s→30s,
@@ -148,8 +146,11 @@ JSON-RPC-подписку `events.subscribe`:
 Полученный `pane.scroll_changed` релей
 форвардит клиентам как `{"type":"event","event":"pane.output_changed",
 "data":{...}}` — клиент ре-читает вывод агента по совпадению `pane_id`.
-Событие не несёт revision, поэтому клиентский revision-guard инертен, а
-burst'ы схлопываются debounce'ом на клиенте (400мс).
+Событие не несёт revision (gotcha №5), поэтому релей прикрепляет к
+`output_changed` последний известный `revision` из `pane.updated`
+(**только строго растущий** — устаревшая ревизия заставила бы клиентский
+guard пропустить живой апдейт); burst'ы схлопываются debounce'ом на клиенте
+(400мс) и на релее (500мс на панель).
 
 Формат сокета (проверено живьём): newline-делимитед JSON-RPC 2.0, id запроса
 обязательно строка. Запрос:
@@ -157,13 +158,15 @@ burst'ы схлопываются debounce'ом на клиенте (400мс).
 ```json
 {"jsonrpc":"2.0","id":"relay:events","method":"events.subscribe",
  "params":{"subscriptions":[{"type":"pane.updated"},
-                            {"type":"pane.scroll_changed","pane_id":"wH:p3"}]}}
+                            {"type":"pane.scroll_changed","pane_id":"wH:p3"},
+                            {"type":"pane.agent_status_changed","pane_id":"wH:p3"}]}}
 ```
 
-Нотификации — плоские: `{"event":"pane.scroll_changed","data":{...}}` и
+Нотификации — плоские: `{"event":"pane.scroll_changed","data":{...}}`,
+`{"event":"pane.agent_status_changed","data":{...}}` и
 `{"event":"pane_updated","data":{"pane":{...}}}`.
 
-Лог подписки — в `relay.err.log`: `herdr events: subscribed on ... (N pane(s))`.
+Лог подписки — в `relay.err.log`: `herdr socket: connected to ... (N pane subscriptions)`.
 
 ## Запуск
 

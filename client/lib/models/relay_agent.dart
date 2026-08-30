@@ -40,6 +40,28 @@ class RelayAgent {
   /// Blocked — waiting for the user's response ("needs my reply").
   bool get isBlocked => status.toLowerCase() == 'blocked';
 
+  /// Copy with selected fields replaced. Used to apply event deltas (e.g. a
+  /// status change) without losing fields the event does not carry.
+  RelayAgent copyWith({
+    String? id,
+    String? agent,
+    String? status,
+    String? cwd,
+    bool? focused,
+    String? workspaceId,
+    bool? isPlainTerminal,
+  }) {
+    return RelayAgent(
+      id: id ?? this.id,
+      agent: agent ?? this.agent,
+      status: status ?? this.status,
+      cwd: cwd ?? this.cwd,
+      focused: focused ?? this.focused,
+      workspaceId: workspaceId ?? this.workspaceId,
+      isPlainTerminal: isPlainTerminal ?? this.isPlainTerminal,
+    );
+  }
+
   /// Human-readable name for the list: agent, otherwise pane_id.
   String get displayAgent => agent.isEmpty ? id : agent;
 

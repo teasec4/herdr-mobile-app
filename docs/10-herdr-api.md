@@ -544,9 +544,8 @@ Action id квалифицируется как `<plugin_id>.<action_id>`.
 | Чтение вывода агента | `agent read <target> --lines N --format <text\|ansi>` | там же → `ReadOutput(target, lines, format)` |
 | Отправка клавиш | `agent send-keys <target> <key...>` | там же → `SendKeys(target, keys)` |
 | Отправка промпта | `agent prompt <target> <text>` | там же → `SendPrompt(target, text)` |
-| Живой статус/вывод агентов | socket: `events.subscribe` (`pane.updated` глобально + per-pane `pane.scroll_changed`) → нотификации | `internal/infrastructure/herdr/socket_event_repository.go` |
-| Ремап в наш протокол | `pane.scroll_changed` → клиентское событие `pane.output_changed` | там же, emit с таймаутом 5s |
-| Статусы в HTTP API релея | хук `pane.agent_status_changed` → `plugin/on-event.sh` → POST `/api/events/herdr` | `plugin/on-event.sh` + транспорт |
+| Живой статус/вывод агентов | socket: `events.subscribe` (`pane.updated` глобально + per-pane `pane.scroll_changed`, `pane.agent_status_changed`) → нотификации | `internal/infrastructure/herdr/socket_event_repository.go` |
+| Ремап в наш протокол | `pane.scroll_changed` → клиентское событие `pane.output_changed` (c revision из `pane.updated`, строго растущим) | там же, emit с таймаутом 5s |
 
 Про подключение и цикл жизни socket-репозитория (проверено живьём, 0.8.0):
 

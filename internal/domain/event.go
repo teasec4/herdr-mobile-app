@@ -9,9 +9,18 @@ type Event interface {
 }
 
 // AgentStatusChangedEvent is fired when an agent's status changes.
+//
+// The extra fields (agent, display_agent, workspace_id, title) mirror the
+// payload herdr sends on pane.agent_status_changed (docs/10-herdr-api.md §5.3)
+// so clients can refresh an agent from the event alone instead of re-reading
+// the whole snapshot.
 type AgentStatusChangedEvent struct {
-	PaneID      string `json:"pane_id"`
-	AgentStatus string `json:"agent_status"`
+	PaneID       string `json:"pane_id"`
+	Agent        string `json:"agent,omitempty"`
+	AgentStatus  string `json:"agent_status"`
+	DisplayAgent string `json:"display_agent,omitempty"`
+	WorkspaceID  string `json:"workspace_id,omitempty"`
+	Title        string `json:"title,omitempty"`
 }
 
 func (e AgentStatusChangedEvent) EventName() string {

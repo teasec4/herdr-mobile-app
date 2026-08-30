@@ -10,6 +10,7 @@
 *.test
 *.out
 coverage.*
+.gocache/
 
 # Flutter/Dart (в client/ есть свой .gitignore, дублируем на всякий случай)
 client/.dart_tool/

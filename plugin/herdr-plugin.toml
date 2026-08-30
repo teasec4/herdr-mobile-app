@@ -16,8 +16,6 @@
 id = "herdrelay.events"
 name = "HerdRelay"
 version = "0.1.0"
-# 0.7.5 — minimum herdr with pane.agent_status_changed in the event hook.
-min_herdr_version = "0.7.5"
 description = "Remote control for Herdr: monitor and check agents from your phone over LAN/Tailscale"
 platforms = ["macos", "linux"]
 
@@ -25,11 +23,11 @@ platforms = ["macos", "linux"]
 [[build]]
 command = ["bash", "install.sh"]
 
-# Local agent status change -> forward to the relay -> push to the phone.
-# herdr passes the event to the hook via env HERDR_PLUGIN_EVENT_JSON.
-[[events]]
-on = "pane.agent_status_changed"
-command = ["sh", "on-event.sh"]
+# NOTE: there is intentionally NO [[events]] hook. Status changes
+# (pane.agent_status_changed) and live output (pane.scroll_changed) are
+# delivered to the relay over herdr's unix socket subscription
+# (internal/infrastructure/herdr/socket_event_repository.go), so the plugin
+# hook would only duplicate them (docs/12-fix-plan.md A1).
 
 # Live terminal output (Б-lite) is NOT driven by a plugin hook: herdr's hook
 # system rejects every output-ish event name (pane.updated, pane.output_changed,

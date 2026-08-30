@@ -36,7 +36,8 @@ cmd/relay/     relay binary: /ws, /api/rpc, /api/events/stream (SSE), /pair,
                /healthz; `relay pair [--qr]`, `relay status` subcommands
 internal/      Go layers: domain, service, infrastructure (herdr CLI + socket
                events, netdetect), transport (ws, http)
-plugin/        herdr plugin: event hook, QR pairing pane, install/redeploy
+plugin/        herdr plugin: QR pairing pane, install/redeploy (no event
+               hook — statuses/output come via the relay's socket subscription)
 client/        Flutter app: layered Transport/Protocol/Connection core
 docs/          architecture, herdr API reference, refactoring plan, etc.
 ```

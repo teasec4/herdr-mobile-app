@@ -35,6 +35,14 @@ class FakeRelayClient implements RelayClient {
   /// When true, `snapshot()` throws [RelayException].
   bool snapshotError = false;
 
+  /// Number of `snapshot()` calls (tests assert pages do NOT re-fetch on
+  /// status events).
+  int snapshotCalls = 0;
+
+  /// Number of `output()` calls (tests assert a status event does not trigger
+  /// an output re-read).
+  int outputCalls = 0;
+
   /// What `healthz()` returns (default: relay is healthy).
   bool healthzResult = true;
 
@@ -55,6 +63,7 @@ class FakeRelayClient implements RelayClient {
 
   @override
   Future<List<RelayAgent>> snapshot() async {
+    snapshotCalls++;
     if (snapshotError) {
       throw const RelayException('boom', 'ошибка снимка');
     }
@@ -81,6 +90,7 @@ class FakeRelayClient implements RelayClient {
 
   @override
   Future<String> output(String target, {int lines = 200, String format = 'text'}) async {
+    outputCalls++;
     return outputText;
   }
 

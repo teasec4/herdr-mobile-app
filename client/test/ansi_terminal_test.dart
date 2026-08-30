@@ -140,4 +140,51 @@ void main() {
       expect(_plain(spans), 'ok');
     });
   });
+
+  group('AnsiTerminal: мемоизация', () {
+    testWidgets('тот же текст возвращает тот же SelectableText (без репарса)',
+        (tester) async {
+      Future<void> pump(String text) => tester.pumpWidget(
+            MaterialApp(home: Scaffold(body: AnsiTerminal(text: text))),
+          );
+
+      await pump('a\nb');
+      final before = tester.widget<SelectableText>(find.byType(SelectableText));
+
+      // Rebuild the same widget with identical text — the cached instance is
+      // returned, so Flutter skips both the ANSI reparse and the relayout.
+      await pump('a\nb');
+      final after = tester.widget<SelectableText>(find.byType(SelectableText));
+      expect(identical(before, after), isTrue);
+    });
+
+    testWidgets('новый текст пересоздаёт SelectableText', (tester) async {
+      Future<void> pump(String text) => tester.pumpWidget(
+            MaterialApp(home: Scaffold(body: AnsiTerminal(text: text))),
+          );
+
+      await pump('a');
+      final before = tester.widget<SelectableText>(find.byType(SelectableText));
+
+      await pump('b');
+      final after = tester.widget<SelectableText>(find.byType(SelectableText));
+      expect(identical(before, after), isFalse);
+      expect(find.text('b'), findsOneWidget);
+    });
+
+    testWidgets('рендерит текст и ANSI-стили', (tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: AnsiTerminal(text: '\x1b[31mred\x1b[0m plain'),
+          ),
+        ),
+      );
+      final rich = tester.widget<SelectableText>(find.byType(SelectableText));
+      expect(rich.textSpan, isA<TextSpan>());
+      // Text content survives the parse.
+      expect(find.textContaining('red'), findsOneWidget);
+      expect(find.textContaining('plain'), findsOneWidget);
+    });
+  });
 }

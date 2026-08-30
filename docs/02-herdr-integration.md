@@ -86,35 +86,27 @@ herdr plugin log list --plugin herdrelay.events
 ## Что нам реально нужно от плагина
 
 Сам релей — **отдельный Go-процесс**, он не живёт внутри herdr. Плагин нужен
-как тонкая обёртка для трёх вещей:
+как тонкая обёртка для двух вещей:
 
-1. **Мгновенные события.** herdr стреляет `pane.agent_status_changed` при
-   смене статуса любого локального агента. Событие приходит хуку через env
-   **`HERDR_PLUGIN_EVENT_JSON`** (формат `{"data":{...}}`); имя события в env
-   не передаётся — его фиксирует манифест. Наш хук `on-event.sh` пересылает
-   сырой JSON релею по локальному HTTP (`POST /api/events/herdr` на
-   `127.0.0.1:8375`), релей пушит событие всем подключённым WS-клиентам
-   (телефону). Так blocked/finished видны мгновенно, а не через поллинг.
-   Референс `0cv/herdr-mobile-relay` шлёт по UDP — у нас локальный HTTP:
-   не нужен слушающий UDP-сокет и библиотеки, хватает `curl` в хуке.
-
-2. **Пейринг.** Экшен «показать QR» (`show-pair-link`) и пейн `setup` —
+1. **Пейринг.** Экшен «показать QR» (`show-pair-link`) и пейн `setup` —
    удобно сканировать с телефона один раз вместо вбивания URL+токен руками.
    QR = custom-scheme-ссылка `herdrelay://pair?...` с автоопределением режима
    (LAN / Tailscale / gateway), URL берётся из `GET /pair` релея — см.
    [07 — Онбординг](07-onboarding.md). Рендерит QR подкоманда
    `herdrelay pair --qr` (ANSI half-blocks прямо в терминал herdr).
 
-3. **Установка/запуск релея.** `[[build]]` → `install.sh` собирает Go-релей в
+2. **Установка/запуск релея.** `[[build]]` → `install.sh` собирает Go-релей в
    `bin/herdrelay` и ставит launchd-сервис (см. «Запуск релея»).
 
-**Живой вывод (Б-lite) — НЕ через плагин.** Хук-система herdr не имеет
-события для вывода терминала: `pane.updated`, `pane.output_changed`,
-`pane.scroll_changed` отвергаются линковщиком как unknown event (проверено
-брутфорсом на herdr 0.8.0). Поэтому живой вывод реализован напрямую: релей
-подписывается на `events.subscribe` по unix-сокету herdr
-(`pane.scroll_changed` на каждый pane_id) и форвардит изменения как
-`pane.output_changed` — см.
+**Живой статус и вывод — НЕ через плагин (раньше статусы шли хуком, теперь
+только сокет).** Хук-система herdr не имеет события для вывода терминала:
+`pane.updated`, `pane.output_changed`, `pane.scroll_changed` отвергаются
+линковщиком как unknown event (проверено брутфорсом на herdr 0.8.0). Статусы
+раньше дублировались: хуком `on-event.sh` (`POST /api/events/herdr`) **и**
+сокет-подпиской. Сокет самодостаточен (`events.subscribe` включает
+`pane.agent_status_changed` по pane_id), поэтому хук и HTTP-роуты
+`/api/events/*` удалены — одно изменение статуса = одно событие клиенту
+(см. `docs/12-fix-plan.md` A1). Реализация:
 `internal/infrastructure/herdr/socket_event_repository.go` и
 [03-relay.md](03-relay.md) → «Обработка событий herdr». Плагин в этой схеме
 не участвует вовсе.
@@ -125,7 +117,6 @@ herdr plugin log list --plugin herdrelay.events
 id = "herdrelay.events"
 name = "HerdRelay"
 version = "0.1.0"
-min_herdr_version = "0.7.5"          # мин. версия с pane.agent_status_changed в хуке
 description = "Remote control for Herdr: monitor and check agents from your phone over LAN/Tailscale"
 platforms = ["macos", "linux"]
 
@@ -133,10 +124,8 @@ platforms = ["macos", "linux"]
 [[build]]
 command = ["bash", "install.sh"]
 
-# смена статуса локального агента -> форвард в релей -> пуш на телефон
-[[events]]
-on = "pane.agent_status_changed"
-command = ["sh", "on-event.sh"]
+# [[events]]-хука нет: статусы и живой вывод релей получает напрямую по
+# unix-сокету herdr (events.subscribe) — см. «Живой статус и вывод» ниже.
 
 # «Показать QR» — открывает пейн setup со ссылкой/QR пары
 [[actions]]
@@ -177,28 +166,29 @@ curl -s localhost:8375/healthz                    # {"ok":true}
 
 ## События herdr: что проверено живьём
 
-- **`pane.agent_status_changed`** — смена статуса агента (главное для нас).
-  Подтверждено на реальном herdr 0.8.0: после линковки плагина события
-  стреляли при смене статуса агента (`herdr plugin log list --plugin
-  herdrelay.events` → status=succeeded, exit_code=0), WS-клиент получал
-  событие с полным `data` (pane_id, tab_id, tab_label, workspace_id,
-  agent_status, agent, display_agent, cwd).
+- **`pane.agent_status_changed`** — смена статуса агента. Приходит релею по
+  unix-сокету (`events.subscribe` с per-pane подпиской), а не через плагин-хук
+  (хук удалён — он дублировал сокет, см. `docs/12-fix-plan.md` A1).
+  Подтверждено на реальном herdr 0.8.0: WS-клиент получал событие с полным
+  `data` (pane_id, agent_status, agent, display_agent, workspace_id, title).
 - `worktree.created` — ревьюровский кейс, нам не нужен.
 
-**Вывод терминала — только через сокет, не через хук.** Все имена событий
-вывода (`pane.updated`, `pane.output_changed`, `pane.scroll_changed`) линковщик
-отвергает: `herdr plugin link` → warning «unknown event». Проверено на herdr
-0.8.0. Живой вывод работает через JSON-RPC-подписку релея по unix-сокету:
-`events.subscribe` c `pane.updated` (глобальная) и `pane.scroll_changed` по
-pane_id; нотификации приходят как `{"event":"pane.scroll_changed","data":{...}}`
+События статусов и вывода — только через сокет, не через хук. Все имена
+событий вывода (`pane.updated`, `pane.output_changed`, `pane.scroll_changed`)
+линковщик отвергает: `herdr plugin link` → warning «unknown event». Проверено
+на herdr 0.8.0. Живой статус/вывод работает через JSON-RPC-подписку релея по
+unix-сокету: `events.subscribe` c `pane.updated` (глобальная),
+`pane.scroll_changed` и `pane.agent_status_changed` по pane_id; нотификации
+приходят как `{"event":"pane.scroll_changed","data":{...}}`
 (данные: pane_id, scroll.max_offset_from_bottom, offset_from_bottom,
-viewport_rows) и `{"event":"pane_updated","data":{"pane":{...}}}`. Формат
-запроса/ответа и диалект сокета — в [03-relay.md](03-relay.md) →
-«Обработка событий herdr».
+viewport_rows), `{"event":"pane.agent_status_changed","data":{...}}` и
+`{"event":"pane_updated","data":{"pane":{...}}}`. Формат запроса/ответа и
+диалект сокета — в [03-relay.md](03-relay.md) → «Обработка событий herdr».
 
-Контракт хука: herdr передаёт событие через env `HERDR_PLUGIN_EVENT_JSON` =
-`{"data":{...}}`; имя события в env отсутствует — оно равно `on` из манифеста,
-поэтому релей хардкодит `pane.agent_status_changed` на `/api/events/herdr`.
+Раньше статусы шли ещё и плагинным хуком (`on-event.sh` → `POST
+/api/events/herdr`, контракт env `HERDR_PLUGIN_EVENT_JSON`), что давало два
+события на одно изменение. Хук и роуты `/api/events/*` удалены — сокет
+самодостаточен (`pane_updated` при подписке перечисляет существующие панели).
 
 Полный список доступных событий уточняется по схеме/докам herdr на этапе
 реализации (в `docs/next/.../plugins.mdx` и `cli-reference`).

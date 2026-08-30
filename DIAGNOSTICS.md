@@ -1,5 +1,11 @@
 # Диагностика обновления статуса агента
 
+> ⚠ 30.08: документ описывает отладочную сессию на старой схеме. Сейчас
+> плагинный хук удалён — статусы приходят только по socket-подписке релея
+> (`events.subscribe`), а debug-`print` из HomePage/AgentPage убраны
+> (docs/12-fix-plan.md A1, G1). Пункты ниже про `on-event.sh` и
+> `/api/events/herdr` неактуальны.
+
 ## Что добавлено
 
 ### 1. Логирование на всех уровнях
@@ -112,21 +118,15 @@ tail -f ~/.local/state/herdr/logs/plugin_*.log
 ```
 
 ### Событие в логе есть, но relay не broadcast'ит
-**Причина:** Токен не найден, relay не работает, curl не может отправить  
-**Решение:**
+**Причина (старая схема):** Токен не найден, relay не работает, curl не может отправить.
+**Статус:** роут `/api/events/herdr` **удалён** (docs/12 A1) — проверять статусы
+надо по socket-подписке релея (лог `herdr socket: connected to ...`), а не через хук:
 ```bash
 # Проверить relay
 ./relay-status.sh
 
-# Проверить токен
-cat ~/.config/herdr/herdrelay.token
-
-# Попробовать вручную
-TOKEN=$(cat ~/.config/herdr/herdrelay.token)
-curl -v -X POST "http://127.0.0.1:8375/api/events/herdr" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"data":{"pane_id":"test","agent_status":"blocked"}}'
+# Лог сокет-подписки релея (статусы/вывод)
+tail -f ~/.local/state/herdrelay/relay.err.log | grep 'herdr socket'
 ```
 
 ### Relay broadcast'ит, но клиент не получает

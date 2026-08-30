@@ -27,12 +27,15 @@ type SocketEventRepository struct {
 	mu     sync.Mutex
 	conn   net.Conn
 	closed bool
+	stopCh chan struct{}
+	once   sync.Once
 }
 
 // NewSocketEventRepository creates a new socket-based event repository.
 func NewSocketEventRepository(socket string) *SocketEventRepository {
 	return &SocketEventRepository{
 		socket: socket,
+		stopCh: make(chan struct{}),
 	}
 }
 
@@ -44,6 +47,15 @@ func (r *SocketEventRepository) Subscribe(events chan<- domain.Event) error {
 	// subscribes to everything in a single events.subscribe message.
 	subscribed := make(map[string]bool)
 
+	// Per-pane output revisions, persisted across reconnects (docs/12-fix-plan.md
+	// D5): pane.updated carries PaneInfo.revision (docs/10-herdr-api.md §6.1),
+	// while pane.scroll_changed does not (gotcha #5). The relay attaches the
+	// last known revision to pane.output_changed only when it strictly increased
+	// since the last forwarded one — a stale/equal revision would let the
+	// client's revision guard wrongly skip a real output change.
+	lastRevision := make(map[string]int)
+	lastSentRevision := make(map[string]int)
+
 	for {
 		r.mu.Lock()
 		if r.closed {
@@ -53,7 +65,7 @@ func (r *SocketEventRepository) Subscribe(events chan<- domain.Event) error {
 		}
 		r.mu.Unlock()
 
-		err := r.subscribeOnce(events, subscribed)
+		err := r.subscribeOnce(events, subscribed, lastRevision, lastSentRevision)
 		if err != nil {
 			if errors.Is(err, errRestart) {
 				// New pane discovered: reconnect immediately with the full
@@ -62,7 +74,10 @@ func (r *SocketEventRepository) Subscribe(events chan<- domain.Event) error {
 				continue
 			}
 			log.Printf("herdr socket: %v (retrying in %s)", err, backoff)
-			time.Sleep(backoff)
+			if !r.sleep(backoff) {
+				close(events)
+				return nil
+			}
 			if backoff < 30*time.Second {
 				backoff *= 2
 			}
@@ -73,7 +88,21 @@ func (r *SocketEventRepository) Subscribe(events chan<- domain.Event) error {
 		// closes idle connections.
 		backoff = 2 * time.Second
 		log.Printf("herdr socket: connection closed, reconnecting")
-		time.Sleep(time.Second)
+		if !r.sleep(time.Second) {
+			close(events)
+			return nil
+		}
+	}
+}
+
+// sleep pauses the reconnect loop for d, or returns false immediately when the
+// repository was closed (so Close() does not wait out the backoff).
+func (r *SocketEventRepository) sleep(d time.Duration) bool {
+	select {
+	case <-time.After(d):
+		return true
+	case <-r.stopCh:
+		return false
 	}
 }
 
@@ -97,7 +126,7 @@ type socketNotification struct {
 	Data  json.RawMessage `json:"data"`
 }
 
-func (r *SocketEventRepository) subscribeOnce(events chan<- domain.Event, subscribed map[string]bool) error {
+func (r *SocketEventRepository) subscribeOnce(events chan<- domain.Event, subscribed map[string]bool, lastRevision, lastSentRevision map[string]int) error {
 	conn, err := net.Dial("unix", r.socket)
 	if err != nil {
 		return fmt.Errorf("dial herdr socket: %w", err)
@@ -155,6 +184,11 @@ func (r *SocketEventRepository) subscribeOnce(events chan<- domain.Event, subscr
 			if paneID == "" {
 				continue
 			}
+			// PaneInfo carries the pane's output revision; remember it so
+			// output_changed events can carry a revision for client-side dedup.
+			if rev := revisionFrom(notification.Data); rev > 0 {
+				lastRevision[paneID] = rev
+			}
 			notification.Event = "pane.updated"
 			notification.Data, _ = json.Marshal(map[string]string{"pane_id": paneID})
 
@@ -179,8 +213,21 @@ func (r *SocketEventRepository) subscribeOnce(events chan<- domain.Event, subscr
 				}
 				lastScroll[paneID] = time.Now()
 			}
-			// scroll_changed maps to output_changed for clients.
+			// scroll_changed maps to output_changed for clients. Attach the
+			// pane's last known revision (from pane.updated) only when it
+			// strictly increased since the last forwarded one; otherwise the
+			// event goes out without a revision and the client falls back to
+			// its debounce.
 			notification.Event = "pane.output_changed"
+			if paneID != "" {
+				if rev := lastRevision[paneID]; rev > lastSentRevision[paneID] {
+					lastSentRevision[paneID] = rev
+					notification.Data, _ = json.Marshal(map[string]interface{}{
+						"pane_id":  paneID,
+						"revision": rev,
+					})
+				}
+			}
 		}
 
 		emitEvent(events, notification)
@@ -230,6 +277,27 @@ func paneIDFrom(data json.RawMessage) string {
 	return ""
 }
 
+// revisionFrom extracts the pane output revision from a pane_updated payload,
+// which herdr emits either flat ({"revision": N}) or nested
+// ({"pane": {"revision": N}}).
+func revisionFrom(data json.RawMessage) int {
+	var flat struct {
+		Revision int `json:"revision"`
+	}
+	if json.Unmarshal(data, &flat) == nil && flat.Revision > 0 {
+		return flat.Revision
+	}
+	var nested struct {
+		Pane struct {
+			Revision int `json:"revision"`
+		} `json:"pane"`
+	}
+	if json.Unmarshal(data, &nested) == nil {
+		return nested.Pane.Revision
+	}
+	return 0
+}
+
 // subscribe sends a JSON-RPC events.subscribe request to herdr's socket. The
 // full subscription set is always sent in a single message; herdr treats
 // subscriptions as cumulative, and writing a second subscribe on a live
@@ -258,6 +326,7 @@ func (r *SocketEventRepository) Close() error {
 	defer r.mu.Unlock()
 
 	r.closed = true
+	r.once.Do(func() { close(r.stopCh) })
 	if r.conn != nil {
 		return r.conn.Close()
 	}

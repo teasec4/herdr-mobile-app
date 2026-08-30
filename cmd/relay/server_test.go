@@ -163,38 +163,6 @@ func TestWSRequestResponse(t *testing.T) {
 	}
 }
 
-// TestHerdrEventBroadcast verifies a raw HERDR_PLUGIN_EVENT_JSON payload from a
-// herdr hook is normalized to pane.agent_status_changed and reaches the WS client.
-func TestHerdrEventBroadcast(t *testing.T) {
-	ts := testServer(t, "secret-token")
-	conn := wsConn(t, ts, "secret-token")
-
-	body := strings.NewReader(`{"data":{"pane_id":"wF:p5","agent":"codex","agent_status":"blocked","cwd":"/tmp/x"}}`)
-	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/events/herdr?token=secret-token", body)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp.Body.Close()
-
-	_, raw, err := conn.ReadMessage()
-	if err != nil {
-		t.Fatal(err)
-	}
-	var ev ws.Frame
-	if err := json.Unmarshal(raw, &ev); err != nil {
-		t.Fatal(err)
-	}
-	if ev.Type != "event" || ev.Event != "pane.agent_status_changed" {
-		t.Fatalf("unexpected event: %s", raw)
-	}
-	data, ok := ev.Data.(map[string]any)
-	if !ok || data["agent_status"] != "blocked" {
-		t.Fatalf("unexpected data: %v", ev.Data)
-	}
-}
-
 func TestPairEndpoint(t *testing.T) {
 	ts := testServer(t, "secret-token")
 	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/pair", nil)

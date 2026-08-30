@@ -68,7 +68,6 @@ class _AgentPageState extends State<AgentPage> {
     _historyService = getIt<CommandHistoryService>();
     _parserService = getIt<ActionParserService>();
     _agent = widget.agent;
-    print('[AgentPage] Initialized with agent: id=${_agent.id}, status=${_agent.status}, agent=${_agent.agent}');
     _scroll.addListener(_onScroll);
     _eventSubscription = _repository.events.listen(_onEvent);
     _loadCommandHistory();
@@ -113,21 +112,20 @@ class _AgentPageState extends State<AgentPage> {
       return;
     }
 
-    // Agent status changed: update agent state and refresh
+    // Agent status changed: the event carries everything needed (status, and
+    // often the agent name) — update locally, no snapshot/output re-read. The
+    // output tail is re-read on pane.output_changed (debounced above).
     if (event is AgentStatusChanged) {
-      print('[AgentPage] AgentStatusChanged event: paneId=${event.paneId}, status=${event.status}, myId=${_agent.id}');
       if (event.paneId != _agent.id) return;
       setState(() {
-        _agent = RelayAgent(
-          id: _agent.id,
-          agent: _agent.agent,
+        _agent = _agent.copyWith(
           status: event.status,
-          focused: _agent.focused,
-          cwd: _agent.cwd,
+          agent: event.agent.isEmpty ? _agent.agent : event.agent,
+          workspaceId: event.workspaceId.isEmpty
+              ? _agent.workspaceId
+              : event.workspaceId,
         );
       });
-      print('[AgentPage] Updated agent status to: ${_agent.status}');
-      _refresh();
     }
   }
 
@@ -169,10 +167,8 @@ class _AgentPageState extends State<AgentPage> {
         setState(() {
           _agent = current;
         });
-        print('[AgentPage] Refreshed agent from snapshot: status=${_agent.status}');
       }
     } catch (e) {
-      print('[AgentPage] Failed to refresh agent from snapshot: $e');
       // Ignore error - keep current agent state
     }
   }

@@ -17,6 +17,10 @@ class AgentRepository {
   final RelayClient _client;
   final SharedPreferences _prefs;
 
+  /// JSON of the last cached snapshot — snapshots that did not change skip the
+  /// disk write (status bursts can trigger many refreshes per second).
+  String? _lastCachedJson;
+
   AgentRepository(this._client, this._prefs);
 
   /// Get all agents snapshot.
@@ -44,10 +48,10 @@ class AgentRepository {
   }
 
   Future<void> _cacheAgents(List<RelayAgent> agents) async {
-    await _prefs.setString(
-      _cacheKey,
-      jsonEncode([for (final a in agents) a.toJson()]),
-    );
+    final json = jsonEncode([for (final a in agents) a.toJson()]);
+    if (json == _lastCachedJson) return; // unchanged snapshot: skip the write
+    _lastCachedJson = json;
+    await _prefs.setString(_cacheKey, json);
     await _prefs.setString(
       '$_cacheKey:ts',
       DateTime.now().toIso8601String(),

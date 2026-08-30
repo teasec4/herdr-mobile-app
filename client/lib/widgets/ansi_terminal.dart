@@ -10,7 +10,7 @@ import 'package:flutter/material.dart';
 /// readable within the screen; the widget scrolls vertically via the
 /// optional [controller], so the page can keep a sticky "follow output"
 /// scroll.
-class AnsiTerminal extends StatelessWidget {
+class AnsiTerminal extends StatefulWidget {
   const AnsiTerminal({
     super.key,
     required this.text,
@@ -44,19 +44,37 @@ class AnsiTerminal extends StatelessWidget {
   );
 
   @override
+  State<AnsiTerminal> createState() => _AnsiTerminalState();
+}
+
+class _AnsiTerminalState extends State<AnsiTerminal> {
+  /// Memoization: the parsed [SelectableText.rich] for the last rendered text.
+  /// Live updates re-read the whole tail (~500 lines); while the text is
+  /// unchanged (e.g. duplicate/status-only rebuilds) we return the identical
+  /// widget instance, so Flutter skips both the ANSI reparse and the relayout.
+  String? _cacheText;
+  TextStyle? _cacheStyle;
+  SelectableText? _cacheSelectable;
+
+  @override
   Widget build(BuildContext context) {
-    final base = style ?? defaultStyle;
-    final spans = AnsiTerminalParser(text, baseStyle: base).parse();
+    final base = widget.style ?? AnsiTerminal.defaultStyle;
+    if (widget.text != _cacheText || base != _cacheStyle) {
+      final spans = AnsiTerminalParser(widget.text, baseStyle: base).parse();
+      _cacheText = widget.text;
+      _cacheStyle = base;
+      _cacheSelectable = SelectableText.rich(
+        TextSpan(children: spans),
+        style: base,
+      );
+    }
     return Container(
-      color: backgroundColor,
+      color: widget.backgroundColor,
       child: SingleChildScrollView(
-        controller: controller,
-        padding: padding,
+        controller: widget.controller,
+        padding: widget.padding,
         physics: const AlwaysScrollableScrollPhysics(),
-        child: SelectableText.rich(
-          TextSpan(children: spans),
-          style: base,
-        ),
+        child: _cacheSelectable!,
       ),
     );
   }

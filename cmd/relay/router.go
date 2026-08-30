@@ -18,15 +18,6 @@ func buildMux(token string, h *httpTransport.Handler, wsHandler *ws.Handler) htt
 	mux.HandleFunc("/api/snapshot", authMiddleware(token, h.HandleSnapshot))
 	mux.HandleFunc("/api/agents/", authMiddleware(token, h.HandleAgent))
 
-	// Plugin event hooks: the herdr plugin posts pane events here and the
-	// relay broadcasts them to connected clients over /ws.
-	mux.HandleFunc("/api/events/herdr", authMiddleware(token, func(w http.ResponseWriter, r *http.Request) {
-		h.HandlePluginEvent(w, r, "pane.agent_status_changed")
-	}))
-	mux.HandleFunc("/api/events/pane.agent_status_changed", authMiddleware(token, func(w http.ResponseWriter, r *http.Request) {
-		h.HandlePluginEvent(w, r, "pane.agent_status_changed")
-	}))
-
 	// WebSocket
 	mux.HandleFunc("/ws", authMiddleware(token, wsHandler.ServeHTTP))
 

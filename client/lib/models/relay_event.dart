@@ -14,6 +14,10 @@ sealed class RelayEvent {
           // pane.agent_status_changed payload, docs/10-herdr-api.md §5.3);
           // 'status' is accepted for compatibility with older relays.
           status: (data?['agent_status'] ?? data?['status']) as String? ?? 'unknown',
+          // display_agent may be null in herdr's payload; prefer it, fall back
+          // to the raw agent name.
+          agent: (data?['display_agent'] ?? data?['agent'] ?? '') as String? ?? '',
+          workspaceId: (data?['workspace_id'] ?? '') as String? ?? '',
         ),
       'pane.updated' => PaneUpdated(
           paneId: data?['pane_id'] as String? ?? '',
@@ -32,10 +36,22 @@ class AgentStatusChanged extends RelayEvent {
   final String paneId;
   final String status;
 
-  const AgentStatusChanged({required this.paneId, required this.status});
+  /// Agent name from the event (display_agent ?? agent); '' when absent.
+  final String agent;
+
+  /// Workspace (space) the pane belongs to; '' when absent.
+  final String workspaceId;
+
+  const AgentStatusChanged({
+    required this.paneId,
+    required this.status,
+    this.agent = '',
+    this.workspaceId = '',
+  });
 
   @override
-  String toString() => 'AgentStatusChanged(paneId: $paneId, status: $status)';
+  String toString() =>
+      'AgentStatusChanged(paneId: $paneId, status: $status, agent: $agent)';
 }
 
 /// Pane updated (generic update event)

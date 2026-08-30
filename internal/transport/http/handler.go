@@ -4,12 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
 
-	"herdrelay/internal/domain"
 	"herdrelay/internal/service"
 )
 
@@ -161,35 +159,6 @@ func (h *Handler) handlePrompt(w http.ResponseWriter, r *http.Request, target st
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
-}
-
-// HandlePluginEvent handles events from herdr plugin hooks.
-func (h *Handler) HandlePluginEvent(w http.ResponseWriter, r *http.Request, eventName string) {
-	var payload struct {
-		Data json.RawMessage `json:"data"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
-		return
-	}
-
-	if len(payload.Data) == 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing data"})
-		return
-	}
-
-	// Parse into typed event and broadcast
-	event, err := domain.ParseEvent(eventName, payload.Data)
-	if err != nil {
-		log.Printf("http: failed to parse plugin event %s: %v", eventName, err)
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid event data"})
-		return
-	}
-
-	h.eventService.Broadcast(event)
-	log.Printf("http: plugin event %s broadcast", eventName)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 

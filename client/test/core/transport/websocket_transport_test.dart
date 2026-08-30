@@ -238,5 +238,26 @@ void main() {
 
       await t.close();
     });
+
+    test('keepalive pong is consumed, not forwarded to messages', () async {
+      final channel = FakeWebSocketChannel();
+      final t = WebSocketTransport(channelFactory: (_) => channel);
+      final messages = <String>[];
+      final sub = t.messages.listen(messages.add);
+      await t.connect(uri);
+
+      // A pong (keepalive response) must satisfy keepalive but never reach the
+      // message stream — upper layers would re-parse a frame with no payload.
+      channel.simulateMessage('{"type":"pong"}');
+      await pumpEventQueue();
+      expect(messages, isEmpty);
+
+      channel.simulateMessage('{"type":"event","event":"pane.updated"}');
+      await pumpEventQueue();
+      expect(messages, ['{"type":"event","event":"pane.updated"}']);
+
+      await sub.cancel();
+      await t.close();
+    });
   });
 }

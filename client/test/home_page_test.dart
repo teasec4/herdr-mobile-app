@@ -1,6 +1,7 @@
 import 'package:client/core/connection/mode_service.dart';
 import 'package:client/models/pair_config.dart';
 import 'package:client/models/relay_agent.dart';
+import 'package:client/models/relay_event.dart';
 import 'package:client/pages/agent_page.dart';
 import 'package:client/pages/home_page.dart';
 import 'package:flutter/material.dart';
@@ -123,6 +124,48 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('alice'), findsOneWidget);
+  });
+
+  testWidgets('статус-событие обновляет тайл локально, без snapshot', (tester) async {
+    client.agents = [agent('p:alice', 'alice', 'done')];
+    await pumpHome(tester);
+    await goToAgents(tester);
+
+    final snapshots = client.snapshotCalls;
+    client.emit(AgentStatusChanged(paneId: 'p:alice', status: 'blocked'));
+    await tester.pumpAndSettle();
+
+    // Tile updated in place from the event — no snapshot round-trip.
+    expect(find.text('blocked'), findsOneWidget);
+    expect(client.snapshotCalls, snapshots);
+  });
+
+  testWidgets('статус-событие с именем агента обновляет тайл', (tester) async {
+    client.agents = [agent('p:alice', 'alice', 'done')];
+    await pumpHome(tester);
+    await goToAgents(tester);
+
+    client.emit(AgentStatusChanged(
+      paneId: 'p:alice',
+      status: 'working',
+      agent: 'kimi',
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('kimi'), findsOneWidget);
+  });
+
+  testWidgets('статус-событие неизвестного pane делает отложенный snapshot', (tester) async {
+    client.agents = [agent('p:alice', 'alice', 'done')];
+    await pumpHome(tester);
+    await goToAgents(tester);
+
+    final snapshots = client.snapshotCalls;
+    client.emit(AgentStatusChanged(paneId: 'p:unknown', status: 'working'));
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pumpAndSettle();
+
+    expect(client.snapshotCalls, greaterThan(snapshots));
   });
 
   group('меню устройств', () {

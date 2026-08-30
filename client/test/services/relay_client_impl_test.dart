@@ -173,7 +173,13 @@ void main() {
       t.simulateMessage(jsonEncode({
         'type': 'event',
         'event': 'pane.agent_status_changed',
-        'data': {'pane_id': 'p1', 'agent_status': 'blocked'},
+        'data': {
+          'pane_id': 'p1',
+          'agent': 'codex',
+          'agent_status': 'blocked',
+          'display_agent': 'codex',
+          'workspace_id': 'wF',
+        },
       }));
       await pumpEventQueue();
 
@@ -181,6 +187,10 @@ void main() {
       final e = events.single as AgentStatusChanged;
       expect(e.paneId, 'p1');
       expect(e.status, 'blocked');
+      // herdr's extra fields survive so pages can refresh from the event
+      // alone (docs/12-fix-plan.md A2).
+      expect(e.agent, 'codex');
+      expect(e.workspaceId, 'wF');
 
       await sub.cancel();
       await client.close();

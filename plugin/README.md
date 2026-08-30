@@ -3,8 +3,12 @@
 A [herdr](https://herdr.dev) plugin that connects herdr on your laptop to your
 phone through a separate Go process — the **relay** (`cmd/relay/`). The plugin
 is a thin wrapper: the relay lives on its own as a system service (launchd),
-and the plugin handles three things: instant events, QR-based phone pairing,
-and relay installation.
+and the plugin handles QR-based phone pairing and relay installation. Live
+agent statuses and terminal output are NOT delivered through a plugin hook —
+the relay subscribes to herdr's unix socket directly (`events.subscribe`,
+`internal/infrastructure/herdr/socket_event_repository.go`), so the plugin
+has no `[[events]]` entry point (a hook used to duplicate socket-delivered
+statuses; see `docs/12-fix-plan.md` A1).
 
 ## How the plugin talks to herdr
 
@@ -13,36 +17,13 @@ scripts**. There is no SDK: herdr registers the manifest and runs its commands
 as plain processes. Inside the commands we call `herdr ...` through the
 `HERDR_BIN_PATH` env var (points at the running herdr binary).
 
-The manifest registers four entry points (see `herdr-plugin.toml`):
+The manifest registers three entry points (see `herdr-plugin.toml`):
 
 | Section | Script | When herdr calls it |
 | --- | --- | --- |
 | `[[build]]` | `install.sh` | on `herdr plugin install` (not on `link`) |
-| `[[events]]` | `on-event.sh` | whenever a local agent changes status |
 | `[[actions]]` | `open-pane.sh setup` | from the herdr menu / hotkey: "Show QR" |
 | `[[panes]]` | `setup-menu.sh` | when the `setup` pane opens (zoomed in herdr's terminal) |
-
-### Events: agent status -> phone
-
-Whenever a local agent changes status, herdr fires the
-`pane.agent_status_changed` event. The data reaches the `on-event.sh` hook via
-env **`HERDR_PLUGIN_EVENT_JSON`** (format `{"data":{...}}` — the event name is
-not passed, it is fixed by the manifest). The hook forwards the raw JSON to the
-relay over local HTTP, and the relay pushes it to every connected WS client —
-the phone:
-
-```
-herdr: agent changed status
-  └─> [[events]] pane.agent_status_changed
-        └─> on-event.sh        (env HERDR_PLUGIN_EVENT_JSON)
-              └─> POST http://127.0.0.1:8375/api/events/herdr
-                    (Authorization: Bearer <token from ~/.config/herdr/herdrelay.token>)
-                    └─> relay (Go) ──WS──> Flutter app on the phone
-```
-
-So blocked/finished states appear instantly instead of via polling. If the
-relay is not running or the token is missing, the hook exits quietly (code 0)
-so it does not spam the herdr log.
 
 ### QR pairing: phone -> pair
 
@@ -93,9 +74,8 @@ pairing link). Override with env `HERDR_RELAY_TOKEN_FILE`.
 
 | File | Role |
 | --- | --- |
-| `herdr-plugin.toml` | manifest: registers build/events/actions/panes |
+| `herdr-plugin.toml` | manifest: registers build/actions/panes (no `[[events]]`) |
 | `install.sh` | `[[build]]`: build the relay + install the launchd service |
-| `on-event.sh` | `[[events]]`: forward `pane.agent_status_changed` to the relay |
 | `open-pane.sh` | `[[actions]]`: open a plugin pane by id |
 | `setup-menu.sh` | `[[panes]]`: pane with relay status and the pairing QR |
 | `redeploy.sh` | dev loop: rebuild relay + restart service + re-link plugin |
