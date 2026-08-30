@@ -1,3 +1,4 @@
+import 'package:client/core/connection/mode_service.dart';
 import 'package:client/core/service_locator.dart';
 import 'package:client/models/pair_config.dart';
 import 'package:client/models/relay_agent.dart';

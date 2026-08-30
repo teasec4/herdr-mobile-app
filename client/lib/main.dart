@@ -191,6 +191,7 @@ class _HerdRelayAppState extends State<HerdRelayApp> {
         onRequestSwitch: _openConnection,
         onAddDevice: _showAddDevice,
         onForgetDevice: _forgetActive,
+        onModeSelected: _switchTo,
       ),
     );
   }

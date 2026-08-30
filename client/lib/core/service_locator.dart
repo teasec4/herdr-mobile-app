@@ -9,6 +9,7 @@ import '../services/config_store.dart';
 import '../services/relay_client.dart';
 import '../services/relay_client_impl.dart';
 import 'connection/connection_manager.dart';
+import 'connection/mode_service.dart';
 import 'transport/http_transport.dart';
 import 'transport/retry_policy.dart';
 import 'transport/transport.dart';
@@ -30,6 +31,9 @@ Future<void> setupDependencies() async {
     CommandHistoryService(getIt<SharedPreferences>()),
   );
   getIt.registerSingleton<ActionParserService>(ActionParserService());
+  // Fetches relay connection modes (/pair) with retries — used by the
+  // HomePage mode badge and the Connection screen.
+  getIt.registerSingleton<ModeService>(ModeService());
 }
 
 /// Setup RelayClient and AgentRepository for a specific config

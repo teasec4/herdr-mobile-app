@@ -1,3 +1,4 @@
+import 'package:client/core/connection/mode_service.dart';
 import 'package:client/core/service_locator.dart';
 import 'package:client/models/pair_config.dart';
 import 'package:client/repositories/agent_repository.dart';
@@ -30,6 +31,7 @@ Future<void> setupTestDependencies(FakeRelayClient fakeClient, PairConfig config
     CommandHistoryService(getIt<SharedPreferences>()),
   );
   getIt.registerSingleton<ActionParserService>(ActionParserService());
+  getIt.registerSingleton<ModeService>(ModeService());
 
   // Register fake client
   getIt.registerSingleton<RelayClient>(fakeClient);

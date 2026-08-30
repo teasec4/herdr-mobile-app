@@ -1,54 +1,13 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 
+import '../core/connection/mode_service.dart';
 import '../core/service_locator.dart';
 import '../models/pair_config.dart';
 import '../services/config_store.dart';
 import '../services/relay_client.dart';
 import '../utils/toast_service.dart';
-
-/// A connection mode offered by the relay's `/pair` endpoint.
-class RelayModeInfo {
-  const RelayModeInfo({
-    required this.mode,
-    required this.url,
-    required this.link,
-    required this.description,
-  });
-
-  final String mode;
-  final String url;
-  final String link;
-  final String description;
-}
-
-/// Default fetcher for the relay's available modes (GET /pair).
-Future<List<RelayModeInfo>> fetchRelayModes(PairConfig config) async {
-  final uri = config.httpBaseUri
-      .replace(path: '/pair')
-      .replace(queryParameters: {'token': config.token});
-  final res = await http.get(uri).timeout(const Duration(seconds: 5));
-  if (res.statusCode != 200) {
-    throw Exception('relay answered HTTP ${res.statusCode}');
-  }
-  final data = jsonDecode(res.body) as Map<String, dynamic>;
-  final urls = (data['urls'] as Map?)?.cast<String, dynamic>() ?? const {};
-  final modes = <RelayModeInfo>[];
-  urls.forEach((mode, info) {
-    if (info is Map<String, dynamic> && info['available'] == true) {
-      modes.add(RelayModeInfo(
-        mode: mode,
-        url: info['url'] as String? ?? '',
-        link: info['link'] as String? ?? '',
-        description: info['description'] as String? ?? '',
-      ));
-    }
-  });
-  return modes;
-}
 
 /// Connection screen: the active pair, live status, connection test,
 /// available modes from the relay, saved devices, and pair-link entry —
@@ -63,7 +22,7 @@ class ConnectionPage extends StatefulWidget {
     required this.onSwitch,
     required this.onForgetActive,
     required this.onLink,
-    this.modesFetcher = fetchRelayModes,
+    this.modesFetcher,
   });
 
   /// The currently active pair.
@@ -78,8 +37,8 @@ class ConnectionPage extends StatefulWidget {
   /// Apply a pasted pair link (`herdrelay://pair?...`).
   final Future<void> Function(String link) onLink;
 
-  /// Injectable for tests; defaults to the real /pair HTTP call.
-  final Future<List<RelayModeInfo>> Function(PairConfig config) modesFetcher;
+  /// Injectable for tests; defaults to [ModeService.fetch] (with retries).
+  final Future<List<RelayModeInfo>> Function(PairConfig config)? modesFetcher;
 
   @override
   State<ConnectionPage> createState() => _ConnectionPageState();
@@ -133,14 +92,15 @@ class _ConnectionPageState extends State<ConnectionPage> {
   Future<void> _loadModes() async {
     setState(() => _fetchingModes = true);
     try {
-      final modes = await widget.modesFetcher(widget.config);
+      final modes = await (widget.modesFetcher ?? getIt<ModeService>().fetch)(
+          widget.config);
       if (!mounted) return;
       setState(() => _modes = modes);
     } catch (e) {
       if (!mounted) return;
       setState(() => _modes = const []);
       if (mounted) {
-        ToastService.showError(context, 'Cannot fetch modes: $e');
+        ToastService.showError(context, e);
       }
     } finally {
       if (mounted) setState(() => _fetchingModes = false);

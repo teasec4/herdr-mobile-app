@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../core/connection/mode_service.dart';
 import '../core/service_locator.dart';
 import '../models/pair_config.dart';
 import '../models/relay_agent.dart';
@@ -10,6 +11,7 @@ import '../repositories/agent_repository.dart';
 import '../services/relay_client.dart';
 import '../utils/async_value.dart';
 import '../utils/toast_service.dart';
+import '../widgets/mode_picker_sheet.dart';
 import '../widgets/status_chip.dart';
 import 'agent_page.dart';
 
@@ -21,6 +23,8 @@ class HomePage extends StatefulWidget {
     required this.onRequestSwitch,
     required this.onAddDevice,
     required this.onForgetDevice,
+    required this.onModeSelected,
+    this.modesFetcher,
   });
 
   final PairConfig config;
@@ -34,6 +38,13 @@ class HomePage extends StatefulWidget {
   /// Forget the active relay (remove the saved pair, return to the scanner)
   /// without unpairing other profiles.
   final Future<void> Function() onForgetDevice;
+
+  /// Switch the connection mode (lan/tailscale/funnel): called with the new
+  /// [PairConfig] parsed from the mode's link; the parent saves and reconnects.
+  final Future<void> Function(PairConfig config) onModeSelected;
+
+  /// Injectable for tests; defaults to [ModeService.fetch].
+  final Future<List<RelayModeInfo>> Function(PairConfig config)? modesFetcher;
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -121,6 +132,20 @@ class _HomePageState extends State<HomePage> {
     await widget.onForgetDevice();
   }
 
+  /// Opens the mode picker (fetches /pair modes via [ModeService], handles
+  /// loading/error states inside the sheet) and applies the chosen mode.
+  Future<void> _openModePicker() async {
+    final fetcher = widget.modesFetcher ?? getIt<ModeService>().fetch;
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (_) => ModePickerSheet(
+        config: widget.config,
+        fetcher: fetcher,
+        onSelected: widget.onModeSelected,
+      ),
+    );
+  }
+
   Future<void> _confirmForget() async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -157,23 +182,42 @@ class _HomePageState extends State<HomePage> {
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: Row(
               children: [
-                // Connection mode badge
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: _modeColor(widget.config.mode).withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(4),
-                    border: Border.all(
-                      color: _modeColor(widget.config.mode).withOpacity(0.5),
-                      width: 1,
-                    ),
-                  ),
-                  child: Text(
-                    widget.config.mode.toUpperCase(),
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: _modeColor(widget.config.mode),
-                          fontWeight: FontWeight.bold,
+                // Connection mode badge — tap to switch the mode.
+                InkWell(
+                  onTap: _openModePicker,
+                  borderRadius: BorderRadius.circular(6),
+                  child: Tooltip(
+                    message: 'Tap to switch connection mode',
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color:
+                            _modeColor(widget.config.mode).withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(
+                          color: _modeColor(widget.config.mode)
+                              .withOpacity(0.5),
+                          width: 1,
                         ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            widget.config.mode.toUpperCase(),
+                            style: Theme.of(context)
+                                .textTheme
+                                .labelSmall
+                                ?.copyWith(
+                                  color: _modeColor(widget.config.mode),
+                                  fontWeight: FontWeight.bold,
+                                ),
+                          ),
+                          const Icon(Icons.arrow_drop_down, size: 16),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 8),
