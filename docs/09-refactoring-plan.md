@@ -18,12 +18,18 @@
 | Фаза 2 — Protocol | ✅ | `13d94c2` |
 | Фаза 3 — Client на слоях | ✅ | `402072c` |
 | Фаза 4 — Connection Manager | ✅ | `dc106ca` |
+| Фаза 5 — HTTP fallback (RPC + SSE) | ✅ | сервер `36149fa`, клиент `2e4bdb1` |
 | README модулей (контракты) | ✅ | — |
 
 Итог: `WsRelayClient` (362 строки) удалён; на его месте `core/transport` +
 `core/protocol` + `core/connection` + `services/relay_client_impl.dart`
-(125 тестов зелёные, `dart analyze` — 0 warnings/errors).
-Фаза 5 (HTTP fallback) — отложена (см. §5).
+(128 тестов зелёные, `dart analyze` — 0 warnings/errors).
+
+**Живая проверка (herdr 0.8.0, protocol 19):** новый релей на `:18375` —
+`/healthz` ✓, `/api/snapshot` (3 реальных агента) ✓, `/api/rpc`
+(ok-frame + error-frame `unknown_method`) ✓, `/api/events/stream` (SSE
+держится) ✓, `/pair` ✓, WS `connect → ping→pong → snapshot→response` ✓.
+Фикс D2 подтверждён живьём: snapshot идёт через `HERDR_SOCKET_PATH`.
 
 ## 1. Контекст и мотивация
 
