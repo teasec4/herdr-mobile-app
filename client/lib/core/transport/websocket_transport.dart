@@ -26,7 +26,6 @@ class WebSocketTransport with ReconnectMixin implements Transport {
   @override
   late final ValueNotifier<ConnectionStatus> status;
 
-  @override
   late final StreamController<String> _messages;
 
   @override

@@ -6,23 +6,17 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:web_socket_channel/web_socket_channel.dart';
 
+import '../core/protocol/relay_exception.dart';
 import '../models/pair_config.dart';
 import '../models/relay_agent.dart';
 import '../models/relay_event.dart';
 
+// Re-export the protocol exception so UI/tests keep importing it from this
+// library (docs/09-refactoring-plan.md, decision #3).
+export '../core/protocol/relay_exception.dart' show RelayException;
+
 /// Relay connection phase.
 enum RelayStatus { disconnected, connecting, connected }
-
-/// Relay protocol error (code from frame.error or a local one).
-class RelayException implements Exception {
-  const RelayException(this.code, this.message);
-
-  final String code;
-  final String message;
-
-  @override
-  String toString() => message;
-}
 
 /// Relay client contract for the UI: connection, snapshot, agent operations.
 ///
