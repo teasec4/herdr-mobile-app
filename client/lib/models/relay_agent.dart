@@ -13,6 +13,7 @@ class RelayAgent {
     this.cwd,
     this.focused = false,
     this.workspaceId = '',
+    this.isPlainTerminal = false,
   });
 
   /// pane_id is the only valid target for agent operations.
@@ -31,6 +32,10 @@ class RelayAgent {
 
   /// Workspace (space) this agent's pane belongs to ('' when unknown).
   final String workspaceId;
+
+  /// True when this is a plain terminal pane (no agent): input is sent as
+  /// literal text (`pane.send_text`), not as an agent prompt.
+  final bool isPlainTerminal;
 
   /// Blocked — waiting for the user's response ("needs my reply").
   bool get isBlocked => status.toLowerCase() == 'blocked';

@@ -190,7 +190,11 @@ class _AgentPageState extends State<AgentPage> {
     if (text.isEmpty || _sending) return;
     setState(() => _sending = true);
     try {
-      await _repository.sendPrompt(_agent.id, text);
+      if (_agent.isPlainTerminal) {
+        await _repository.sendText(_agent.id, text);
+      } else {
+        await _repository.sendPrompt(_agent.id, text);
+      }
       await _historyService.addCommand(_agent.id, text);
       _input.clear();
       _clearHistoryNavigation();

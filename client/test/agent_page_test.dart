@@ -47,6 +47,30 @@ void main() {
     expect(find.text('hello world\n'), findsOneWidget);
   });
 
+  testWidgets('пустой терминал: ввод идёт sendText, а не prompt', (tester) async {
+    client.outputText = 'shell\n';
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AgentPage(
+          agent: RelayAgent(
+            id: 'w7:p1',
+            agent: 'w7:p1',
+            status: 'unknown',
+            isPlainTerminal: true,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), 'ls -la');
+    await tester.tap(find.byIcon(Icons.send));
+    await tester.pumpAndSettle();
+
+    expect(client.sendTextCalls, [('w7:p1', 'ls -la')]);
+    expect(client.prompts, isEmpty);
+  });
+
   testWidgets('отправка промпта: prompt(target, text), поле очищается, вывод перечитан',
       (tester) async {
     client.outputText = 'первый\n';

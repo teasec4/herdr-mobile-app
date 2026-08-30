@@ -78,6 +78,11 @@ class AgentRepository {
     await _client.prompt(agentId, text);
   }
 
+  /// Send literal text into a plain terminal pane.
+  Future<void> sendText(String paneId, String text) async {
+    await _client.sendText(paneId, text);
+  }
+
   /// Send keys to agent
   Future<void> sendKeys(String agentId, List<String> keys) async {
     await _client.keys(agentId, keys);

@@ -150,6 +150,7 @@ class WorkspacePage extends StatelessWidget {
                       status: pane.status,
                       cwd: pane.cwd,
                       workspaceId: pane.workspaceId,
+                      isPlainTerminal: !isAgent,
                     );
                     Navigator.of(context).push(
                       MaterialPageRoute<void>(
