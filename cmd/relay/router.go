@@ -30,6 +30,11 @@ func buildMux(token string, h *httpTransport.Handler, wsHandler *ws.Handler) htt
 	// WebSocket
 	mux.HandleFunc("/ws", authMiddleware(token, wsHandler.ServeHTTP))
 
+	// HTTP fallback for clients that cannot use WebSockets: the RPC twin of
+	// /ws and the SSE event stream.
+	mux.HandleFunc("/api/rpc", authMiddleware(token, h.HandleRPC))
+	mux.HandleFunc("/api/events/stream", authMiddleware(token, h.HandleEventStream))
+
 	// Pairing endpoint
 	mux.HandleFunc("/pair", authMiddleware(token, h.HandlePair))
 

@@ -2,6 +2,7 @@ package ws
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 
@@ -69,67 +70,22 @@ func (h *Handler) handleFrame(client *Client, frame Frame) {
 		h.sendFrame(client, PongFrame())
 
 	case "request":
-		response := h.dispatch(frame)
-		h.sendFrame(client, response)
+		result, err := h.agentService.Dispatch(frame.Method, frame.Params)
+		if err != nil {
+			h.sendFrame(client, ErrorFrame(frame.ID, dispatchCode(err), err.Error()))
+			return
+		}
+		h.sendFrame(client, OKFrame(frame.ID, result))
 	}
 }
 
-func (h *Handler) dispatch(frame Frame) Frame {
-	switch frame.Method {
-	case "agents.snapshot":
-		snap, err := h.agentService.GetSnapshot()
-		if err != nil {
-			return ErrorFrame(frame.ID, "herdr_error", err.Error())
-		}
-		return OKFrame(frame.ID, snap)
-
-	case "agent.output":
-		var params struct {
-			Target string `json:"target"`
-			Lines  int    `json:"lines"`
-			Format string `json:"format"`
-		}
-		if err := json.Unmarshal(frame.Params, &params); err != nil {
-			return ErrorFrame(frame.ID, "bad_params", "invalid parameters")
-		}
-
-		output, err := h.agentService.GetOutput(params.Target, params.Lines, params.Format)
-		if err != nil {
-			return ErrorFrame(frame.ID, "herdr_error", err.Error())
-		}
-		return OKFrame(frame.ID, output)
-
-	case "agent.keys":
-		var params struct {
-			Target string   `json:"target"`
-			Keys   []string `json:"keys"`
-		}
-		if err := json.Unmarshal(frame.Params, &params); err != nil {
-			return ErrorFrame(frame.ID, "bad_params", "invalid parameters")
-		}
-
-		if err := h.agentService.SendKeys(params.Target, params.Keys); err != nil {
-			return ErrorFrame(frame.ID, "herdr_error", err.Error())
-		}
-		return OKFrame(frame.ID, map[string]bool{"ok": true})
-
-	case "agent.prompt":
-		var params struct {
-			Target string `json:"target"`
-			Text   string `json:"text"`
-		}
-		if err := json.Unmarshal(frame.Params, &params); err != nil {
-			return ErrorFrame(frame.ID, "bad_params", "invalid parameters")
-		}
-
-		if err := h.agentService.SendPrompt(params.Target, params.Text); err != nil {
-			return ErrorFrame(frame.ID, "herdr_error", err.Error())
-		}
-		return OKFrame(frame.ID, map[string]bool{"ok": true})
-
-	default:
-		return ErrorFrame(frame.ID, "unknown_method", frame.Method)
+// dispatchCode maps a service dispatch error to its protocol error code.
+func dispatchCode(err error) string {
+	var de *service.DispatchError
+	if errors.As(err, &de) {
+		return de.Code
 	}
+	return "herdr_error"
 }
 
 func (h *Handler) sendFrame(client *Client, frame Frame) {

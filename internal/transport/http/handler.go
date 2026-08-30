@@ -2,6 +2,8 @@ package http
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -189,4 +191,97 @@ func (h *Handler) HandlePluginEvent(w http.ResponseWriter, r *http.Request, even
 	h.eventService.Broadcast(event)
 	log.Printf("http: plugin event %s broadcast", eventName)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// HandleRPC accepts a relay request frame via POST /api/rpc and returns the
+// response frame as JSON — the HTTP twin of the WebSocket dispatch, so a
+// client can fall back to plain HTTP when WebSockets are blocked. The wire
+// format matches the WS protocol exactly (docs/01-architecture.md).
+func (h *Handler) HandleRPC(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var frame struct {
+		ID     interface{}     `json:"id"`
+		Method string          `json:"method"`
+		Params json.RawMessage `json:"params"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&frame); err != nil || frame.Method == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request frame"})
+		return
+	}
+
+	result, err := h.agentService.Dispatch(frame.Method, frame.Params)
+	if err != nil {
+		code, message := "herdr_error", err.Error()
+		var de *service.DispatchError
+		if errors.As(err, &de) {
+			code, message = de.Code, de.Message
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"type": "response",
+			"id":   frame.ID,
+			"error": map[string]string{
+				"code":    code,
+				"message": message,
+			},
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"type":   "response",
+		"id":     frame.ID,
+		"ok":     true,
+		"result": result,
+	})
+}
+
+// HandleEventStream streams relay events to the client over Server-Sent
+// Events (`data: <event frame JSON>\n\n` per event). This is the HTTP
+// counterpart of the WebSocket event broadcast, used by the HTTP transport
+// fallback.
+func (h *Handler) HandleEventStream(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusOK)
+	// Send the headers now: Go buffers them until the first write/flush, and
+	// the client waits for them before it starts reading events.
+	flusher.Flush()
+
+	events := h.eventService.Subscribe()
+	defer h.eventService.Unsubscribe(events)
+
+	for {
+		select {
+		case event, ok := <-events:
+			if !ok {
+				return
+			}
+			frame := map[string]interface{}{
+				"type":  "event",
+				"event": event.EventName(),
+				"data":  event.EventData(),
+			}
+			data, err := json.Marshal(frame)
+			if err != nil {
+				continue
+			}
+			if _, err := fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
+				return
+			}
+			flusher.Flush()
+		case <-r.Context().Done():
+			return
+		}
+	}
 }
