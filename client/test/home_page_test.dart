@@ -7,6 +7,7 @@ import 'package:client/pages/home_page.dart';
 import 'package:client/services/relay_client.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'fakes/fake_relay_client.dart';
 import 'test_helper.dart';
@@ -179,6 +180,39 @@ void main() {
     await goToAgents(tester);
     expect(client.snapshotCalls, 1);
     expect(find.text('alice'), findsOneWidget);
+  });
+
+  testWidgets('восстанавливает выбранный таб из настроек', (tester) async {
+    client.agents = [agent('p:alice', 'alice', 'done')];
+    await setupTestDependencies(client, config,
+        prefsSeed: {'settings_home_tab_index': 1});
+    await tester.pumpWidget(
+      MaterialApp(
+        home: HomePage(
+          config: config,
+          onRequestSwitch: () async {},
+          onAddDevice: () async {},
+          onForgetDevice: () async {},
+          onModeSelected: (_) async {},
+          modesFetcher: (_) async => stubModes,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // The Agents tab is active and built immediately (restored tab is
+    // "visited"), so the list is fetched on startup.
+    expect(client.snapshotCalls, greaterThan(0));
+    expect(find.text('alice'), findsOneWidget);
+  });
+
+  testWidgets('переключение таба сохраняется в настройках', (tester) async {
+    client.agents = [agent('p:alice', 'alice', 'done')];
+    await pumpHome(tester);
+    await goToAgents(tester);
+
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getInt('settings_home_tab_index'), 1);
   });
 
   testWidgets('шапка не переполняется на узком экране с длинным режимом', (tester) async {

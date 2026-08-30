@@ -19,6 +19,16 @@ class SuggestedAction {
 
 /// Service for parsing suggested actions from agent output
 class ActionParserService {
+  /// How many recent output lines to scan for suggestions. Large enough to
+  /// capture long numbered lists, but bounded so old output isn't re-parsed.
+  static const _tailLines = 50;
+
+  /// A candidate list must have between this many options to be actionable.
+  static const _minOptions = 2;
+  static const _maxOptions = 6;
+
+  static const _maxLabelLength = 40;
+
   /// Parse suggested actions from terminal output
   /// Returns list of suggested actions (empty if none found)
   List<SuggestedAction> parse(String output) {
@@ -27,36 +37,29 @@ class ActionParserService {
     // Strip ANSI escape codes before parsing
     final cleanOutput = _stripAnsi(output);
     final lines = cleanOutput.split('\n');
-    // Only look at last 10 lines (recent output)
-    final tail = lines.length > 10 ? lines.sublist(lines.length - 10) : lines;
+    // Only look at recent output
+    final tail = lines.length > _tailLines ? lines.sublist(lines.length - _tailLines) : lines;
 
-    // Strategy 1: Inline options like (y/n), [yes/no], option1/option2 at end of line
+    // Strategy 1: Inline bracketed options like (y/n), [yes/no], {accept/reject}
+    // or (1/2/3) at the end of a line. Bare option1/option2 is intentionally NOT
+    // parsed — it is indistinguishable from a path (lib/foo/bar).
     for (final line in tail.reversed) {
       final trimmed = line.trim();
       if (trimmed.isEmpty) continue;
 
-      // Pattern: (y/n) or [yes/no] or {accept/reject}
-      final inlineMatch = RegExp(r'[\(\[\{]([a-z]+)/([a-z]+)[\)\]\}]\s*$').firstMatch(trimmed);
-      if (inlineMatch != null) {
-        final opt1 = inlineMatch.group(1)!;
-        final opt2 = inlineMatch.group(2)!;
-        return [
-          SuggestedAction(opt1, opt1),
-          SuggestedAction(opt2, opt2),
-        ];
-      }
-
-      // Pattern: option1/option2/option3 at end
-      final slashMatch = RegExp(r'([a-z]+(?:/[a-z]+)+)\s*$').firstMatch(trimmed);
-      if (slashMatch != null) {
-        final options = slashMatch.group(1)!.split('/');
-        if (options.length >= 2 && options.length <= 4) {
+      final bracketed = RegExp(
+        r'[\(\[\{]([a-z0-9]+(?:/[a-z0-9]+)+)[\)\]\}]\s*$',
+        caseSensitive: false,
+      ).firstMatch(trimmed);
+      if (bracketed != null) {
+        final options = bracketed.group(1)!.split('/');
+        if (options.length >= _minOptions && options.length <= _maxOptions) {
           return options.map((opt) => SuggestedAction(opt, opt)).toList();
         }
       }
     }
 
-    // Strategy 2: Questions with yes/no pattern
+    // Strategy 2: Questions phrased with "would you", "do you want", "should i"
     for (final line in tail.reversed) {
       final trimmed = line.trim().toLowerCase();
       if (trimmed.isEmpty) continue;
@@ -72,31 +75,96 @@ class ActionParserService {
       }
     }
 
-    // Strategy 3: Numbered lists (1. Option, 2. Option)
+    // Strategy 3: Numbered list, one option per line: "1. Option" / "2) Option"
     final numberedOptions = <String>[];
     for (final line in tail) {
       final match = RegExp(r'^\s*(\d+)[\.\)]\s+(.+)$').firstMatch(line.trim());
       if (match != null) {
         final number = match.group(1)!;
         final text = match.group(2)!.trim();
-        // Skip if it looks like a checkbox/task list
-        if (text.startsWith('◻') || text.startsWith('◼') || text.startsWith('☐') || text.startsWith('☑')) {
-          continue;
-        }
-        numberedOptions.add('$number: ${_truncate(text, 40)}');
+        // Skip checkbox/task lists
+        if (_isCheckbox(text)) continue;
+        numberedOptions.add('$number: ${_truncate(text)}');
       }
     }
+    if (numberedOptions.length >= _minOptions && numberedOptions.length <= _maxOptions) {
+      return numberedOptions.map((opt) => SuggestedAction(opt, opt.split(':').first)).toList();
+    }
 
-    if (numberedOptions.length >= 2 && numberedOptions.length <= 6) {
-      return numberedOptions
-          .map((opt) => SuggestedAction(opt, opt.split(':').first))
-          .toList();
+    // Strategy 4: Inline numbered list on one line: "1) Build 2) Test 3) Deploy"
+    for (final line in tail.reversed) {
+      final trimmed = line.trim();
+      if (trimmed.isEmpty) continue;
+
+      final items = _parseInlineNumbered(trimmed);
+      if (items != null) return items;
+    }
+
+    // Strategy 5: Comma-separated numeric choice: "Choose one: 1, 2, 3"
+    for (final line in tail.reversed) {
+      final trimmed = line.trim();
+      if (trimmed.isEmpty) continue;
+
+      final items = _parseCommaNumbers(trimmed);
+      if (items != null) return items;
     }
 
     return const [];
   }
 
-  String _truncate(String text, int maxLength) {
+  /// Parse "1) Build 2) Test 3) Deploy" on a single line.
+  /// Returns null if the line isn't a clean inline numbered list.
+  List<SuggestedAction>? _parseInlineNumbered(String line) {
+    final matches = RegExp(r'(\d+)[\.\)]\s+').allMatches(line).toList();
+    if (matches.length < _minOptions || matches.length > _maxOptions) return null;
+
+    final options = <SuggestedAction>[];
+    for (var i = 0; i < matches.length; i++) {
+      final number = matches[i].group(1)!;
+      final textStart = matches[i].end;
+      final textEnd = i + 1 < matches.length ? matches[i + 1].start : line.length;
+      final text = line.substring(textStart, textEnd).trim();
+      // Skip pure-numeric fragments like "2.0" and checkbox items
+      if (text.isEmpty || _isCheckbox(text) || _isNumeric(text)) return null;
+      options.add(SuggestedAction('$number: ${_truncate(text)}', number));
+    }
+    return options;
+  }
+
+  /// Parse "Choose one: 1, 2, 3" into numeric choice buttons.
+  /// Returns null if the line doesn't clearly ask for a numeric pick.
+  List<SuggestedAction>? _parseCommaNumbers(String line) {
+    final match = RegExp(r'(\d+(?:\s*,\s*\d+)+)').firstMatch(line);
+    if (match == null) return null;
+
+    final numbers = match.group(1)!.split(RegExp(r'\s*,\s*'));
+    if (numbers.length < _minOptions || numbers.length > _maxOptions) return null;
+
+    // Require either a choice-like phrasing or a line that is essentially
+    // just numbers — avoids misreading "errors 2, 3 in log" as a pick.
+    final hasChoiceWord = RegExp(
+      r'choose|select|option|pick|which|enter|type',
+      caseSensitive: false,
+    ).hasMatch(line);
+    final onlyNumbers = line.replaceAll(RegExp(r'[\d,\s\(\)\[\]\{\}:.]'), '').isEmpty;
+    if (!hasChoiceWord && !onlyNumbers) return null;
+
+    return numbers.map((n) => SuggestedAction(n, n)).toList();
+  }
+
+  bool _isCheckbox(String text) {
+    return text.startsWith('◻') ||
+        text.startsWith('◼') ||
+        text.startsWith('☐') ||
+        text.startsWith('☑');
+  }
+
+  /// Whether the text is only digits/dots (e.g. "2.0") and so not a real label.
+  bool _isNumeric(String text) {
+    return text.replaceAll(RegExp(r'[\d\s.,;:]'), '').isEmpty;
+  }
+
+  String _truncate(String text, [int maxLength = _maxLabelLength]) {
     if (text.length <= maxLength) return text;
     return '${text.substring(0, maxLength - 1)}…';
   }

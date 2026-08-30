@@ -107,14 +107,17 @@ class RelayClientImpl implements RelayClient {
   }
 
   @override
-  Future<String> paneOutput(
+  Future<AgentOutputResult> paneOutput(
       String paneId, {int lines = 200, String format = 'text'}) async {
     final result = await _rpc.request('pane.output', {
       'pane_id': paneId,
       'lines': lines,
       'format': format,
     });
-    return result['output'] as String? ?? '';
+    return AgentOutputResult(
+      result['output'] as String? ?? '',
+      result['revision'] as int? ?? 0,
+    );
   }
 
   @override
@@ -141,13 +144,16 @@ class RelayClientImpl implements RelayClient {
   }
 
   @override
-  Future<String> output(String target, {int lines = 200, String format = 'text'}) async {
+  Future<AgentOutputResult> output(String target, {int lines = 200, String format = 'text'}) async {
     final result = await _rpc.request('agent.output', {
       'target': target,
       'lines': lines,
       'format': format,
     });
-    return result['output'] as String? ?? '';
+    return AgentOutputResult(
+      result['output'] as String? ?? '',
+      result['revision'] as int? ?? 0,
+    );
   }
 
   @override

@@ -57,7 +57,10 @@ send-keys / prompt` — стабильный id агента (из снимка:
   [01-architecture](01-architecture.md)).
 - HTTP-эндпоинты (удобно для отладки/curl и для простого клиента):
   - `GET /api/snapshot` — агенты + статусы (JSON).
-  - `GET /api/agents/<id>/output?lines=N&format=text|ansi`.
+  - `GET /api/agents/<id>/output?lines=N&format=text|ansi` — ответ
+    `{"output":"...","revision":N}`: `revision` — последняя известная ревизия
+    вывода (строго растущая, отслеживается из событий), нужна клиенту для
+    дедупликации живых апдейтов.
   - `POST /api/agents/<id>/keys` `{"keys":["Esc"]}`.
   - `POST /api/agents/<id>/prompt` `{"text":"..."}`.
 - `GET /healthz`.
@@ -151,6 +154,17 @@ JSON-RPC-подписку `events.subscribe`:
 (**только строго растущий** — устаревшая ревизия заставила бы клиентский
 guard пропустить живой апдейт); burst'ы схлопываются debounce'ом на клиенте
 (400мс) и на релее (500мс на панель).
+
+Серверный вывод кэшируется (`internal/service/output_cache.go`,
+`AgentService`): TTL 60 с, композитный ключ `(paneID, lines, format)` — варианты
+`text/200` и `ansi/500` не пересекаются. Кэш инвалидируется по событиям
+`pane.updated`, `pane.output_changed` и `agent_status_changed`
+(`EventService`), поэтому после живого апдейта клиент гарантированно получает
+свежий вывод, а не закэшированный. Ответы `agent.output` / `pane.output`
+вместе с текстом несут `revision` (последняя известная ревизия, отслеживается
+из событий): клиент (Phase 2) передаёт её как `knownRevision`, и если его
+кэш уже на этой ревизии — RPC за повторным выводом не выполняется
+(дедупликация burst-событий и повторных рендеров).
 
 Формат сокета (проверено живьём): newline-делимитед JSON-RPC 2.0, id запроса
 обязательно строка. Запрос:

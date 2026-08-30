@@ -6,6 +6,7 @@ import '../core/service_locator.dart';
 import '../models/pair_config.dart';
 import '../models/relay_agent.dart';
 import '../repositories/agent_repository.dart';
+import '../services/app_settings.dart';
 import '../services/relay_client.dart';
 import '../utils/async_value.dart';
 import '../utils/route_observer.dart';
@@ -66,12 +67,16 @@ class _HomePageState extends State<HomePage> with RouteAware {
 
   /// Tabs ever visited: IndexedStack children are built lazily on first visit
   /// (eagerly building all three fetched getAgents + 2× session at startup).
-  final Set<int> _visitedTabs = {0};
+  /// Seeded with the restored tab so it builds immediately.
+  late final Set<int> _visitedTabs;
 
   @override
   void initState() {
     super.initState();
     _repository = getIt<AgentRepository>();
+    final settings = getIt<AppSettings>();
+    _tabIndex = settings.homeTabIndex.clamp(0, 2);
+    _visitedTabs = {_tabIndex};
   }
 
   @override
@@ -238,7 +243,10 @@ class _HomePageState extends State<HomePage> with RouteAware {
             // Tab order matches the NavigationBar: 0 Spaces, 1 Agents, 2 Run.
             // Unvisited tabs stay as placeholders so no data is fetched until
             // the user actually opens them (lazy init).
-            const SpacesPage(),
+            if (_visitedTabs.contains(0))
+              const SpacesPage()
+            else
+              const SizedBox.shrink(),
             if (_visitedTabs.contains(1))
               RefreshIndicator(
                 onRefresh: _agentsController.refresh,
@@ -256,6 +264,8 @@ class _HomePageState extends State<HomePage> with RouteAware {
       bottomNavigationBar: NavigationBar(
         selectedIndex: _tabIndex,
         onDestinationSelected: (i) {
+          // Remember the selected tab across app restarts (AppSettings).
+          getIt<AppSettings>().setHomeTabIndex(i);
           setState(() {
             _tabIndex = i;
             _visitedTabs.add(i);

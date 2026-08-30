@@ -1,6 +1,9 @@
 package service
 
 import (
+	"sync"
+	"time"
+
 	"herdrelay/internal/domain"
 	"herdrelay/internal/repository"
 )
@@ -8,11 +11,42 @@ import (
 // AgentService provides business logic for agent operations.
 type AgentService struct {
 	repo repository.AgentRepository
+	// outputCache avoids repeated CLI spawns for terminal reads; entries are
+	// invalidated by EventService on pane events (docs/14-terminal-stream-implementation-plan.md §1.5).
+	outputCache *OutputCache
+	// lastKnownRevision maps pane id -> latest revision observed on pane
+	// events. herdr's CLI returns raw text (no revision), so the revision is
+	// tracked from the event stream instead (docs/14-terminal-stream-implementation-plan.md §2.4).
+	lastKnownRevision map[string]int
+	revisionMu        sync.RWMutex
 }
 
 // NewAgentService creates a new agent service.
 func NewAgentService(repo repository.AgentRepository) *AgentService {
-	return &AgentService{repo: repo}
+	return &AgentService{
+		repo:              repo,
+		outputCache:       NewOutputCache(60 * time.Second),
+		lastKnownRevision: make(map[string]int),
+	}
+}
+
+// UpdateRevision records the pane's latest output revision, observed from a
+// pane event. Monotonic: a lower/equal revision never moves the value back.
+func (s *AgentService) UpdateRevision(paneID string, revision int) {
+	if revision <= 0 {
+		return
+	}
+	s.revisionMu.Lock()
+	defer s.revisionMu.Unlock()
+	if revision > s.lastKnownRevision[paneID] {
+		s.lastKnownRevision[paneID] = revision
+	}
+}
+
+func (s *AgentService) lastRevision(paneID string) int {
+	s.revisionMu.RLock()
+	defer s.revisionMu.RUnlock()
+	return s.lastKnownRevision[paneID]
 }
 
 // GetSnapshot returns the current snapshot of all agents.
@@ -29,14 +63,28 @@ func (s *AgentService) GetOutput(target string, lines int, format string) (*doma
 		format = "text"
 	}
 
+	// Cache hit (fresh): return immediately, no CLI spawn.
+	if cached := s.outputCache.Get(target, lines, format); cached != nil {
+		return &domain.AgentOutput{
+			Target:   target,
+			Output:   cached.Text,
+			Revision: s.lastRevision(target),
+		}, nil
+	}
+
 	output, err := s.repo.ReadOutput(target, lines, format)
 	if err != nil {
 		return nil, err
 	}
 
+	// herdr's CLI returns raw text, so the revision always comes from the
+	// event stream (UpdateRevision), not from this read.
+	s.outputCache.Set(target, lines, format, output, 0)
+
 	return &domain.AgentOutput{
-		Target: target,
-		Output: output,
+		Target:   target,
+		Output:   output,
+		Revision: s.lastRevision(target),
 	}, nil
 }
 
@@ -70,11 +118,23 @@ func (s *AgentService) GetPaneOutput(paneID string, lines int, format string) (*
 	if format == "" {
 		format = "text"
 	}
+	if cached := s.outputCache.Get(paneID, lines, format); cached != nil {
+		return &domain.AgentOutput{
+			Target:   paneID,
+			Output:   cached.Text,
+			Revision: s.lastRevision(paneID),
+		}, nil
+	}
 	output, err := s.repo.ReadPaneOutput(paneID, lines, format)
 	if err != nil {
 		return nil, err
 	}
-	return &domain.AgentOutput{Target: paneID, Output: output}, nil
+	s.outputCache.Set(paneID, lines, format, output, 0)
+	return &domain.AgentOutput{
+		Target:   paneID,
+		Output:   output,
+		Revision: s.lastRevision(paneID),
+	}, nil
 }
 
 // SendText writes literal text into a pane (plain terminal input).

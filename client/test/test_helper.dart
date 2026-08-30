@@ -4,6 +4,7 @@ import 'package:client/core/service_locator.dart';
 import 'package:client/models/pair_config.dart';
 import 'package:client/repositories/agent_repository.dart';
 import 'package:client/services/action_parser_service.dart';
+import 'package:client/services/app_settings.dart';
 import 'package:client/services/command_history_service.dart';
 import 'package:client/services/config_store.dart';
 import 'package:client/services/relay_client.dart';
@@ -13,14 +14,21 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'fakes/fake_relay_client.dart';
 
 /// Setup test dependencies with a fake relay client
-Future<void> setupTestDependencies(FakeRelayClient fakeClient, PairConfig config) async {
+///
+/// [prefsSeed] pre-seeds SharedPreferences (e.g. to restore app settings in a
+/// specific state).
+Future<void> setupTestDependencies(
+  FakeRelayClient fakeClient,
+  PairConfig config, {
+  Map<String, Object> prefsSeed = const {},
+}) async {
   // Reset GetIt
   if (GetIt.instance.isRegistered<AgentRepository>()) {
     await GetIt.instance.reset();
   }
 
   // Register SharedPreferences
-  SharedPreferences.setMockInitialValues({});
+  SharedPreferences.setMockInitialValues(prefsSeed);
   final prefs = await SharedPreferences.getInstance();
   getIt.registerSingleton<SharedPreferences>(prefs);
 
@@ -33,13 +41,16 @@ Future<void> setupTestDependencies(FakeRelayClient fakeClient, PairConfig config
   );
   getIt.registerSingleton<ActionParserService>(ActionParserService());
   getIt.registerSingleton<ModeService>(ModeService());
+  getIt.registerSingleton<AppSettings>(
+    AppSettings(getIt<SharedPreferences>()),
+  );
 
   // Register fake client
   getIt.registerSingleton<RelayClient>(fakeClient);
 
   // Register AgentRepository
   getIt.registerSingleton<AgentRepository>(
-    AgentRepository(getIt<RelayClient>(), getIt<SharedPreferences>()),
+    AgentRepository(getIt<RelayClient>(), getIt<AppSettings>()),
   );
 
   // Shared session state for the Spaces/Run tabs (mirrors production wiring).

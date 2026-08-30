@@ -32,6 +32,9 @@ class FakeRelayClient implements RelayClient {
   /// Text that `output()` returns for any agent.
   String outputText = '';
 
+  /// Revision that `output()`/`paneOutput()` return (default 0 = none).
+  int? outputRevision;
+
   /// When true, `snapshot()` throws [RelayException].
   bool snapshotError = false;
 
@@ -100,10 +103,10 @@ class FakeRelayClient implements RelayClient {
   }
 
   @override
-  Future<String> paneOutput(
+  Future<AgentOutputResult> paneOutput(
       String paneId, {int lines = 200, String format = 'text'}) async {
     paneOutputCalls++;
-    return outputText;
+    return AgentOutputResult(outputText, outputRevision ?? 0);
   }
 
   @override
@@ -122,9 +125,9 @@ class FakeRelayClient implements RelayClient {
   }
 
   @override
-  Future<String> output(String target, {int lines = 200, String format = 'text'}) async {
+  Future<AgentOutputResult> output(String target, {int lines = 200, String format = 'text'}) async {
     outputCalls++;
-    return outputText;
+    return AgentOutputResult(outputText, outputRevision ?? 0);
   }
 
   @override

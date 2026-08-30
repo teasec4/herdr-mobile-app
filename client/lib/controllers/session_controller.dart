@@ -2,10 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
-import '../models/relay_event.dart';
 import '../models/relay_session.dart';
 import '../services/relay_client.dart';
 import '../utils/async_value.dart';
+import 'agents_store.dart';
 
 /// Shared session state for the Spaces and Run tabs (a single `session.snapshot`
 /// serves both — previously each page fetched it independently).
@@ -14,20 +14,21 @@ import '../utils/async_value.dart';
 ///   - loads the session (once) and reloads on demand;
 ///   - reconnect catch-up: after the relay drops, the session is re-read on the
 ///     next connected status (events during the gap were lost);
-///   - live refresh: agent status / pane events invalidate workspace statuses,
-///     so the session is re-read debounced (300 ms);
+///   - live refresh: pane structure changes (agents' statuses now live in
+///     [AgentsStore]) invalidate workspace/space statuses, so the session is
+///     re-read debounced (300 ms) off [AgentsStore.structureRevision];
 ///   - a generation counter discards stale responses when refreshes overlap.
 class SessionController extends ChangeNotifier {
-  SessionController(this._client) {
+  SessionController(this._client, this._store) {
     _client.status.addListener(_onConnectionStatus);
-    _eventSub = _client.events.listen(_onEvent);
+    _store.structureRevision.addListener(_onStructureChanged);
     // No eager load: [ensureLoaded] fetches on the first page that needs the
     // session (the Spaces tab is the default), so a session is never fetched
     // before anything shows it.
   }
 
   final RelayClient _client;
-  StreamSubscription<RelayEvent>? _eventSub;
+  final AgentsStore _store;
   Timer? _refreshDebounce;
   AsyncValue<RelaySession> _state = const AsyncIdle();
   int _generation = 0;
@@ -74,14 +75,11 @@ class SessionController extends ChangeNotifier {
     }
   }
 
-  void _onEvent(RelayEvent event) {
+  void _onStructureChanged() {
     if (_wasDisconnected) return;
-    // Workspace statuses come from the session snapshot; agent status / pane
-    // events invalidate it, so re-read (debounced) to keep the list current.
-    if (event is AgentStatusChanged || event is PaneUpdated) {
-      _refreshDebounce?.cancel();
-      _refreshDebounce = Timer(const Duration(milliseconds: 300), () => _load());
-    }
+    // A pane appeared/moved/vanished — the session snapshot may be stale.
+    _refreshDebounce?.cancel();
+    _refreshDebounce = Timer(const Duration(milliseconds: 300), () => _load());
   }
 
   Future<void> _load() async {
@@ -105,7 +103,7 @@ class SessionController extends ChangeNotifier {
   @override
   void dispose() {
     _refreshDebounce?.cancel();
-    _eventSub?.cancel();
+    _store.structureRevision.removeListener(_onStructureChanged);
     _client.status.removeListener(_onConnectionStatus);
     super.dispose();
   }

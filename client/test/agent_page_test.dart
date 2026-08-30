@@ -2,8 +2,11 @@ import 'package:client/models/pair_config.dart';
 import 'package:client/models/relay_agent.dart';
 import 'package:client/models/relay_event.dart';
 import 'package:client/pages/agent_page.dart';
+import 'package:client/services/app_settings.dart';
+import 'package:client/widgets/ansi_terminal.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'fakes/fake_relay_client.dart';
 import 'test_helper.dart';
@@ -259,5 +262,71 @@ Please choose an option:
     expect(find.text('shell-out\n'), findsOneWidget);
     expect(client.paneOutputCalls, 1,
         reason: 'plain terminal must read via pane.output, not agent.output');
+  });
+
+  testWidgets('A+ увеличивает размер шрифта терминала и сохраняет его', (tester) async {
+    client.outputText = 'hello\n';
+    await pumpAgent(tester);
+
+    double fontSize() =>
+        tester.widget<SelectableText>(find.byType(SelectableText)).style!.fontSize!;
+
+    expect(fontSize(), AppSettings.kDefaultFontSize);
+    await tester.tap(find.byIcon(Icons.text_increase));
+    await tester.pumpAndSettle();
+    expect(fontSize(), AppSettings.kDefaultFontSize + 1);
+
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getDouble(AppSettings.kTerminalFontSize), AppSettings.kDefaultFontSize + 1);
+  });
+
+  testWidgets('A− уменьшает размер шрифта', (tester) async {
+    client.outputText = 'hello\n';
+    await pumpAgent(tester);
+
+    await tester.tap(find.byIcon(Icons.text_decrease));
+    await tester.pumpAndSettle();
+
+    final rich = tester.widget<SelectableText>(find.byType(SelectableText));
+    expect(rich.style!.fontSize, AppSettings.kDefaultFontSize - 1);
+  });
+
+  testWidgets('по умолчанию вывод липнет к низу (follow)', (tester) async {
+    client.outputText = List.filled(100, 'line of terminal text').join('\n');
+    await pumpAgent(tester);
+
+    // The outer Scrollable (SingleChildScrollView) precedes SelectableText's
+    // internal one in depth-first order.
+    final scrollable = tester.state<ScrollableState>(
+      find
+          .descendant(
+            of: find.byType(AnsiTerminal),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    expect(scrollable.position.pixels, scrollable.position.maxScrollExtent);
+  });
+
+  testWidgets('autoScrollFollow=false не липнет к низу при открытии', (tester) async {
+    client.outputText = List.filled(100, 'line of terminal text').join('\n');
+    await setupTestDependencies(client, config,
+        prefsSeed: {AppSettings.kAutoScrollFollow: false});
+    await tester.pumpWidget(
+      MaterialApp(home: AgentPage(agent: agent)),
+    );
+    await tester.pumpAndSettle();
+
+    // The outer Scrollable (SingleChildScrollView) precedes SelectableText's
+    // internal one in depth-first order.
+    final scrollable = tester.state<ScrollableState>(
+      find
+          .descendant(
+            of: find.byType(AnsiTerminal),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    expect(scrollable.position.pixels, lessThan(scrollable.position.maxScrollExtent));
   });
 }

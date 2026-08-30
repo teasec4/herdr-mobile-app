@@ -18,19 +18,25 @@ type eventListener struct {
 
 // EventService manages event subscriptions and broadcasting.
 type EventService struct {
-	eventRepo  repository.EventRepository
-	mu         sync.RWMutex
-	listeners  []*eventListener
-	started    bool
-	stopCh     chan struct{}
+	eventRepo repository.EventRepository
+	// agentService is used to invalidate the output cache and to track per-pane
+	// output revisions from the event stream (docs/14-terminal-stream-implementation-plan.md §1.5, §2.4).
+	// Nil when constructed without one (e.g. some tests).
+	agentService *AgentService
+	mu           sync.RWMutex
+	listeners    []*eventListener
+	started      bool
+	stopCh       chan struct{}
 }
 
-// NewEventService creates a new event service.
-func NewEventService(eventRepo repository.EventRepository) *EventService {
+// NewEventService creates a new event service. agentService may be nil; when
+// set, pane events invalidate its output cache and advance its revisions.
+func NewEventService(eventRepo repository.EventRepository, agentService *AgentService) *EventService {
 	return &EventService{
-		eventRepo: eventRepo,
-		listeners: make([]*eventListener, 0),
-		stopCh:    make(chan struct{}),
+		eventRepo:    eventRepo,
+		agentService: agentService,
+		listeners:    make([]*eventListener, 0),
+		stopCh:       make(chan struct{}),
 	}
 }
 
@@ -115,6 +121,35 @@ func (s *EventService) broadcast(event domain.Event) {
 			// Listener is blocked, skip to avoid blocking broadcast
 			log.Printf("event service: listener blocked, dropping event %s", event.EventName())
 		}
+	}
+
+	// Pane events mean terminal output may have changed: invalidate the
+	// output cache so the next read refetches, and record the revision so
+	// agent.output/pane.output responses carry it for client-side dedup.
+	s.invalidateCacheOnEvent(event)
+}
+
+// invalidateCacheOnEvent drops cached output for panes whose output may have
+// changed, and forwards each pane's latest revision to the agent service.
+func (s *EventService) invalidateCacheOnEvent(event domain.Event) {
+	if s.agentService == nil {
+		return
+	}
+	switch evt := event.(type) {
+	case domain.PaneUpdatedEvent:
+		s.agentService.outputCache.Invalidate(evt.PaneID)
+		if evt.Revision > 0 {
+			s.agentService.UpdateRevision(evt.PaneID, evt.Revision)
+		}
+	case domain.OutputChangedEvent:
+		s.agentService.outputCache.Invalidate(evt.PaneID)
+		if evt.Revision > 0 {
+			s.agentService.UpdateRevision(evt.PaneID, evt.Revision)
+		}
+	case domain.AgentStatusChangedEvent:
+		// Conservative invalidation: status flips often accompany an output
+		// flush (plan §1.5). Output itself is not revisioned by this event.
+		s.agentService.outputCache.Invalidate(evt.PaneID)
 	}
 }
 

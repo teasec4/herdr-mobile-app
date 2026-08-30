@@ -1,27 +1,28 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/relay_agent.dart';
 import '../models/relay_event.dart';
+import '../services/app_settings.dart';
 import '../services/relay_client.dart';
 
 /// Repository for agent operations
 /// Provides typed interface over RelayClient
 class AgentRepository {
-  /// Cache key for the last successful agent snapshot, shown when the relay is
-  /// offline so the user still sees the last known agent list.
-  static const String _cacheKey = 'last_snapshot';
-
   final RelayClient _client;
-  final SharedPreferences _prefs;
+  final AppSettings _settings;
 
   /// JSON of the last cached snapshot — snapshots that did not change skip the
   /// disk write (status bursts can trigger many refreshes per second).
   String? _lastCachedJson;
 
-  AgentRepository(this._client, this._prefs);
+  /// In-memory cache of the last fetched output per pane (id -> text+revision).
+  /// A live refresh whose revision matches what we already hold skips the RPC
+  /// entirely (docs/14-terminal-stream-implementation-plan.md §2.4).
+  final Map<String, _CachedOutput> _outputCache = {};
+
+  AgentRepository(this._client, this._settings);
 
   /// Get all agents snapshot.
   ///
@@ -42,7 +43,7 @@ class AgentRepository {
 
   /// When the last successful snapshot was cached (null if never).
   Future<DateTime?> lastCachedAt() async {
-    final raw = _prefs.getString('$_cacheKey:ts');
+    final raw = _settings.agentSnapshotAt;
     if (raw == null) return null;
     return DateTime.tryParse(raw);
   }
@@ -51,15 +52,12 @@ class AgentRepository {
     final json = jsonEncode([for (final a in agents) a.toJson()]);
     if (json == _lastCachedJson) return; // unchanged snapshot: skip the write
     _lastCachedJson = json;
-    await _prefs.setString(_cacheKey, json);
-    await _prefs.setString(
-      '$_cacheKey:ts',
-      DateTime.now().toIso8601String(),
-    );
+    _settings.setAgentSnapshot(json);
+    _settings.setAgentSnapshotAt(DateTime.now().toIso8601String());
   }
 
   Future<List<RelayAgent>> _loadCachedAgents() async {
-    final raw = _prefs.getString(_cacheKey);
+    final raw = _settings.agentSnapshot;
     if (raw == null) return const [];
     try {
       final list = jsonDecode(raw) as List<dynamic>;
@@ -72,14 +70,35 @@ class AgentRepository {
     }
   }
 
-  /// Get agent output
-  Future<String> getOutput(String agentId, {int lines = 500}) async {
-    return await _client.output(agentId, lines: lines, format: 'ansi');
+  /// Get agent output.
+  ///
+  /// When [knownRevision] matches the revision of the last fetched output, the
+  /// cached text is returned without an RPC (the pane has not changed since).
+  Future<String> getOutput(String agentId,
+      {int lines = 500, int? knownRevision}) async {
+    final cached = _outputCache[agentId];
+    if (knownRevision != null &&
+        cached != null &&
+        cached.revision == knownRevision) {
+      return cached.text;
+    }
+    final result = await _client.output(agentId, lines: lines, format: 'ansi');
+    _outputCache[agentId] = _CachedOutput(result.text, result.revision);
+    return result.text;
   }
 
   /// Get a plain-terminal pane output (pane.read — no agent needed).
-  Future<String> getPaneOutput(String paneId, {int lines = 500}) async {
-    return await _client.paneOutput(paneId, lines: lines, format: 'ansi');
+  Future<String> getPaneOutput(String paneId,
+      {int lines = 500, int? knownRevision}) async {
+    final cached = _outputCache[paneId];
+    if (knownRevision != null &&
+        cached != null &&
+        cached.revision == knownRevision) {
+      return cached.text;
+    }
+    final result = await _client.paneOutput(paneId, lines: lines, format: 'ansi');
+    _outputCache[paneId] = _CachedOutput(result.text, result.revision);
+    return result.text;
   }
 
   /// Send prompt to agent
@@ -107,4 +126,13 @@ class AgentRepository {
   Future<void> close() async {
     await _client.close();
   }
+}
+
+/// One entry of [AgentRepository]'s output cache: the last fetched text plus
+/// the revision it corresponds to.
+class _CachedOutput {
+  _CachedOutput(this.text, this.revision);
+
+  final String text;
+  final int revision;
 }

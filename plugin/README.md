@@ -96,6 +96,13 @@ bash plugin/redeploy.sh
 # ✓ /api/rpc agents.snapshot ok
 ```
 
+Recommended entry point from the repo root (same engine, plus a status summary,
+and a staleness check that warns when the binary is older than the sources):
+
+```bash
+./relay-status.sh update
+```
+
 The phone reconnects as-is: the pairing link/token do not change on redeploy.
 
 Deep dive into the plugin model, the manifest, and installing into herdr — see

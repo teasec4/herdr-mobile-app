@@ -1,10 +1,12 @@
 import 'package:get_it/get_it.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../controllers/agents_store.dart';
 import '../controllers/session_controller.dart';
 import '../models/pair_config.dart';
 import '../repositories/agent_repository.dart';
 import '../services/action_parser_service.dart';
+import '../services/app_settings.dart';
 import '../services/command_history_service.dart';
 import '../services/config_store.dart';
 import '../services/relay_client.dart';
@@ -32,6 +34,10 @@ Future<void> setupDependencies() async {
     CommandHistoryService(getIt<SharedPreferences>()),
   );
   getIt.registerSingleton<ActionParserService>(ActionParserService());
+  // Typed key-centralized settings/cache over SharedPreferences.
+  getIt.registerSingleton<AppSettings>(
+    AppSettings(getIt<SharedPreferences>()),
+  );
   // Fetches relay connection modes (/pair) with retries — used by the
   // HomePage mode badge and the Connection screen.
   getIt.registerSingleton<ModeService>(ModeService());
@@ -60,6 +66,10 @@ void setupRelayServices(
   if (getIt.isRegistered<SessionController>()) {
     getIt<SessionController>().dispose();
     getIt.unregister<SessionController>();
+  }
+  if (getIt.isRegistered<AgentsStore>()) {
+    getIt<AgentsStore>().dispose();
+    getIt.unregister<AgentsStore>();
   }
   if (getIt.isRegistered<AgentRepository>()) {
     final oldRepo = getIt<AgentRepository>();
@@ -93,12 +103,18 @@ void setupRelayServices(
 
   // Register AgentRepository (depends on RelayClient)
   getIt.registerSingleton<AgentRepository>(
-    AgentRepository(getIt<RelayClient>(), getIt<SharedPreferences>()),
+    AgentRepository(getIt<RelayClient>(), getIt<AppSettings>()),
+  );
+
+  // Single source of truth for agent/workspace status (Agents tab, AgentPage,
+  // WorkspacePage, SessionController all read from here).
+  getIt.registerSingleton<AgentsStore>(
+    AgentsStore(getIt<AgentRepository>()),
   );
 
   // Shared session state for the Spaces/Run tabs (loads once on registration).
   getIt.registerSingleton<SessionController>(
-    SessionController(getIt<RelayClient>()),
+    SessionController(getIt<RelayClient>(), getIt<AgentsStore>()),
   );
 }
 
@@ -107,6 +123,10 @@ Future<void> teardownRelayServices() async {
   if (getIt.isRegistered<SessionController>()) {
     getIt<SessionController>().dispose();
     getIt.unregister<SessionController>();
+  }
+  if (getIt.isRegistered<AgentsStore>()) {
+    getIt<AgentsStore>().dispose();
+    getIt.unregister<AgentsStore>();
   }
   if (getIt.isRegistered<AgentRepository>()) {
     await getIt<AgentRepository>().close();

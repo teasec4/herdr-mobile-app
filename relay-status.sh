@@ -114,14 +114,21 @@ show_token() {
 restart_relay() {
   echo -e "${COLOR_YELLOW}Перезапуск relay...${COLOR_RESET}"
 
-  # Попробовать через launchd (macOS)
-  if [[ -f ~/Library/LaunchAgents/com.herdr.relay.plist ]]; then
-    launchctl unload ~/Library/LaunchAgents/com.herdr.relay.plist 2>/dev/null || true
-    sleep 1
-    launchctl load ~/Library/LaunchAgents/com.herdr.relay.plist
-    echo -e "${COLOR_GREEN}✓ Перезапущен через launchd${COLOR_RESET}"
+  PLIST="$HOME/Library/LaunchAgents/com.herdrelay.relay.plist"
+
+  # Попробовать через launchctl kickstart (macOS) — перезапускает сервис с новой сборкой
+  if [[ -f "$PLIST" ]]; then
+    if launchctl kickstart -k "gui/$(id -u)/com.herdrelay.relay" >/dev/null 2>&1; then
+      echo -e "${COLOR_GREEN}✓ Перезапущен через launchctl kickstart${COLOR_RESET}"
+    else
+      # Старый launchctl / не-GUI сессия: unload + load
+      launchctl unload "$PLIST" 2>/dev/null || true
+      sleep 1
+      launchctl load "$PLIST"
+      echo -e "${COLOR_GREEN}✓ Перезапущен через launchctl load${COLOR_RESET}"
+    fi
   else
-    # Убить процесс напрямую (он должен автоматически перезапуститься)
+    # plist нет — убить процесс напрямую (он должен автоматически перезапуститься)
     if pkill -9 herdrelay 2>/dev/null; then
       echo -e "${COLOR_GREEN}✓ Процесс остановлен${COLOR_RESET}"
       sleep 2
@@ -136,20 +143,68 @@ restart_relay() {
   fi
 }
 
-# Пересобрать relay
-rebuild_relay() {
-  echo -e "${COLOR_YELLOW}Пересборка relay...${COLOR_RESET}"
+# Обновить всё: собрать relay, перезапустить сервис, перелинковать плагин
+update_relay() {
+  echo -e "${COLOR_YELLOW}Обновление relay и плагина...${COLOR_RESET}"
   cd "$(dirname "$0")"
-  bash plugin/install.sh
-  echo -e "${COLOR_GREEN}✓ Relay пересобран${COLOR_RESET}"
+  if bash plugin/redeploy.sh; then
+    echo -e "${COLOR_GREEN}✓ Обновление завершено${COLOR_RESET}"
+  else
+    echo -e "${COLOR_RED}✗ Обновление не удалось — см. вывод выше${COLOR_RESET}"
+    return 1
+  fi
+}
+
+# Проверить, не устарел ли бинарник относительно исходников
+check_staleness() {
+  BINARY="$(dirname "$0")/plugin/bin/herdrelay"
+  [[ -f "$BINARY" ]] || return 0
+  ROOT="$(cd "$(dirname "$0")" && pwd)"
+
+  # Реально входящие в сборку .go-файлы (компилируются в бинарник)
+  SRC_FILES=""
+  if command -v go >/dev/null 2>&1; then
+    SRC_FILES=$(cd "$ROOT" && go list -deps -compiled -f '{{range .CompiledGoFiles}}{{.}}{{"\n"}}{{end}}' ./cmd/relay 2>/dev/null | grep "^$ROOT/" || true)
+  fi
+  if [[ -z "$SRC_FILES" ]]; then
+    # Fallback: широкая выборка по дереву исходников
+    SRC_FILES=$(find "$ROOT/cmd/relay" "$ROOT/internal" -name '*.go' -type f 2>/dev/null)
+  fi
+  [[ -z "$SRC_FILES" ]] && return 0
+
+  BIN_MTIME=$(stat -f "%m" "$BINARY" 2>/dev/null || echo 0)
+
+  # Найти исходники новее бинарника
+  FRESH=()
+  while IFS= read -r f; do
+    M=$(stat -f "%m" "$f" 2>/dev/null || echo 0)
+    if (( M > BIN_MTIME )); then
+      FRESH+=("$f")
+    fi
+  done <<< "$SRC_FILES"
+
+  if (( ${#FRESH[@]} > 0 )); then
+    echo -e "${COLOR_YELLOW}⚠ Бинарник устарел: исходники новее сборки. Выполните: $(basename "$0") update${COLOR_RESET}"
+    FMT=$(stat -f "%Sm" -t "%Y-%m-%d %H:%M" "$BINARY" 2>/dev/null)
+    echo "    Бинарник собран: $FMT"
+    for f in "${FRESH[@]}"; do
+      echo "    новее: $f"
+    done
+  fi
 }
 
 # Показать логи
 show_logs() {
   echo -e "${COLOR_BLUE}━━━ Логи relay (последние 20 строк) ━━━${COLOR_RESET}"
-  LOG_FILE="${HOME}/Library/Logs/herdrelay.log"
+  LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/herdrelay"
+  LOG_FILE="$LOG_DIR/relay.err.log"
   if [[ -f "$LOG_FILE" ]]; then
     tail -20 "$LOG_FILE"
+    if [[ -s "$LOG_DIR/relay.log" ]]; then
+      echo ""
+      echo "--- relay.log (stdout) ---"
+      tail -20 "$LOG_DIR/relay.log"
+    fi
   else
     echo -e "${COLOR_YELLOW}⚠ Лог-файл не найден: $LOG_FILE${COLOR_RESET}"
   fi
@@ -158,6 +213,7 @@ show_logs() {
 # Полный статус
 status() {
   check_process && check_port && check_api && check_plugin && show_token
+  check_staleness
   echo ""
 }
 
@@ -168,8 +224,9 @@ usage() {
 
 Команды:
   status          Полный статус relay и плагина (по умолчанию)
+  update          Собрать relay, перезапустить и перелинковать плагин (после любых изменений)
+  rebuild         То же, что update
   restart         Перезапустить relay
-  rebuild         Пересобрать и перезапустить relay
   logs            Показать последние логи
   token           Показать токен доступа
   api             Проверить только API
@@ -177,7 +234,7 @@ usage() {
 
 Примеры:
   $(basename "$0")                # показать статус
-  $(basename "$0") rebuild        # пересобрать после изменений в Go коде
+  $(basename "$0") update         # обновить всё после изменений в Go/плагине
   $(basename "$0") restart        # перезапустить без пересборки
   $(basename "$0") logs           # посмотреть логи
 
@@ -195,10 +252,8 @@ case "${1:-status}" in
     sleep 2
     status
     ;;
-  rebuild)
-    rebuild_relay
-    echo ""
-    restart_relay
+  update|rebuild)
+    update_relay
     echo ""
     sleep 2
     status

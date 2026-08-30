@@ -54,4 +54,8 @@ type Snapshot struct {
 type AgentOutput struct {
 	Target string `json:"target"`
 	Output string `json:"output"`
+	// Revision is the pane's last known output revision (0 if unknown). It lets
+	// clients skip re-rendering when their cached text already matches the
+	// revision they saw in the last event.
+	Revision int `json:"revision,omitempty"`
 }

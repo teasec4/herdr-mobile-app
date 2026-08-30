@@ -41,7 +41,7 @@ func main() {
 	agentService := service.NewAgentService(cliRepo)
 
 	eventRepo := herdr.NewSocketEventRepository(cfg.Socket)
-	eventService := service.NewEventService(eventRepo)
+	eventService := service.NewEventService(eventRepo, agentService)
 
 	hub := ws.NewHub()
 

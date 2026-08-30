@@ -17,6 +17,7 @@ id = "herdrelay.events"
 name = "HerdRelay"
 version = "0.1.0"
 description = "Remote control for Herdr: monitor and check agents from your phone over LAN/Tailscale"
+min_herdr_version = "0.7.5"
 platforms = ["macos", "linux"]
 
 # Build the Go relay into bin/ and install the launchd service (macOS).

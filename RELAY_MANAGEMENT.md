@@ -21,28 +21,34 @@
 ./relay-status.sh          # то же самое
 ```
 
-### Перезапуск после изменений
+### Обновление после изменений — основной режим
 
-**После изменения Go кода** (cmd/relay/*.go):
 ```bash
-./relay-status.sh rebuild
+./relay-status.sh update
 ```
-Пересоберёт бинарник, перезапустит relay и покажет статус.
+
+Одна команда делает всё:
+1. Собирает relay-бинарник (`plugin/bin/herdrelay`) из Go-кода;
+2. Перезапускает launchd-сервис `com.herdrelay.relay`, чтобы новая сборка подхватилась;
+3. Перелинкует herdr-плагин `herdrelay.events` — манифест и hook-скрипты перечитываются;
+4. Проверяет здоровье: `/healthz` и `agents.snapshot`.
+
+Применять **после любых изменений**: Go-кода (`cmd/relay/*.go`), плагина (`plugin/*.sh`, `plugin/herdr-plugin.toml`).
+
+`rebuild` — то же самое (алиас).
+
+Статус сам подскажет: если исходники новее собранного бинарника, `status` покажет жёлтое предупреждение «бинарник устарел».
 
 **Просто перезапустить** (без пересборки):
 ```bash
 ./relay-status.sh restart
 ```
 
-**После изменения плагина** (plugin/*.sh, plugin/herdr-plugin.toml):
-- Изменения применяются сразу (плагин установлен через `herdr plugin link`)
-- Перезапуск не нужен
-
 ### Логи
 ```bash
 ./relay-status.sh logs
 ```
-Показывает последние 20 строк из `~/Library/Logs/herdrelay.log`
+Показывает последние 20 строк из `~/.local/state/herdrelay/relay.err.log`
 
 ### Токен
 ```bash
@@ -85,8 +91,8 @@ bash plugin/install.sh
 
 ### Перезапустить через launchd (macOS)
 ```bash
-launchctl unload ~/Library/LaunchAgents/com.herdr.relay.plist
-launchctl load ~/Library/LaunchAgents/com.herdr.relay.plist
+launchctl unload ~/Library/LaunchAgents/com.herdrelay.relay.plist
+launchctl load ~/Library/LaunchAgents/com.herdrelay.relay.plist
 ```
 
 ### Или убить процесс (автоматически перезапустится)
@@ -141,13 +147,10 @@ export HERDRELAY_MODE=gateway    # требует HERDRELAY_GATEWAY_URL
 
 ## Workflow после изменений
 
-### Изменили Go код (cmd/relay/\*.go)
+### Изменили Go код (cmd/relay/\*.go) или плагин (plugin/\*.sh, plugin/\*.toml)
 ```bash
-./relay-status.sh rebuild
+./relay-status.sh update
 ```
-
-### Изменили плагин (plugin/\*.sh, plugin/\*.toml)
-Ничего делать не нужно - изменения применяются сразу.
 
 ### Изменили Flutter клиент (client/\*)
 ```bash
@@ -189,8 +192,9 @@ flutter run
         └── herdrelay.events/
 
 ~/Library/LaunchAgents/
-└── com.herdr.relay.plist   # launchd конфиг (macOS)
+└── com.herdrelay.relay.plist   # launchd конфиг (macOS)
 
-~/Library/Logs/
-└── herdrelay.log           # Логи relay
+~/.local/state/herdrelay/
+├── relay.log                   # Логи relay (stdout)
+└── relay.err.log               # Логи relay (stderr, основной)
 ```

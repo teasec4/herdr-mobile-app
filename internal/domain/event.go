@@ -33,8 +33,12 @@ func (e AgentStatusChangedEvent) EventData() interface{} {
 
 // PaneUpdatedEvent is fired when a pane is created, destroyed, or modified.
 type PaneUpdatedEvent struct {
-	PaneID string          `json:"pane_id"`
-	Data   json.RawMessage `json:"data,omitempty"`
+	PaneID string `json:"pane_id"`
+	// Revision is the pane's output revision carried by herdr's PaneInfo
+	// (docs/10-herdr-api.md §6.1). 0 when the payload did not include it.
+	Revision int `json:"revision,omitempty"`
+	// Data retains the original normalized payload for clients that need it.
+	Data json.RawMessage `json:"data,omitempty"`
 }
 
 func (e PaneUpdatedEvent) EventName() string {

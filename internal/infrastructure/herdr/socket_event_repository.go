@@ -235,7 +235,13 @@ func (r *SocketEventRepository) subscribeOnce(events chan<- domain.Event, subscr
 				revisions.setRevision(paneID, rev)
 			}
 			notification.Event = "pane.updated"
-			notification.Data, _ = json.Marshal(map[string]string{"pane_id": paneID})
+			// Keep the revision on the normalized event so client-side dedup
+			// (plan §2.4) and the event service's revision tracking can use it.
+			data := map[string]interface{}{"pane_id": paneID}
+			if rev := revisions.last(paneID); rev > 0 {
+				data["revision"] = rev
+			}
+			notification.Data, _ = json.Marshal(data)
 
 			if !subscribed[paneID] {
 				// New pane: remember it and restart the connection with the

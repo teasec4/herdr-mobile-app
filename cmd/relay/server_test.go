@@ -55,7 +55,7 @@ func (stubDetector) FunnelEnabled() bool                        { return true }
 func testServer(t *testing.T, token string) *httptest.Server {
 	t.Helper()
 	agentService := service.NewAgentService(stubAgentRepo{})
-	eventService := service.NewEventService(stubEventRepo{})
+	eventService := service.NewEventService(stubEventRepo{}, agentService)
 	identity := domain.Identity{RelayID: "relay-0123456789abcdef", Name: "test-host"}
 	pairing := service.NewPairingService(stubDetector{}, identity, "lan", "8375", "", token)
 	hub := ws.NewHub()
@@ -480,7 +480,7 @@ func TestRPCEndpoint(t *testing.T) {
 // event service are streamed as `data: <frame>` lines.
 func TestEventStreamSSE(t *testing.T) {
 	agentService := service.NewAgentService(stubAgentRepo{})
-	eventService := service.NewEventService(stubEventRepo{})
+	eventService := service.NewEventService(stubEventRepo{}, agentService)
 	identity := domain.Identity{RelayID: "relay-0123456789abcdef", Name: "test-host"}
 	pairing := service.NewPairingService(stubDetector{}, identity, "lan", "8375", "", "secret")
 	hub := ws.NewHub()

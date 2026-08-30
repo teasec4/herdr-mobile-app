@@ -43,11 +43,11 @@ abstract class RelayClient {
   Future<String> createWorkspace({String? label, String? cwd});
 
   /// Agent terminal output (`agent.output`).
-  Future<String> output(String target, {int lines = 200, String format = 'text'});
+  Future<AgentOutputResult> output(String target, {int lines = 200, String format = 'text'});
 
   /// Pane terminal output (`pane.output`) — works for plain terminals
   /// without an agent, unlike [output].
-  Future<String> paneOutput(String paneId, {int lines = 200, String format = 'text'});
+  Future<AgentOutputResult> paneOutput(String paneId, {int lines = 200, String format = 'text'});
 
   /// Sends key combinations to the agent (`agent.keys`): ['enter'], ['ctrl', 'c'].
   Future<void> keys(String target, List<String> keys);
@@ -66,4 +66,14 @@ abstract class RelayClient {
 
   /// Closes the client: stops reconnects and events.
   Future<void> close();
+}
+
+/// Result of an `agent.output` / `pane.output` request: the terminal text plus
+/// the pane's output revision (0 when the relay did not carry one) so callers
+/// can skip refetching when nothing changed (docs/14-terminal-stream-implementation-plan.md §2.4).
+class AgentOutputResult {
+  const AgentOutputResult(this.text, this.revision);
+
+  final String text;
+  final int revision;
 }

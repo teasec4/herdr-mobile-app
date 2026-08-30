@@ -130,7 +130,9 @@ void main() {
         'ok': true,
         'result': {'output': 'hello world'},
       }));
-      expect(await outputFuture, 'hello world');
+      final output = await outputFuture;
+      expect(output.text, 'hello world');
+      expect(output.revision, 0);
 
       final keysFuture = client.keys('p1', ['ctrl', 'c']);
       await pumpEventQueue();

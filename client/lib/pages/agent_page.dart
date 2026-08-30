@@ -8,6 +8,7 @@ import '../models/relay_agent.dart';
 import '../models/relay_event.dart';
 import '../repositories/agent_repository.dart';
 import '../services/action_parser_service.dart';
+import '../services/app_settings.dart';
 import '../services/command_history_service.dart';
 import '../utils/toast_service.dart';
 import '../widgets/ansi_terminal.dart';
@@ -40,7 +41,14 @@ class _AgentPageState extends State<AgentPage> {
 
   /// Whether the view should follow new output; the user scrolling up turns
   /// it off so they can read, scrolling back to the bottom turns it on again.
-  bool _stickToBottom = true;
+  /// Restored from / persisted to [AppSettings] (docs/13 §1.3).
+  late bool _stickToBottom;
+
+  /// Terminal font size in points, from [AppSettings] (accessibility: A−/A+ in
+  /// the AppBar).
+  late double _terminalFontSize;
+
+  late final AppSettings _settings;
 
   /// Debounce for live output updates: `pane.output_changed` events may arrive
   /// in bursts while an agent is streaming, so we wait until the stream settles
@@ -72,6 +80,9 @@ class _AgentPageState extends State<AgentPage> {
     _repository = getIt<AgentRepository>();
     _historyService = getIt<CommandHistoryService>();
     _parserService = getIt<ActionParserService>();
+    _settings = getIt<AppSettings>();
+    _stickToBottom = _settings.autoScrollFollow;
+    _terminalFontSize = _settings.terminalFontSize;
     _agent = widget.agent;
     _scroll.addListener(_onScroll);
     _eventSubscription = _repository.events.listen(_onEvent);
@@ -96,7 +107,18 @@ class _AgentPageState extends State<AgentPage> {
         _scroll.position.pixels >= _scroll.position.maxScrollExtent - 48;
     if (atBottom != _stickToBottom) {
       setState(() => _stickToBottom = atBottom);
+      // Remember the preference across page reopens.
+      _settings.setAutoScrollFollow(atBottom);
     }
+  }
+
+  /// Steps the terminal font size by [delta] (A−/A+) and persists it.
+  void _changeFontSize(int delta) {
+    setState(() {
+      _terminalFontSize =
+          (_terminalFontSize + delta).clamp(AppSettings.kMinFontSize, AppSettings.kMaxFontSize).toDouble();
+    });
+    _settings.setTerminalFontSize(_terminalFontSize);
   }
 
   void _onEvent(RelayEvent event) {
@@ -112,8 +134,10 @@ class _AgentPageState extends State<AgentPage> {
         _lastRevision = event.revision;
       }
       _outputDebounce?.cancel();
-      _outputDebounce =
-          Timer(const Duration(milliseconds: 400), () => _refresh(silent: true));
+      _outputDebounce = Timer(
+        const Duration(milliseconds: 400),
+        () => _refresh(silent: true, knownRevision: event.revision),
+      );
       return;
     }
 
@@ -135,8 +159,9 @@ class _AgentPageState extends State<AgentPage> {
   /// Re-reads the agent output. In [silent] mode (live update after a
   /// `pane.output_changed` event) the spinner/error stay untouched and a
   /// failure is swallowed — the last good output remains on screen; the next
-  /// event will retry.
-  Future<void> _refresh({bool silent = false}) async {
+  /// event will retry. [knownRevision] (the event's revision) lets the
+  /// repository skip the RPC when the cached output already matches it.
+  Future<void> _refresh({bool silent = false, int? knownRevision}) async {
     final gen = ++_refreshGeneration;
     if (!silent) {
       setState(() => _loading = true);
@@ -149,8 +174,10 @@ class _AgentPageState extends State<AgentPage> {
       }
 
       final output = _agent.isPlainTerminal
-          ? await _repository.getPaneOutput(_agent.id, lines: 500)
-          : await _repository.getOutput(_agent.id, lines: 500);
+          ? await _repository.getPaneOutput(_agent.id,
+              lines: 500, knownRevision: knownRevision)
+          : await _repository.getOutput(_agent.id,
+              lines: 500, knownRevision: knownRevision);
       if (!mounted || gen != _refreshGeneration) return;
       setState(() {
         _output = output;
@@ -235,6 +262,20 @@ class _AgentPageState extends State<AgentPage> {
         ),
         actions: [
           IconButton(
+            icon: const Icon(Icons.text_decrease),
+            tooltip: 'Smaller text',
+            onPressed: _terminalFontSize > AppSettings.kMinFontSize
+                ? () => _changeFontSize(-1)
+                : null,
+          ),
+          IconButton(
+            icon: const Icon(Icons.text_increase),
+            tooltip: 'Larger text',
+            onPressed: _terminalFontSize < AppSettings.kMaxFontSize
+                ? () => _changeFontSize(1)
+                : null,
+          ),
+          IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _loading ? null : () => _refresh(),
             tooltip: 'Refresh output',
@@ -259,6 +300,7 @@ class _AgentPageState extends State<AgentPage> {
     return AnsiTerminal(
       controller: _scroll,
       text: _output.isEmpty ? '(no output)' : _output,
+      style: AnsiTerminal.defaultStyle.copyWith(fontSize: _terminalFontSize),
     );
   }
 

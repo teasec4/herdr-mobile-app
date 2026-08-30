@@ -5,6 +5,34 @@ All notable changes to HerdRelay project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-08-30
+
+### Added (terminal stream dedup, docs/14-terminal-stream-implementation-plan.md)
+
+#### Go Relay Server (Phase 1 — output cache)
+- `internal/service/output_cache.go`: TTL cache for agent output, composite key
+  `(paneID, lines, format)` so `text/200` and `ansi/500` variants never
+  cross-pollute; 60 s TTL, background cleanup goroutine, `Invalidate(paneID)`
+  drops all cached variants of a pane
+- `AgentService` now tracks the latest output `revision` from events
+  (`lastKnownRevision`, monotonic guard) and returns it in
+  `agent.output` / `pane.output` responses
+- `EventService` invalidates the output cache on `pane.updated`,
+  `pane.output_changed` and `agent_status_changed`; the socket repo keeps the
+  revision in the data of `pane.updated` / `pane.output_changed` it forwards
+  (strictly-increasing revision, so the client guard never skips a live update)
+- New tests: `output_cache_test.go` (TTL, eviction, invalidation),
+  `agent_service_test.go` (cache hit / invalidation / TTL via repo stub)
+
+#### Flutter Client (Phase 2 — revision-aware cache)
+- `RelayClient.output`/`paneOutput` return `AgentOutputResult` (text + revision)
+- `AgentRepository` caches the latest output per agent and skips the RPC when
+  the caller's `knownRevision` matches the cached revision (only request the
+  live update, never re-fetch a stale view)
+- `AgentPage` passes the event `revision` on live refresh, so a burst of
+  `pane.output_changed` events collapses to a single RPC
+- Full test suite green: 202 Flutter tests, `flutter analyze` no new issues
+
 ## [0.2.0] - 2026-08-30
 
 ### Changed (big refactor, docs/09-refactoring-plan.md)
