@@ -1,0 +1,141 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-relay:
+    name: Build Relay Binary
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            goos: darwin
+            goarch: amd64
+            name: relay-darwin-amd64
+          - os: macos-latest
+            goos: darwin
+            goarch: arm64
+            name: relay-darwin-arm64
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            name: relay-linux-amd64
+          - os: ubuntu-latest
+            goos: linux
+            goarch: arm64
+            name: relay-linux-arm64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: Build relay binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          go build -o ${{ matrix.name }} -ldflags="-s -w" ./cmd/relay
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: ${{ matrix.name }}
+
+  build-android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.0'
+          channel: 'stable'
+
+      - name: Get dependencies
+        working-directory: ./client
+        run: flutter pub get
+
+      - name: Run tests
+        working-directory: ./client
+        run: flutter test
+
+      - name: Build APK
+        working-directory: ./client
+        run: flutter build apk --release
+
+      - name: Rename APK
+        run: |
+          mv client/build/app/outputs/flutter-apk/app-release.apk \
+             herdrelay-android-${{ github.ref_name }}.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: herdrelay-android-${{ github.ref_name }}.apk
+
+  create-release:
+    name: Create GitHub Release
+    needs: [build-relay, build-android]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts
+
+      - name: Display structure
+        run: ls -R ./artifacts
+
+      - name: Extract changelog for this version
+        id: changelog
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+          # Extract section from CHANGELOG.md (customize as needed)
+          echo "## Changes" > release_notes.md
+          echo "" >> release_notes.md
+          echo "See [CHANGELOG.md](CHANGELOG.md) for details." >> release_notes.md
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: Release ${{ steps.changelog.outputs.version }}
+          body_path: release_notes.md
+          draft: false
+          prerelease: false
+          files: |
+            artifacts/relay-darwin-amd64/relay-darwin-amd64
+            artifacts/relay-darwin-arm64/relay-darwin-arm64
+            artifacts/relay-linux-amd64/relay-linux-amd64
+            artifacts/relay-linux-arm64/relay-linux-arm64
+            artifacts/android-apk/herdrelay-android-${{ github.ref_name }}.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
