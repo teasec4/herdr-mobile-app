@@ -17,7 +17,7 @@ sealed class RelayEvent {
           // display_agent may be null in herdr's payload; prefer it, fall back
           // to the raw agent name.
           agent: (data?['display_agent'] ?? data?['agent'] ?? '') as String? ?? '',
-          workspaceId: (data?['workspace_id'] ?? '') as String? ?? '',
+          workspaceId: data?['workspace_id'] as String?,
         ),
       'pane.updated' => PaneUpdated(
           paneId: data?['pane_id'] as String? ?? '',
@@ -39,14 +39,16 @@ class AgentStatusChanged extends RelayEvent {
   /// Agent name from the event (display_agent ?? agent); '' when absent.
   final String agent;
 
-  /// Workspace (space) the pane belongs to; '' when absent.
-  final String workspaceId;
+  /// Workspace (space) the pane belongs to; null when the payload did not
+  /// carry the field. An explicit empty string is a real value (a pane moved
+  /// to the root), so callers must treat null as "no change", not ''.
+  final String? workspaceId;
 
   const AgentStatusChanged({
     required this.paneId,
     required this.status,
     this.agent = '',
-    this.workspaceId = '',
+    this.workspaceId,
   });
 
   @override

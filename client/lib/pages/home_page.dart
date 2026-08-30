@@ -121,6 +121,9 @@ class _HomePageState extends State<HomePage> with RouteAware {
       }
     } else {
       _wasDisconnected = true;
+      // Events received while offline are pointless (the connection is
+      // gone); the reconnect catch-up above re-reads the whole list.
+      _refreshDebounce?.cancel();
     }
     // Connection badge (online/connecting/offline) re-render.
     setState(() {});
@@ -161,9 +164,7 @@ class _HomePageState extends State<HomePage> with RouteAware {
             a.copyWith(
               status: event.status,
               agent: event.agent.isEmpty ? a.agent : event.agent,
-              workspaceId: event.workspaceId.isEmpty
-                  ? a.workspaceId
-                  : event.workspaceId,
+              workspaceId: event.workspaceId ?? a.workspaceId,
             )
           else
             a,
@@ -176,7 +177,10 @@ class _HomePageState extends State<HomePage> with RouteAware {
   void _scheduleRefresh() {
     _refreshDebounce?.cancel();
     _refreshDebounce = Timer(const Duration(milliseconds: 300), () {
-      if (mounted) _refresh();
+      // Skip while covered by AgentPage/WorkspacePage: didPopNext runs the
+      // catch-up refresh when we come back, so no work is lost — just no
+      // hidden snapshot fetch.
+      if (mounted && !_paused) _refresh();
     });
   }
 

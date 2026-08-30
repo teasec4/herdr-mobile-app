@@ -21,6 +21,52 @@ import (
 // instead of writing a second subscribe on the live connection.
 var errRestart = errors.New("new pane discovered, restarting subscription")
 
+// revisionState tracks per-pane output revisions across reconnects
+// (docs/12-fix-plan.md D5). The maps are guarded by a mutex: subscribeOnce runs
+// sequentially from one loop today, but the guard keeps the invariant robust
+// against future parallel access (and satisfies the audit P1.2).
+type revisionState struct {
+	mu   sync.Mutex
+	rev  map[string]int // last known revision from pane.updated
+	sent map[string]int // last revision already forwarded via output_changed
+}
+
+func newRevisionState() *revisionState {
+	return &revisionState{
+		rev:  make(map[string]int),
+		sent: make(map[string]int),
+	}
+}
+
+// setRevision remembers the highest revision seen for a pane (never moves
+// backwards — out-of-order delivery across reconnects must not roll back).
+func (r *revisionState) setRevision(paneID string, rev int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if rev > r.rev[paneID] {
+		r.rev[paneID] = rev
+	}
+}
+
+// markSent returns true (and records the revision) when the pane's known
+// revision strictly increased since the last forwarded one.
+func (r *revisionState) markSent(paneID string, rev int) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if rev > r.sent[paneID] {
+		r.sent[paneID] = rev
+		return true
+	}
+	return false
+}
+
+// last returns the highest known revision for a pane (0 when unknown).
+func (r *revisionState) last(paneID string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.rev[paneID]
+}
+
 // SocketEventRepository implements EventRepository using herdr's Unix socket.
 type SocketEventRepository struct {
 	socket string
@@ -53,8 +99,7 @@ func (r *SocketEventRepository) Subscribe(events chan<- domain.Event) error {
 	// last known revision to pane.output_changed only when it strictly increased
 	// since the last forwarded one — a stale/equal revision would let the
 	// client's revision guard wrongly skip a real output change.
-	lastRevision := make(map[string]int)
-	lastSentRevision := make(map[string]int)
+	revisions := newRevisionState()
 
 	for {
 		r.mu.Lock()
@@ -65,7 +110,7 @@ func (r *SocketEventRepository) Subscribe(events chan<- domain.Event) error {
 		}
 		r.mu.Unlock()
 
-		err := r.subscribeOnce(events, subscribed, lastRevision, lastSentRevision)
+		err := r.subscribeOnce(events, subscribed, revisions)
 		if err != nil {
 			if errors.Is(err, errRestart) {
 				// New pane discovered: reconnect immediately with the full
@@ -126,7 +171,7 @@ type socketNotification struct {
 	Data  json.RawMessage `json:"data"`
 }
 
-func (r *SocketEventRepository) subscribeOnce(events chan<- domain.Event, subscribed map[string]bool, lastRevision, lastSentRevision map[string]int) error {
+func (r *SocketEventRepository) subscribeOnce(events chan<- domain.Event, subscribed map[string]bool, revisions *revisionState) error {
 	conn, err := net.Dial("unix", r.socket)
 	if err != nil {
 		return fmt.Errorf("dial herdr socket: %w", err)
@@ -187,7 +232,7 @@ func (r *SocketEventRepository) subscribeOnce(events chan<- domain.Event, subscr
 			// PaneInfo carries the pane's output revision; remember it so
 			// output_changed events can carry a revision for client-side dedup.
 			if rev := revisionFrom(notification.Data); rev > 0 {
-				lastRevision[paneID] = rev
+				revisions.setRevision(paneID, rev)
 			}
 			notification.Event = "pane.updated"
 			notification.Data, _ = json.Marshal(map[string]string{"pane_id": paneID})
@@ -220,11 +265,10 @@ func (r *SocketEventRepository) subscribeOnce(events chan<- domain.Event, subscr
 			// its debounce.
 			notification.Event = "pane.output_changed"
 			if paneID != "" {
-				if rev := lastRevision[paneID]; rev > lastSentRevision[paneID] {
-					lastSentRevision[paneID] = rev
+				if rev := revisions.markSent(paneID, revisions.last(paneID)); rev {
 					notification.Data, _ = json.Marshal(map[string]interface{}{
 						"pane_id":  paneID,
-						"revision": rev,
+						"revision": revisions.last(paneID),
 					})
 				}
 			}

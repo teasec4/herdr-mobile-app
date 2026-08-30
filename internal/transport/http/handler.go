@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -212,6 +213,11 @@ func (h *Handler) HandleRPC(w http.ResponseWriter, r *http.Request) {
 // Events (`data: <event frame JSON>\n\n` per event). This is the HTTP
 // counterpart of the WebSocket event broadcast, used by the HTTP transport
 // fallback.
+//
+// A slow SSE consumer must not stall the broadcast: the handler goroutine
+// only enqueues marshalled frames into a per-client queue (dropping for THIS
+// client when the queue overflows), and a writer goroutine drains the queue
+// into the socket (docs/12-fix-plan.md C2).
 func (h *Handler) HandleEventStream(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -230,6 +236,25 @@ func (h *Handler) HandleEventStream(w http.ResponseWriter, r *http.Request) {
 	events := h.eventService.Subscribe()
 	defer h.eventService.Unsubscribe(events)
 
+	const queueSize = 100
+	queue := make(chan []byte, queueSize)
+	done := make(chan struct{})
+	defer close(done)
+
+	go func() {
+		for {
+			select {
+			case data := <-queue:
+				if _, err := fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
+					return
+				}
+				flusher.Flush()
+			case <-done:
+				return
+			}
+		}
+	}()
+
 	for {
 		select {
 		case event, ok := <-events:
@@ -245,10 +270,13 @@ func (h *Handler) HandleEventStream(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				continue
 			}
-			if _, err := fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
-				return
+			select {
+			case queue <- data:
+			default:
+				// Slow consumer: drop for this client only — the broadcast
+				// and other subscribers are unaffected.
+				log.Printf("http: sse queue full, dropping event for slow client")
 			}
-			flusher.Flush()
 		case <-r.Context().Done():
 			return
 		}

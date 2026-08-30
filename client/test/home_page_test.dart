@@ -287,4 +287,22 @@ void main() {
     await tester.pumpAndSettle();
     expect(client.snapshotCalls, before + 1);
   });
+
+  testWidgets('события при offline не ставят debounce-снапшот', (tester) async {
+    client.agents = [agent('p:alice', 'alice', 'done')];
+    await pumpHome(tester);
+    await goToAgents(tester);
+    final before = client.snapshotCalls;
+
+    client.status.value = RelayStatus.disconnected;
+    await tester.pumpAndSettle();
+    client.emit(AgentStatusChanged(
+      paneId: 'p:alice',
+      status: 'blocked',
+      workspaceId: 'wH',
+    ));
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(client.snapshotCalls, before, reason: 'offline events must not refresh');
+  });
 }

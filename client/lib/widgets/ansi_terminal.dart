@@ -43,6 +43,17 @@ class AnsiTerminal extends StatefulWidget {
     color: Color(0xFFE0E0E0),
   );
 
+  /// Dark-on-light variant used when no explicit style is given and the app
+  /// runs in light mode (audit P2.2: the const default is light-on-dark).
+  static const TextStyle lightStyle = TextStyle(
+    fontFamily: 'monospace',
+    fontSize: 12,
+    height: 1.3,
+    fontFamilyFallback: ['Menlo', 'RobotoMono', 'Courier New', 'monospace'],
+    fontFeatures: [FontFeature.tabularFigures()],
+    color: Color(0xFF1F1F1F),
+  );
+
   @override
   State<AnsiTerminal> createState() => _AnsiTerminalState();
 }
@@ -58,7 +69,14 @@ class _AnsiTerminalState extends State<AnsiTerminal> {
 
   @override
   Widget build(BuildContext context) {
-    final base = widget.style ?? AnsiTerminal.defaultStyle;
+    final theme = Theme.of(context);
+    // The default style is a const; make the memoization key theme-aware so a
+    // light/dark switch re-parses with readable colors instead of reusing the
+    // stale light-on-light const (audit P2.2).
+    final base = widget.style ??
+        (theme.brightness == Brightness.light
+            ? AnsiTerminal.lightStyle
+            : AnsiTerminal.defaultStyle);
     if (widget.text != _cacheText || base != _cacheStyle) {
       final spans = AnsiTerminalParser(widget.text, baseStyle: base).parse();
       _cacheText = widget.text;

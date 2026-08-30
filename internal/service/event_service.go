@@ -78,14 +78,20 @@ func (s *EventService) Subscribe() <-chan domain.Event {
 	return ch
 }
 
-// Unsubscribe removes a listener previously obtained from [EventService.Subscribe].
+// Unsubscribe removes a listener previously obtained from [EventService.Subscribe]
+// and closes its channel. The broadcast loop uses a `select` with a `default`
+// branch, so a send to a closed channel is never selected (it falls through to
+// `default`); readers observe `ok == false` and must stop (HandleEventStream
+// already does). Closing frees the buffered channel immediately instead of
+// leaking it until GC.
 func (s *EventService) Unsubscribe(view <-chan domain.Event) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i, l := range s.listeners {
 		if l.view == view {
 			s.listeners = append(s.listeners[:i], s.listeners[i+1:]...)
-			break
+			close(l.ch)
+			return
 		}
 	}
 }

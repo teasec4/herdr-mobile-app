@@ -121,9 +121,7 @@ class _AgentPageState extends State<AgentPage> {
         _agent = _agent.copyWith(
           status: event.status,
           agent: event.agent.isEmpty ? _agent.agent : event.agent,
-          workspaceId: event.workspaceId.isEmpty
-              ? _agent.workspaceId
-              : event.workspaceId,
+          workspaceId: event.workspaceId ?? _agent.workspaceId,
         );
       });
     }
