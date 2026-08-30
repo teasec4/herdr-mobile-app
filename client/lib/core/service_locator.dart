@@ -9,7 +9,7 @@ import '../services/config_store.dart';
 import '../services/relay_client.dart';
 import '../services/relay_client_impl.dart';
 import 'connection/connection_manager.dart';
-import 'connection/retry_policy.dart';
+import 'transport/retry_policy.dart';
 import 'transport/transport.dart';
 import 'transport/websocket_transport.dart';
 
