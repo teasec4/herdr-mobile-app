@@ -181,6 +181,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Профили в клиенте**: приложение хранит несколько конфигураций пары (Switch / Add / Forget) — удобно при смене сети, сессии или переезде на другую машину.
 - **`herdrelay status`**: подкоманда диагностики — режим, адрес, идентичность, пути конфига и живое состояние (exit 0 = релей работает).
 - **Смена режима без пересборки**: `plugin/configure.sh` переписывает plist launchd (`HERDRELAY_MODE`, `HERDRELAY_GATEWAY_URL`) и перезапускает службу; install.sh и plist теперь читают `HERDRELAY_MODE`/`HERDRELAY_GATEWAY_URL` из окружения.
+- **Автопереключение режимов** (docs/AUTO_MODE_SWITCHING_PLAN.md, Phase 2): `ConnectionFallbackManager` — при обрыве текущего транспорта пробует сохранённые endpoints (tailscale → lan → funnel), SnackBar «Relay unreachable — switched to …»; интеграция в `main.dart`, `websocket_transport.dart` теперь уходит в `disconnected` при ошибке соединения.
+- **Manual Mode** (Phase 3): кнопка «Switch mode manually» в Connection page, диалог с live-проверкой `/healthz` — работает, даже когда релей недоступен (`widgets/manual_mode_dialog.dart`).
+- **Universal QR** (Phase 4): ссылка без `mode` тянет все режимы через `ModeService` и предлагает выбрать primary; LAN-only ссылки показывают предупреждение «Limited connectivity detected» (`widgets/lan_only_warning_dialog.dart`).
+- **Help page** (Phase 5): `pages/help_page.dart` — FAQ по Connection modes / remote access, пункт «Help» в меню HomePage.
+- **Балансировка документации**: README/INSTALL — секция «Best Practices for Remote Access»; чеклист плана отмечен.
 
 ### Fixed (Flutter Client, надёжность)
 - **Reconnect без дублей**: перед новым соединением старая подписка отменяется, `onError`/`onDone` объединены в один обработчик с `cancelOnError: true`, повторное планирование reconnect блокируется. Исключено появление >1 активного WS-соединения и потеря ответов на запросы.

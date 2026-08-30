@@ -34,6 +34,10 @@
    ссылки `herdrelay://pair?...`; ссылка валидируется (токен ≥ 16 символов, без
    символов, ломающих query). Ошибки — тостом (`ToastService`), успех —
    переход на главный экран.
+   - **Universal QR**: если в ссылке передан `mode`, режим выбирается сразу;
+     иначе открывается диалог выбора primary-режима (`LAN`/`TAILSCALE`/`FUNNEL`).
+   - **LAN-only предупреждение**: при паринге через LAN показывается
+     `LanOnlyWarningDialog` с советом включить Tailscale (режим `TAILSCALE`).
 
 2. **HomePage — список агентов** (главный).
    - карточка агента: имя, статус (`idle/working/blocked/done/unknown`), cwd;
@@ -54,13 +58,18 @@
      дописывает адреса всех режимов в профиль, переключение не теряет
      остальные адреса. Рядом — живой статус соединения
      (online/connecting/offline);
-   - меню «⋮»: **Connection…** (экран соединения), **Add device…**, **Forget device**.
+   - меню «⋮»: **Connection…** (экран соединения), **Add device…**, **Forget device**, **Help**.
 
 3. **ConnectionPage — экран «Соединение»** (всё о том, как мы подключены):
    - карточка устройства: имя, `host:port`, режим, ws-адрес, id профиля;
    - живой статус + кнопка **Test** (healthz + snapshot: «OK · N agent(s) · Xms»);
    - **Connection mode**: режимы от `/pair` (lan/tailscale/funnel), переключение
      подключается по сохранённому endpoint'у режима (офлайн — из профиля);
+     профиль только с LAN-режимом показывает warning-иконку и подсказку про
+     Tailscale (`widgets/lan_only_warning_dialog.dart`);
+   - **Switch mode manually**: ручной ввод host/port с live-проверкой `/healthz`
+     («Reachable…»/«Not reachable») — работает, даже когда релей недоступен
+     (`widgets/manual_mode_dialog.dart`);
    - **Saved devices**: все сохранённые профили — переключение/удаление;
    - **Pair**: вставка ссылки + «Forget this device» (с подтверждением).
 
@@ -87,6 +96,9 @@
   `/api/rpc`, события — SSE-стрим `/api/events/stream`; тот же reconnect/backoff.
   Включается в `service_locator` параметром `transportMode: 'ws'|'http'`.
 - **HttpHealth** — `/healthz`, до 3 попыток с коротким backoff.
+- **ConnectionFallbackManager** — авто-переключение режимов при обрыве: пробует
+  сохранённые endpoints профиля (tailscale → lan → funnel), сообщает SnackBar'ом
+  «Relay unreachable — switched to …» и переподключается (`main.dart`).
 
 ## Протокол
 
@@ -117,7 +129,7 @@
   not respond in time…»); в `ModePickerSheet` — стейты loading/error+Retry/list.
 - Ссылка пары валидируется на входе (токен ≥ 16 символов, без `& # ?` пробела).
 
-## Тесты (148)
+## Тесты (241)
 
 - **unit**: `test/core/protocol/` (parse/encode, matching, timeout, fail-on-
   disconnect), `test/core/transport/` (reconnect, keepalive, pause/resume,
