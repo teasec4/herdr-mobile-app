@@ -58,6 +58,11 @@ class _AgentPageState extends State<AgentPage> {
   /// before re-reading the tail.
   Timer? _outputDebounce;
 
+  /// Periodic poll while the agent is `working` (see [_startLivePolling]):
+  /// `\r`-based animations rewrite the current line without scrolling, so herdr
+  /// never emits `pane.scroll_changed` for them and the event path stays silent.
+  Timer? _livePollTimer;
+
   /// Last seen `revision` from a `pane.output_changed` event; older/equal
   /// revisions are ignored (out-of-order delivery safety). The server's
   /// events carry no revision (parsed as 0), so the guard only engages when
@@ -93,6 +98,7 @@ class _AgentPageState extends State<AgentPage> {
     _eventSubscription = _repository.events.listen(_onEvent);
     _loadCommandHistory();
     _refresh();
+    _startLivePolling();
   }
 
   @override
@@ -103,6 +109,7 @@ class _AgentPageState extends State<AgentPage> {
     _scroll.dispose();
     _inputFocusNode.dispose();
     _outputDebounce?.cancel();
+    _livePollTimer?.cancel();
     super.dispose();
   }
 
@@ -142,11 +149,29 @@ class _AgentPageState extends State<AgentPage> {
       }
       _outputDebounce?.cancel();
       _outputDebounce = Timer(
-        const Duration(milliseconds: 400),
+        const Duration(milliseconds: 100),
         () => _refresh(silent: true, knownRevision: event.revision),
       );
       return;
     }
+  }
+
+  /// Polls the current frame every 150ms while the agent is `working`.
+  /// `\r`-based animations (spinners, progress lines) rewrite the same line
+  /// without scrolling, so herdr emits no `pane.scroll_changed` and the event
+  /// path never fires; polling is the only way those redraw on screen. The
+  /// poll stops as soon as the agent leaves `working`.
+  void _startLivePolling() {
+    _livePollTimer?.cancel();
+    _livePollTimer =
+        Timer.periodic(const Duration(milliseconds: 150), (_) => _livePoll());
+  }
+
+  void _livePoll() {
+    if (!mounted) return;
+    final status = (_store.statusOf(_agent.id) ?? _agent.status).toLowerCase();
+    if (status != 'working') return;
+    _refresh(silent: true, knownRevision: _lastRevision);
   }
 
   /// Re-reads the agent output. In [silent] mode (live update after a
@@ -166,6 +191,7 @@ class _AgentPageState extends State<AgentPage> {
           : await _repository.getOutput(_agent.id,
               lines: 500, knownRevision: knownRevision);
       if (!mounted || gen != _refreshGeneration) return;
+      if (silent && output == _output) return; // no change, no repaint
       setState(() {
         _output = output;
         _loading = false;

@@ -171,14 +171,54 @@ Please choose an option:
     expect(outputs, greaterThan(0));
 
     client.outputText = 'второй\n';
-    client.emit(AgentStatusChanged(paneId: agent.id, status: 'working'));
+    // 'done' (not 'working'): a working agent now polls the frame every 150ms,
+    // which would legitimately re-read the output — that case has its own test.
+    client.emit(AgentStatusChanged(paneId: agent.id, status: 'done'));
     await tester.pumpAndSettle();
 
     // Status is applied locally; no extra snapshot/output traffic.
-    expect(find.text('working'), findsOneWidget);
+    expect(find.text('done'), findsOneWidget);
     expect(client.snapshotCalls, snapshots);
     expect(client.outputCalls, outputs);
     expect(find.text('второй\n'), findsNothing); // output not re-read
+  });
+
+  testWidgets('агент working: поллинг перечитывает вывод без событий (анимации)', (tester) async {
+    client.outputText = 'первый\n';
+    await pumpAgent(tester);
+    final outputsBefore = client.outputCalls;
+
+    // Working agent: the page polls the current frame every 150ms, so \r-based
+    // spinners (which never emit pane.scroll_changed) still repaint.
+    client.emit(AgentStatusChanged(paneId: agent.id, status: 'working'));
+    await tester.pumpAndSettle();
+    expect(find.text('working'), findsOneWidget);
+
+    // No event — only the poll timer advances the output.
+    client.outputText = 'второй\n';
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.pumpAndSettle();
+
+    expect(find.text('второй\n'), findsOneWidget);
+    expect(find.text('первый\n'), findsNothing);
+    expect(client.outputCalls, greaterThan(outputsBefore),
+        reason: 'live poll must re-read output while the agent is working');
+  });
+
+  testWidgets('агент done: поллинг не активен и не перечитывает вывод', (tester) async {
+    client.outputText = 'первый\n';
+    await pumpAgent(tester);
+
+    client.emit(AgentStatusChanged(paneId: agent.id, status: 'done'));
+    await tester.pumpAndSettle();
+    expect(find.text('done'), findsOneWidget);
+
+    client.outputText = 'второй\n';
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+
+    expect(find.text('второй\n'), findsNothing);
+    expect(find.text('первый\n'), findsOneWidget);
   });
 
   testWidgets('статус-событие с именем агента обновляет заголовок', (tester) async {

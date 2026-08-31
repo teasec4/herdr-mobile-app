@@ -164,8 +164,9 @@ func (r *SocketEventRepository) sleep(d time.Duration) bool {
 // debounceInterval paces scroll_changed forwarding per pane: herdr emits it on
 // every scroll/output change and it carries no revision (docs/10-herdr-api.md
 // gotcha #5), so forwarding every frame would spam the client and hammer the
-// herdr CLI subprocess behind every agent.output request.
-const debounceInterval = 500 * time.Millisecond
+// herdr CLI subprocess behind every agent.output request. 100ms keeps live
+// streaming updates responsive without forwarding per-frame bursts.
+const debounceInterval = 100 * time.Millisecond
 
 // subscription is a single entry of the events.subscribe `subscriptions` list:
 // {"type":"pane.updated"} or {"type":"pane.scroll_changed","pane_id":"wH:p3"}.
