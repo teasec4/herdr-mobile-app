@@ -27,6 +27,7 @@
 | `shared_preferences` | сохранение профилей пары + offline-кэш последнего снимка |
 | `app_links` | deep link по custom scheme `herdrelay://` |
 | `mobile_scanner` | сканирование QR-ссылки пары |
+| `flutter_local_notifications` | локальные нотификации «агент blocked» (Android 8+ канал, iOS/macOS/desktop) |
 
 ## Экраны
 
@@ -119,6 +120,22 @@
 дебаунс на клиенте). Статусы агентов: `idle/working/blocked/done/unknown`
 (docs/10-herdr-api.md §6.2).
 
+## Локальные нотификации (blocked)
+
+`NotificationService` (`services/notification_service.dart`) следит за
+`AgentStatusChanged` и, когда агент переходит в `blocked` **пока приложение не
+в foreground** (фон/заблокированный экран), показывает локальную нотификацию —
+по одной на pane до выхода из blocked (дедуп по `pane_id`). Управляется
+`AppSettings.notificationsEnabled` (тумблер в меню ⋮ → «Notifications…»), при
+включении запрашивается разрешение ОС. Тап по нотификации открывает страницу
+агента (в т.ч. холодный старт из нотификации). Платформенный слой —
+`NotificationApi`/`LocalNotificationsApi` (`services/notification_api.dart`) на
+`flutter_local_notifications` (Android-канал `blocked_agents`, `high`).
+
+Ограничения: на iOS сокет в фоне живёт ~30 с, дальше reconnect паузится —
+длительный фон покрывается только push (см. roadmap); на Android окно дольше.
+На десктопе окно всегда foreground → нотификации не показываются.
+
 ## Ошибки и их отображение
 
 - `ToastService` мапит протокольные ошибки в понятный текст: `not_connected` →
@@ -149,7 +166,7 @@
 - Ответы на структурированные approve-флоу агентов: «ответить» = текст/клавиши
   в терминал (покрывает большинство кейсов).
 - Push-уведомления (FCM/APNs) — план (см. [06 — Roadmap](06-roadmap.md));
-  локальных нотификаций тоже нет, blocked подсвечивается в списке.
+  локальные нотификации заблокированных агентов есть (см. ниже).
 - `flutter_xterm` вместо своего ANSI-парсера — план v2.
 
 ## Безопасность и известные риски

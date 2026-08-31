@@ -15,6 +15,7 @@ void main() {
       expect(s.homeTabIndex, 0);
       expect(s.terminalFontSize, AppSettings.kDefaultFontSize);
       expect(s.autoScrollFollow, isTrue);
+      expect(s.notificationsEnabled, isTrue);
       expect(s.agentSnapshot, isNull);
       expect(s.agentSnapshotAt, isNull);
     });
@@ -24,20 +25,20 @@ void main() {
     test('homeTabIndex сохраняется и переживает новый инстанс', () async {
       SharedPreferences.setMockInitialValues({});
       final prefs = await SharedPreferences.getInstance();
-      AppSettings(prefs)..setHomeTabIndex(1);
+      AppSettings(prefs).setHomeTabIndex(1);
       expect(AppSettings(prefs).homeTabIndex, 1);
     });
 
     test('terminalFontSize сохраняется, за границами клампится', () async {
       SharedPreferences.setMockInitialValues({});
       final prefs = await SharedPreferences.getInstance();
-      AppSettings(prefs)..setTerminalFontSize(15);
+      AppSettings(prefs).setTerminalFontSize(15);
       expect(AppSettings(prefs).terminalFontSize, 15);
 
-      AppSettings(prefs)..setTerminalFontSize(4); // below the floor
+      AppSettings(prefs).setTerminalFontSize(4); // below the floor
       expect(AppSettings(prefs).terminalFontSize, AppSettings.kMinFontSize);
 
-      AppSettings(prefs)..setTerminalFontSize(99); // above the ceiling
+      AppSettings(prefs).setTerminalFontSize(99); // above the ceiling
       expect(AppSettings(prefs).terminalFontSize, AppSettings.kMaxFontSize);
     });
 
@@ -46,6 +47,16 @@ void main() {
       final prefs = await SharedPreferences.getInstance();
       AppSettings(prefs).setAutoScrollFollow(false);
       expect(AppSettings(prefs).autoScrollFollow, isFalse);
+    });
+
+    test('notificationsEnabled сохраняется (дефолт включён)', () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await SharedPreferences.getInstance();
+      expect(AppSettings(prefs).notificationsEnabled, isTrue);
+      AppSettings(prefs).setNotificationsEnabled(false);
+      expect(AppSettings(prefs).notificationsEnabled, isFalse);
+      AppSettings(prefs).setNotificationsEnabled(true);
+      expect(AppSettings(prefs).notificationsEnabled, isTrue);
     });
 
     test('agent snapshot cache сохраняется', () async {

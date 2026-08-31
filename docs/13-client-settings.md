@@ -18,8 +18,9 @@
 
 - **AppSettings** (`services/app_settings.dart`) — типизированный key-centralized слой над
   SharedPreferences: `homeTabIndex`, `terminalFontSize` (9–20, кнопки A−/A+ на AgentPage),
-  `autoScrollFollow`, кэш снапшота агентов. HomePage восстанавливает таб, AgentPage — размер
-  шрифта и автоскролл.
+  `autoScrollFollow`, `notificationsEnabled` (тумблер «Blocked agent alerts» в меню ⋮ →
+  Notifications…, ключ `settings_notifications_enabled`, default true), кэш снапшота агентов.
+  HomePage восстанавливает таб, AgentPage — размер шрифта и автоскролл.
 - **Режим = endpoint** (`PairConfig.endpoints`): профиль помнит адреса всех режимов релея;
   переключение — `connectVia` (адреса других режимов сохраняются); каждый успешный `/pair`
   дописывает адреса (`withEndpoints`); офлайн-переключение из сохранённых endpoints + ручной

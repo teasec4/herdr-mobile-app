@@ -13,6 +13,7 @@ import '../widgets/mode_picker_sheet.dart';
 import '../widgets/status_chip.dart';
 import 'agent_page.dart';
 import 'help_page.dart';
+import 'notification_settings_page.dart';
 import 'run_page.dart';
 import 'spaces_page.dart';
 
@@ -128,6 +129,15 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  /// Opens the local-notifications settings screen (blocked-agent alerts).
+  void _openNotificationSettings() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const NotificationSettingsPage(),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -195,6 +205,8 @@ class _HomePageState extends State<HomePage> {
                   _confirmForget();
                 case 'help':
                   _openHelp();
+                case 'notifications':
+                  _openNotificationSettings();
               }
             },
             itemBuilder: (context) => const [
@@ -213,6 +225,10 @@ class _HomePageState extends State<HomePage> {
               PopupMenuItem(
                 value: 'help',
                 child: Text('Help'),
+              ),
+              PopupMenuItem(
+                value: 'notifications',
+                child: Text('Notifications…'),
               ),
             ],
           ),

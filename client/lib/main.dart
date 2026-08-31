@@ -5,11 +5,15 @@ import 'package:flutter/services.dart';
 import 'core/connection/connection_fallback_manager.dart';
 import 'core/service_locator.dart';
 import 'core/transport/transport.dart';
+import 'controllers/agents_store.dart';
 import 'models/pair_config.dart';
+import 'pages/agent_page.dart';
 import 'pages/connection_page.dart';
 import 'pages/home_page.dart';
 import 'pages/pair_page.dart';
 import 'services/config_store.dart';
+import 'services/notification_api.dart';
+import 'services/notification_service.dart';
 import 'services/relay_client.dart';
 
 void main() async {
@@ -79,6 +83,7 @@ class _HerdRelayAppState extends State<HerdRelayApp> {
       setState(() => _loading = false);
     } else {
       await _setConfig(config);
+      await _handleNotificationLaunch();
     }
   }
 
@@ -86,12 +91,37 @@ class _HerdRelayAppState extends State<HerdRelayApp> {
   Future<void> _setConfig(PairConfig config) async {
     await teardownRelayServices();
     setupRelayServices(config, clientFactory: widget.clientFactory);
+    // Notification taps (and cold-start launches) open the agent pane.
+    getIt<NotificationService>().onOpenAgent = _openAgentFromNotification;
     _reattachFallback(config);
     if (!mounted) return;
     setState(() {
       _config = config;
       _loading = false;
     });
+  }
+
+  /// Cold-start path: the app was launched by tapping a notification. The
+  /// services are up by now, so resolve the pane and push the agent page.
+  Future<void> _handleNotificationLaunch() async {
+    final details = await getIt<NotificationApi>().getLaunchDetails();
+    if (details?.launchedFromNotification ?? false) {
+      final paneId = details?.paneId;
+      if (paneId != null) await _openAgentFromNotification(paneId);
+    }
+  }
+
+  /// Opens the agent pane for a tapped notification. Uses the live store:
+  /// on a cold start the first snapshot may still be loading, so refresh
+  /// before looking the pane up.
+  Future<void> _openAgentFromNotification(String paneId) async {
+    final store = getIt<AgentsStore>();
+    await store.refresh();
+    final agent = store.byId(paneId);
+    if (agent == null || !mounted) return;
+    await _navKey.currentState?.push(
+      MaterialPageRoute<void>(builder: (_) => AgentPage(agent: agent)),
+    );
   }
 
   /// (Re)arms the auto-fallback manager for the transport just created for

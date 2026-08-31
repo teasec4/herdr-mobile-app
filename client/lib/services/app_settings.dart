@@ -21,6 +21,7 @@ class AppSettings {
   static const String kHomeTabIndex = 'settings_home_tab_index';
   static const String kTerminalFontSize = 'settings_terminal_font_size';
   static const String kAutoScrollFollow = 'settings_auto_scroll_follow';
+  static const String kNotificationsEnabled = 'settings_notifications_enabled';
   static const String kAgentSnapshot = 'last_snapshot';
   static const String kAgentSnapshotAt = 'last_snapshot:ts';
 
@@ -56,6 +57,14 @@ class AppSettings {
 
   void setAutoScrollFollow(bool value) {
     _prefs.setBool(kAutoScrollFollow, value);
+  }
+
+  /// Whether local "agent blocked" notifications are shown while the app is
+  /// in the background. Defaults to on.
+  bool get notificationsEnabled => _prefs.getBool(kNotificationsEnabled) ?? true;
+
+  void setNotificationsEnabled(bool value) {
+    _prefs.setBool(kNotificationsEnabled, value);
   }
 
   // ── Agent snapshot cache (offline fallback) ────────────────────────────

@@ -9,6 +9,8 @@ import '../services/action_parser_service.dart';
 import '../services/app_settings.dart';
 import '../services/command_history_service.dart';
 import '../services/config_store.dart';
+import '../services/notification_api.dart';
+import '../services/notification_service.dart';
 import '../services/relay_client.dart';
 import '../services/relay_client_impl.dart';
 import 'connection/connection_manager.dart';
@@ -41,6 +43,10 @@ Future<void> setupDependencies() async {
   // Fetches relay connection modes (/pair) with retries — used by the
   // HomePage mode badge and the Connection screen.
   getIt.registerSingleton<ModeService>(ModeService());
+  // Local "agent blocked" notifications — platform facade over
+  // flutter_local_notifications. The NotificationService is created per relay
+  // connection in setupRelayServices (it depends on the live AgentRepository).
+  getIt.registerSingleton<NotificationApi>(LocalNotificationsApi());
 }
 
 /// Setup RelayClient and AgentRepository for a specific config
@@ -83,6 +89,10 @@ void setupRelayServices(
   if (getIt.isRegistered<RelayClient>()) {
     getIt.unregister<RelayClient>();
   }
+  if (getIt.isRegistered<NotificationService>()) {
+    getIt<NotificationService>().stop();
+    getIt.unregister<NotificationService>();
+  }
 
   if (clientFactory != null) {
     getIt.registerSingleton<RelayClient>(clientFactory(config));
@@ -119,6 +129,16 @@ void setupRelayServices(
   getIt.registerSingleton<SessionController>(
     SessionController(getIt<RelayClient>(), getIt<AgentsStore>()),
   );
+
+  // Local notifications for blocked agents while the app is in the background.
+  // Created per relay connection: it binds to the live AgentRepository events.
+  getIt.registerSingleton<NotificationService>(
+    NotificationService(
+      getIt<AgentRepository>(),
+      getIt<AppSettings>(),
+      getIt<NotificationApi>(),
+    ),
+  )..start();
 }
 
 /// Clean up relay services (on disconnect)
@@ -144,5 +164,9 @@ Future<void> teardownRelayServices() async {
   }
   if (getIt.isRegistered<Transport>()) {
     getIt.unregister<Transport>();
+  }
+  if (getIt.isRegistered<NotificationService>()) {
+    getIt<NotificationService>().stop();
+    getIt.unregister<NotificationService>();
   }
 }
