@@ -1,3 +1,4 @@
+import 'package:client/controllers/modes_controller.dart';
 import 'package:client/core/connection/mode_service.dart';
 import 'package:client/models/pair_config.dart';
 import 'package:client/pages/pair_page.dart';
@@ -7,7 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 /// PairPage: QR scanner + manual link entry. These tests cover the manual
 /// path — the one users hit when they paste a link.
 void main() {
-  const validLink = 'herdrelay://pair?host=macbook-pro.tail85247a.ts.net'
+  const validLink = 'herdrelay://pair?host=mymac.tailnet.ts.net'
       '&port=8375&mode=tailscale&token=0123456789abcdef0123456789abcdef';
 
   /// Universal-QR mode stubs: the relay is reachable over LAN and Tailscale.
@@ -29,13 +30,13 @@ void main() {
   Future<void> pumpPair(
     WidgetTester tester, {
     Future<void> Function(PairConfig)? onPaired,
-    Future<List<RelayModeInfo>> Function(PairConfig)? modesFetcher,
+    ModesController? modesController,
   }) async {
     await tester.pumpWidget(
       MaterialApp(
         home: PairPage(
           onPaired: onPaired ?? (_) async {},
-          modesFetcher: modesFetcher,
+          modesController: modesController,
         ),
       ),
     );
@@ -51,7 +52,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(result, isNotNull);
-    expect(result!.host, 'macbook-pro.tail85247a.ts.net');
+    expect(result!.host, 'mymac.tailnet.ts.net');
     expect(result!.mode, 'tailscale');
     expect(result!.port, 8375);
   });
@@ -143,7 +144,7 @@ void main() {
     await pumpPair(
       tester,
       onPaired: (c) async => result = c,
-      modesFetcher: (_) async => twoModes,
+      modesController: ModesController((_) async => twoModes),
     );
 
     await tester.enterText(find.byType(TextField), universalLink);
@@ -166,8 +167,8 @@ void main() {
     await pumpPair(
       tester,
       onPaired: (c) async => result = c,
-      modesFetcher: (_) async =>
-          throw const ModeFetchException('Cannot reach relay'),
+      modesController: ModesController((_) async =>
+          throw const ModeFetchException('Cannot reach relay')),
     );
 
     await tester.enterText(find.byType(TextField), universalLink);

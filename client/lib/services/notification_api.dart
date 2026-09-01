@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
@@ -101,6 +103,19 @@ class LocalNotificationsApi implements NotificationApi {
     return payload;
   }
 
+  /// Deterministic, positive 31-bit id for a pane (FNV-1a over the UTF-8
+  /// bytes, masked to 31 bits so it always fits the platform's positive int
+  /// range). Replaces `paneId.hashCode`, which is unstable between processes
+  /// and can be negative.
+  static int _paneNotificationId(String paneId) {
+    var hash = 0x811c9dc5; // FNV-1a offset basis
+    for (final byte in utf8.encode(paneId)) {
+      hash ^= byte;
+      hash = (hash * 0x01000193) & 0x7fffffff; // keep 31-bit positive
+    }
+    return hash;
+  }
+
   @override
   Future<bool?> requestPermission() async {
     if (kIsWeb) return true;
@@ -135,7 +150,10 @@ class LocalNotificationsApi implements NotificationApi {
   Future<void> showBlocked(String paneId, String agentName) async {
     if (!_initialized) return; // init is a no-op on unsupported platforms
     await _plugin.show(
-      id: paneId.hashCode, // stable per pane; replaces a stale notification
+      // Deterministic 31-bit id derived from the pane id: unlike hashCode
+      // (process- and run-unstable, possibly negative), FNV-1a is stable
+      // across launches so re-showing replaces the stale notification.
+      id: _paneNotificationId(paneId),
       title: 'Agent blocked',
       body: '$agentName is waiting for your response',
       notificationDetails: NotificationDetails(

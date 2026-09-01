@@ -1,7 +1,9 @@
+import 'package:client/models/relay_agent.dart';
 import 'package:client/models/relay_event.dart';
 import 'package:client/repositories/agent_repository.dart';
 import 'package:client/services/app_settings.dart';
 import 'package:client/services/notification_service.dart';
+import 'package:client/services/relay_client.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -113,6 +115,81 @@ void main() {
       service.start(); // second call must be a no-op
       await Future<void>.delayed(Duration.zero);
       expect(api.permissionRequests, before);
+    });
+
+    test('reconnect with a blocked snapshot notifies (offline gap covered)',
+        () async {
+      // A pane was blocked while offline — the event never arrived. On the
+      // next connected status the snapshot re-read must fire the notification.
+      setLifecycle(AppLifecycleState.paused);
+      client.agents = [
+        const RelayAgent(id: 'p1', agent: 'codex', status: 'blocked'),
+      ];
+
+      // Simulate reconnect: disconnected -> connected.
+      client.status.value = RelayStatus.disconnected;
+      client.status.value = RelayStatus.connected;
+      await Future<void>.delayed(Duration.zero);
+
+      expect(api.shown, [('p1', 'codex')]);
+    });
+
+    test('snapshot path is idempotent while the pane stays blocked', () async {
+      setLifecycle(AppLifecycleState.paused);
+      client.agents = [
+        const RelayAgent(id: 'p1', agent: 'codex', status: 'blocked'),
+      ];
+      client.status.value = RelayStatus.disconnected;
+      client.status.value = RelayStatus.connected;
+      await Future<void>.delayed(Duration.zero);
+      expect(api.shown.length, 1);
+
+      // Another reconnect must not re-notify the still-blocked pane.
+      client.status.value = RelayStatus.disconnected;
+      client.status.value = RelayStatus.connected;
+      await Future<void>.delayed(Duration.zero);
+      expect(api.shown.length, 1);
+    });
+
+    test('unblocked agent in the snapshot clears its dedup entry', () async {
+      setLifecycle(AppLifecycleState.paused);
+      client.agents = [
+        const RelayAgent(id: 'p1', agent: 'codex', status: 'blocked'),
+      ];
+      client.status.value = RelayStatus.disconnected;
+      client.status.value = RelayStatus.connected;
+      await Future<void>.delayed(Duration.zero);
+      expect(api.shown.length, 1);
+
+      // The agent left blocked: after a snapshot sync, re-blocking must be
+      // allowed to notify again.
+      client.agents = [
+        const RelayAgent(id: 'p1', agent: 'codex', status: 'idle'),
+      ];
+      client.status.value = RelayStatus.disconnected;
+      client.status.value = RelayStatus.connected;
+      await Future<void>.delayed(Duration.zero);
+      expect(api.shown.length, 1, reason: 'idle snapshot must not notify');
+
+      client.agents = [
+        const RelayAgent(id: 'p1', agent: 'codex', status: 'blocked'),
+      ];
+      client.status.value = RelayStatus.disconnected;
+      client.status.value = RelayStatus.connected;
+      await Future<void>.delayed(Duration.zero);
+      expect(api.shown.length, 2, reason: 're-blocking should notify again');
+    });
+
+    test('background transition re-reads the snapshot', () async {
+      // A pane became blocked while the app was already paused (or the event
+      // fired during the transition) — the lifecycle change re-reads the
+      // snapshot so the notification still fires.
+      client.agents = [
+        const RelayAgent(id: 'p1', agent: 'codex', status: 'blocked'),
+      ];
+      setLifecycle(AppLifecycleState.paused);
+      await Future<void>.delayed(Duration.zero);
+      expect(api.shown, [('p1', 'codex')]);
     });
   });
 }

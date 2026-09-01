@@ -1,21 +1,26 @@
+import 'package:client/controllers/app_session_controller.dart';
+import 'package:client/controllers/modes_controller.dart';
 import 'package:client/core/connection/mode_service.dart';
 import 'package:client/core/service_locator.dart';
 import 'package:client/models/pair_config.dart';
 import 'package:client/models/relay_agent.dart';
 import 'package:client/pages/connection_page.dart';
 import 'package:client/services/config_store.dart';
+import 'package:client/services/notification_api.dart';
+import 'package:client/services/relay_client.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'fakes/fake_notification_api.dart';
 import 'fakes/fake_relay_client.dart';
 import 'test_helper.dart';
 
 /// Connection screen: device card, live status, connection test, modes,
 /// saved devices, pair entry — with a FakeRelayClient and a stubbed
-/// modes fetcher (no network).
+/// [ModesController] (no network).
 void main() {
   final config = PairConfig(
-    host: 'macbook-pro.tail85247a.ts.net',
+    host: 'mymac.tailnet.ts.net',
     port: 8375,
     mode: 'tailscale',
     token: '0123456789abcdef0123456789abcdef',
@@ -36,7 +41,7 @@ void main() {
           description: 'Local network'),
       RelayModeInfo(
           mode: 'tailscale',
-          url: 'ws://macbook-pro.tail85247a.ts.net:8375',
+          url: 'ws://mymac.tailnet.ts.net:8375',
           link: '',
           description: 'Tailscale VPN'),
     ],
@@ -62,7 +67,7 @@ void main() {
                       onSwitch: (c) async => onSwitch?.call(c),
                       onForgetActive: () async => onForgetActive?.call(),
                       onLink: (l) async => onLink?.call(l),
-                      modesFetcher: (_) async => modes,
+                      modesController: ModesController((_) async => modes),
                     ),
                   ),
                 ),
@@ -97,10 +102,10 @@ void main() {
 
     expect(find.text('MacBook Pro'), findsOneWidget);
     expect(find.text('tailscale'), findsWidgets); // chip + mode list
-    expect(find.text('macbook-pro.tail85247a.ts.net:8375'), findsOneWidget);
+    expect(find.text('mymac.tailnet.ts.net:8375'), findsOneWidget);
     expect(find.text('Connected'), findsOneWidget); // live status
     expect(
-      find.textContaining('ws://macbook-pro.tail85247a.ts.net:8375/ws'),
+      find.textContaining('ws://mymac.tailnet.ts.net:8375/ws'),
       findsOneWidget,
     );
   });
@@ -210,7 +215,7 @@ void main() {
     await scrollTo(tester, find.text('Saved devices'));
     expect(find.text('MacBook Pro'), findsWidgets);
     expect(
-      find.text('tailscale · macbook-pro.tail85247a.ts.net:8375'),
+      find.text('tailscale · mymac.tailnet.ts.net:8375'),
       findsWidgets,
     );
   });
@@ -260,5 +265,39 @@ void main() {
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
     expect(find.text('Manual Connection'), findsNothing);
+  });
+
+  // --- Phase 3: session version bumps re-bind status to the fresh client ---
+
+  testWidgets('смена конфига перепривязывает статус на свежий клиент',
+      (tester) async {
+    final oldFake = await pumpConnection(tester);
+    expect(find.text('Connected'), findsOneWidget);
+
+    // setConfig -> setupRelayServices needs a NotificationApi (test_helper
+    // does not register one); inject the fake.
+    getIt.registerSingleton<NotificationApi>(FakeNotificationApi());
+    final newFake = FakeRelayClient();
+    final session = getIt<AppSessionController>();
+    final switched = PairConfig(
+      host: 'mymac.tailnet.ts.net',
+      port: 8375,
+      mode: 'lan', // switched mode
+      token: '0123456789abcdef0123456789abcdef',
+      relayId: 'r2',
+      name: 'Other',
+    );
+    await session.setConfig(switched, clientFactory: (_) => newFake);
+    await tester.pumpAndSettle();
+
+    // Status now follows the fresh client…
+    newFake.status.value = RelayStatus.disconnected;
+    await tester.pump();
+    expect(find.text('Disconnected'), findsOneWidget);
+
+    // …and the old client no longer drives the UI.
+    oldFake.status.value = RelayStatus.connecting;
+    await tester.pump();
+    expect(find.text('Disconnected'), findsOneWidget);
   });
 }

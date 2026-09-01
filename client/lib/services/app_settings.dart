@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Typed, key-centralized storage over [SharedPreferences].
@@ -7,11 +8,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// SharedPreferences after [SharedPreferences.getInstance], so reads are
 /// synchronous (e.g. HomePage restores the selected tab without a flash).
 ///
+/// A [ChangeNotifier]: setters persist and notify, so UI (e.g. the
+/// notifications settings page) can react instead of keeping a manual copy.
+///
 /// Scope (per docs/13-client-settings.md): app-level UI settings + the agent
 /// snapshot cache (previously ad-hoc keys in `agent_repository.dart`).
 /// Profile/command-history storage keeps its own typed services (ConfigStore,
 /// CommandHistoryService) — already key-centralized.
-class AppSettings {
+class AppSettings extends ChangeNotifier {
   AppSettings(this._prefs);
 
   final SharedPreferences _prefs;
@@ -33,6 +37,7 @@ class AppSettings {
   void setHomeTabIndex(int value) {
     // Fire-and-forget: settings writes are small and infrequent.
     _prefs.setInt(kHomeTabIndex, value);
+    notifyListeners();
   }
 
   static const double kDefaultFontSize = 12;
@@ -50,6 +55,7 @@ class AppSettings {
       kTerminalFontSize,
       value.clamp(kMinFontSize, kMaxFontSize).toDouble(),
     );
+    notifyListeners();
   }
 
   /// Whether AgentPage should follow new output to the bottom.
@@ -57,6 +63,7 @@ class AppSettings {
 
   void setAutoScrollFollow(bool value) {
     _prefs.setBool(kAutoScrollFollow, value);
+    notifyListeners();
   }
 
   /// Whether local "agent blocked" notifications are shown while the app is
@@ -65,6 +72,7 @@ class AppSettings {
 
   void setNotificationsEnabled(bool value) {
     _prefs.setBool(kNotificationsEnabled, value);
+    notifyListeners();
   }
 
   // ── Agent snapshot cache (offline fallback) ────────────────────────────
@@ -75,6 +83,7 @@ class AppSettings {
 
   void setAgentSnapshot(String json) {
     _prefs.setString(kAgentSnapshot, json);
+    notifyListeners();
   }
 
   /// ISO-8601 timestamp of the last successful snapshot, or null.
@@ -82,5 +91,6 @@ class AppSettings {
 
   void setAgentSnapshotAt(String iso) {
     _prefs.setString(kAgentSnapshotAt, iso);
+    notifyListeners();
   }
 }

@@ -2,6 +2,8 @@ import 'package:get_it/get_it.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../controllers/agents_store.dart';
+import '../controllers/app_session_controller.dart';
+import '../controllers/modes_controller.dart';
 import '../controllers/session_controller.dart';
 import '../models/pair_config.dart';
 import '../repositories/agent_repository.dart';
@@ -43,6 +45,17 @@ Future<void> setupDependencies() async {
   // Fetches relay connection modes (/pair) with retries — used by the
   // HomePage mode badge and the Connection screen.
   getIt.registerSingleton<ModeService>(ModeService());
+  // Single source of truth for the relay's available modes. Global (lives in
+  // setupDependencies, not setupRelayServices): the pair flow and mode picker
+  // also need it during onboarding, before any relay services exist.
+  getIt.registerSingleton<ModesController>(
+    ModesController(getIt<ModeService>().fetch),
+  );
+  // Root app session: which pair is active, serialized config switches, and
+  // the fallback manager wiring. Registered here (not in setupRelayServices)
+  // because it must survive relay teardown — pages consult it to detect that
+  // their cached getIt references went stale.
+  getIt.registerSingleton<AppSessionController>(AppSessionController());
   // Local "agent blocked" notifications — platform facade over
   // flutter_local_notifications. The NotificationService is created per relay
   // connection in setupRelayServices (it depends on the live AgentRepository).
@@ -63,12 +76,14 @@ Future<void> setupDependencies() async {
 /// [transportMode] selects the transport: `ws` (default) or `http`
 /// (Phase 5 fallback — /api/rpc + SSE). In the future this can be driven by
 /// a feature flag / PairConfig field.
-void setupRelayServices(
+Future<void> setupRelayServices(
   PairConfig config, {
   RelayClient Function(PairConfig)? clientFactory,
   String transportMode = 'ws',
-}) {
-  // Unregister old instances if they exist
+}) async {
+  // Unregister old instances if they exist. Every register below is guarded so
+  // a repeated setup (config switch racing a deep link) replaces services
+  // instead of throwing AlreadyRegisteredException.
   if (getIt.isRegistered<SessionController>()) {
     getIt<SessionController>().dispose();
     getIt.unregister<SessionController>();
@@ -79,12 +94,18 @@ void setupRelayServices(
   }
   if (getIt.isRegistered<AgentRepository>()) {
     final oldRepo = getIt<AgentRepository>();
-    oldRepo.close();
+    await oldRepo.close();
     getIt.unregister<AgentRepository>();
   }
   if (getIt.isRegistered<ConnectionManager>()) {
     getIt<ConnectionManager>().dispose();
     getIt.unregister<ConnectionManager>();
+  }
+  if (getIt.isRegistered<Transport>()) {
+    // Close the old transport so its socket/reconnect timers are not leaked
+    // when a new config is set up over an existing one.
+    await getIt<Transport>().close();
+    getIt.unregister<Transport>();
   }
   if (getIt.isRegistered<RelayClient>()) {
     getIt.unregister<RelayClient>();
@@ -163,6 +184,9 @@ Future<void> teardownRelayServices() async {
     getIt.unregister<ConnectionManager>();
   }
   if (getIt.isRegistered<Transport>()) {
+    // Close the old transport so its socket/reconnect timers are not leaked
+    // when the relay services are torn down (config switch / forget).
+    await getIt<Transport>().close();
     getIt.unregister<Transport>();
   }
   if (getIt.isRegistered<NotificationService>()) {

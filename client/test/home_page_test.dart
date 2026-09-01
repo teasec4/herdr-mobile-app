@@ -1,3 +1,4 @@
+import 'package:client/controllers/modes_controller.dart';
 import 'package:client/core/connection/mode_service.dart';
 import 'package:client/models/pair_config.dart';
 import 'package:client/models/relay_agent.dart';
@@ -52,7 +53,7 @@ void main() {
     WidgetTester tester, {
     Future<void> Function()? onSwitch,
     Future<void> Function(PairConfig)? onModeSelected,
-    Future<List<RelayModeInfo>> Function(PairConfig)? modesFetcher,
+    ModesController? modesController,
   }) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -62,7 +63,8 @@ void main() {
           onAddDevice: () async {},
           onForgetDevice: () async {},
           onModeSelected: onModeSelected ?? (_) async {},
-          modesFetcher: modesFetcher ?? (_) async => stubModes,
+          modesController:
+              modesController ?? ModesController((_) async => stubModes),
         ),
       ),
     );
@@ -200,7 +202,7 @@ void main() {
           onAddDevice: () async {},
           onForgetDevice: () async {},
           onModeSelected: (_) async {},
-          modesFetcher: (_) async => stubModes,
+          modesController: ModesController((_) async => stubModes),
         ),
       ),
     );
@@ -242,7 +244,7 @@ void main() {
           onAddDevice: () async {},
           onForgetDevice: () async {},
           onModeSelected: (_) async {},
-          modesFetcher: (_) async => stubModes,
+          modesController: ModesController((_) async => stubModes),
         ),
       ),
     );
@@ -301,7 +303,7 @@ void main() {
             onAddDevice: () async {},
             onForgetDevice: () async => forgot = true,
             onModeSelected: (_) async {},
-            modesFetcher: (_) async => stubModes,
+            modesController: ModesController((_) async => stubModes),
           ),
         ),
       );
@@ -350,11 +352,11 @@ void main() {
       var calls = 0;
       await pumpHome(
         tester,
-        modesFetcher: (_) async {
+        modesController: ModesController((_) async {
           calls++;
           throw const ModeFetchException(
               'Cannot reach relay — check your network or that the relay is running.');
-        },
+        }),
       );
 
       await tester.tap(find.text('LAN'));

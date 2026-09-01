@@ -1,4 +1,6 @@
 import 'package:client/controllers/agents_store.dart';
+import 'package:client/controllers/app_session_controller.dart';
+import 'package:client/controllers/modes_controller.dart';
 import 'package:client/controllers/session_controller.dart';
 import 'package:client/core/connection/mode_service.dart';
 import 'package:client/core/service_locator.dart';
@@ -42,9 +44,16 @@ Future<void> setupTestDependencies(
   );
   getIt.registerSingleton<ActionParserService>(ActionParserService());
   getIt.registerSingleton<ModeService>(ModeService());
+  // Mirrors production wiring: modes live in a global controller.
+  getIt.registerSingleton<ModesController>(
+    ModesController(getIt<ModeService>().fetch),
+  );
   getIt.registerSingleton<AppSettings>(
     AppSettings(getIt<SharedPreferences>()),
   );
+  // Root app session (mirrors production wiring: global, survives relay
+  // teardown).
+  getIt.registerSingleton<AppSessionController>(AppSessionController());
 
   // Register fake client
   getIt.registerSingleton<RelayClient>(fakeClient);
@@ -73,6 +82,9 @@ Future<void> teardownTestDependencies() async {
   }
   if (getIt.isRegistered<AgentsStore>()) {
     getIt<AgentsStore>().dispose();
+  }
+  if (getIt.isRegistered<AppSessionController>()) {
+    getIt<AppSessionController>().dispose();
   }
   await GetIt.instance.reset();
 }

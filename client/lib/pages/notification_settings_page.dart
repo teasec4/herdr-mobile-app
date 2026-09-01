@@ -15,15 +15,28 @@ class NotificationSettingsPage extends StatefulWidget {
 }
 
 class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
-  late bool _enabled = getIt<AppSettings>().notificationsEnabled;
+  late final AppSettings _settings = getIt<AppSettings>();
+
+  @override
+  void initState() {
+    super.initState();
+    _settings.addListener(_onSettingsChanged);
+  }
+
+  @override
+  void dispose() {
+    _settings.removeListener(_onSettingsChanged);
+    super.dispose();
+  }
+
+  void _onSettingsChanged() => setState(() {});
 
   Future<void> _setEnabled(bool value) async {
-    getIt<AppSettings>().setNotificationsEnabled(value);
+    _settings.setNotificationsEnabled(value);
     if (value) {
       // Ask the OS again so the user can grant permission from here.
       await getIt<NotificationApi>().requestPermission();
     }
-    setState(() => _enabled = value);
   }
 
   @override
@@ -41,7 +54,7 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
                 'Show a notification when an agent needs your response '
                 'while the app is in the background',
               ),
-              value: _enabled,
+              value: _settings.notificationsEnabled,
               onChanged: _setEnabled,
             ),
             const SizedBox(height: 8),

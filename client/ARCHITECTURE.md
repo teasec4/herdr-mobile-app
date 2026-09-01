@@ -28,27 +28,35 @@ class AsyncError<T> extends AsyncValue<T>    // Error occurred
 - Single source of truth for async operations
 - Easy to test and reason about
 
-### Provider Pattern
+### Dependency Injection: get_it
 
-**RelayClient** is provided app-wide via Provider:
+Services and controllers are registered in `core/service_locator.dart` and
+resolved with `getIt<T>()` (no Provider / `context.read`).
+
+- **`setupDependencies()`** — app-wide singletons that outlive a relay switch:
+  `ConfigStore`, `AppSettings` (a `ChangeNotifier`), `CommandHistoryService`,
+  `ActionParserService`, `ModeService`, `ModesController`, `NotificationApi`.
+- **`setupRelayServices(config)`** — per-connection stack, torn down and
+  rebuilt on every config change: `Transport`, `ConnectionManager`,
+  `RelayClient`, `AgentRepository`, `AgentsStore`, `SessionController`,
+  `NotificationService`.
+
+Pages resolve dependencies in `initState` (or via constructor injection, as
+`ModesController` / `PairConfig` do) instead of `context.read`:
 
 ```dart
-main.dart:
-  Provider<RelayClient>(
-    create: (_) => RelayClient(...),
-    dispose: (_, client) => client.close(),
-    child: MaterialApp(...)
-  )
-
-Pages:
-  final client = context.read<RelayClient>();
+final _store = getIt<AgentsStore>();
 ```
 
 **Benefits:**
-- Shared WebSocket connection across all pages
-- Single event stream for real-time updates
-- No prop drilling
-- Proper lifecycle management
+- Single transport/event stream shared across pages (same as the old Provider
+  intent, but with explicit lifecycle: `teardownRelayServices()` disposes the
+  relay stack on profile switch)
+- Controllers (`AgentsStore`, `SessionController`, `ModesController`) are
+  `ChangeNotifier`s — UI subscribes with `ListenableBuilder` /
+  `AnimatedBuilder` / `ValueListenableBuilder`
+- No prop drilling, no disposed-object references: pages are recreated with a
+  new `ValueKey` when the active config changes
 
 ## Error Handling
 
@@ -106,7 +114,9 @@ AsyncValue<List<RelayAgent>> _agentsState
 **Flow:**
 1. `initState`: subscribe to events, call `_refresh()`
 2. `_refresh()`: set `AsyncLoading`, fetch snapshot, set `AsyncData` or `AsyncError`
-3. `_onEvent()`: on status change event, delay 150ms, call `_refresh()`
+3. `_onEvent()`: on status change event, update the tile locally; a 1 s poll
+   (only while an agent is `working`) re-reads output with revision-based
+   caching — revision 0 always refetches
 4. `build()`: pattern match on `_agentsState` to show loading/error/empty/list
 
 **Race condition fix:**

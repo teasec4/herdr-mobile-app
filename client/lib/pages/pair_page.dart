@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
+import '../controllers/modes_controller.dart';
 import '../core/connection/mode_service.dart';
 import '../core/service_locator.dart';
 import '../models/pair_config.dart';
@@ -9,14 +10,14 @@ import '../widgets/lan_only_warning_dialog.dart';
 
 /// Onboarding: scan a QR with the relay pair link or paste a link manually.
 class PairPage extends StatefulWidget {
-  const PairPage({super.key, required this.onPaired, this.modesFetcher});
+  const PairPage({super.key, required this.onPaired, this.modesController});
 
   /// Called with a valid pair; the parent saves it and switches the screen.
   final Future<void> Function(PairConfig config) onPaired;
 
-  /// Injectable for tests; defaults to [ModeService.fetch] (with retries).
+  /// Injectable for tests; defaults to the global [ModesController].
   /// Used for universal QR links (no `mode` param) to learn all modes.
-  final Future<List<RelayModeInfo>> Function(PairConfig config)? modesFetcher;
+  final ModesController? modesController;
 
   @override
   State<PairPage> createState() => _PairPageState();
@@ -25,6 +26,8 @@ class PairPage extends StatefulWidget {
 class _PairPageState extends State<PairPage> {
   final MobileScannerController _scanner = MobileScannerController();
   final TextEditingController _linkController = TextEditingController();
+  late final ModesController _modesController =
+      widget.modesController ?? getIt<ModesController>();
   bool _busy = false;
 
   @override
@@ -71,27 +74,24 @@ class _PairPageState extends State<PairPage> {
   /// A fetch failure never blocks pairing — it shows a toast and falls back to
   /// the bare LAN config from the link.
   Future<PairConfig?> _enrichFromModes(PairConfig config) async {
-    List<RelayModeInfo> modes;
-    try {
-      modes = await (widget.modesFetcher ?? getIt<ModeService>().fetch)(config);
-    } catch (e) {
+    await _modesController.load(config);
+    if (!mounted) return null;
+    final state = _modesController.state;
+    if (state.hasError) {
+      final e = state.errorOrNull;
       if (mounted) {
         ToastService.showError(
             context, e is ModeFetchException ? e.message : e.toString());
       }
       return config;
     }
-    if (!mounted) return null;
+    final modes = state.dataOrNull ?? const <RelayModeInfo>[];
     if (modes.isEmpty) return config; // nothing to choose — keep the link default
 
     final selected = await _showModeSelectionDialog(modes);
     if (selected == null || !mounted) return null;
 
-    return config
-        .withEndpoints({
-          for (final m in modes) m.mode: RelayEndpoint.fromUrl(m.url),
-        })
-        .connectVia(selected.mode, RelayEndpoint.fromUrl(selected.url));
+    return _modesController.switchMode(config, selected);
   }
 
   Future<RelayModeInfo?> _showModeSelectionDialog(

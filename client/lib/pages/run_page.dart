@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../controllers/session_controller.dart';
 import '../core/service_locator.dart';
 import '../models/relay_session.dart';
-import '../services/relay_client.dart';
 import '../utils/async_value.dart';
 import '../utils/toast_service.dart';
 
@@ -79,14 +78,11 @@ class _RunPageState extends State<RunPage> {
     }
     setState(() => _starting = true);
     try {
-      await getIt<RelayClient>().startAgent(name, _kind, pane.id);
+      await _controller.startAgent(name, _kind, pane.id);
       if (mounted) {
         ToastService.showSuccess(
             context, 'Started $name ($_kind) in ${pane.id}');
         _nameController.clear();
-        // The pane now has an agent — refresh the session so free-pane info
-        // and workspace statuses stay current.
-        _controller.refresh();
       }
     } catch (e) {
       if (mounted) ToastService.showError(context, e);

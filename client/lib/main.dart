@@ -1,11 +1,12 @@
+import 'dart:async';
+
 import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import 'core/connection/connection_fallback_manager.dart';
-import 'core/service_locator.dart';
-import 'core/transport/transport.dart';
 import 'controllers/agents_store.dart';
+import 'controllers/app_session_controller.dart';
+import 'core/service_locator.dart';
 import 'models/pair_config.dart';
 import 'pages/agent_page.dart';
 import 'pages/connection_page.dart';
@@ -13,7 +14,6 @@ import 'pages/home_page.dart';
 import 'pages/pair_page.dart';
 import 'services/config_store.dart';
 import 'services/notification_api.dart';
-import 'services/notification_service.dart';
 import 'services/relay_client.dart';
 
 void main() async {
@@ -52,53 +52,46 @@ class _HerdRelayAppState extends State<HerdRelayApp> {
   /// HomePage and popped from outside (e.g. in deep-link handlers).
   final GlobalKey<NavigatorState> _navKey = GlobalKey<NavigatorState>();
 
-  PairConfig? _config;
+  /// Root app session: owns which config is active, serializes config switches
+  /// (teardown→setup), and publishes [AppSessionController.version] so pages
+  /// recreate when the relay services behind them change. The app state only
+  /// wires its UI-facing callbacks onto it and mirrors its config in `build`.
+  late final AppSessionController _session;
+
   bool _loading = true;
 
-  /// Watches the live transport and auto-switches to another saved endpoint
-  /// when the current mode becomes unreachable (docs/AUTO_MODE_SWITCHING_PLAN.md,
-  /// Phase 2). Re-armed via [_reattachFallback] on every config change.
-  ConnectionFallbackManager? _fallbackManager;
+  /// Deep-link stream subscription; cancelled in [dispose] so the handler is
+  /// never invoked after teardown.
+  StreamSubscription<Uri>? _linkSub;
 
   @override
   void initState() {
     super.initState();
+    _session = getIt<AppSessionController>();
+    // UI-facing wiring that needs BuildContext/navigator lives here; the
+    // controller calls it when a notification is tapped or a fallback fires.
+    _session.clientFactory = widget.clientFactory;
+    _session.onOpenAgent = _openAgentFromNotification;
+    _session.onAutoFallback = _showFallbackSnackBar;
     _bootstrap();
     _listenDeepLinks();
   }
 
   @override
   void dispose() {
-    _fallbackManager?.dispose();
-    _fallbackManager = null;
+    _linkSub?.cancel();
+    _session.dispose();
     teardownRelayServices();
     super.dispose();
   }
 
   Future<void> _bootstrap() async {
-    final store = getIt<ConfigStore>();
-    final config = await store.loadActive();
+    await _session.bootstrap();
     if (!mounted) return;
-    if (config == null) {
-      setState(() => _loading = false);
-    } else {
-      await _setConfig(config);
+    setState(() => _loading = false);
+    if (_session.config != null) {
       await _handleNotificationLaunch();
     }
-  }
-
-  /// Replaces the pair: closes the old relay and brings up a new one.
-  Future<void> _setConfig(PairConfig config) async {
-    await teardownRelayServices();
-    setupRelayServices(config, clientFactory: widget.clientFactory);
-    // Notification taps (and cold-start launches) open the agent pane.
-    getIt<NotificationService>().onOpenAgent = _openAgentFromNotification;
-    _reattachFallback(config);
-    if (!mounted) return;
-    setState(() {
-      _config = config;
-      _loading = false;
-    });
   }
 
   /// Cold-start path: the app was launched by tapping a notification. The
@@ -124,34 +117,9 @@ class _HerdRelayAppState extends State<HerdRelayApp> {
     );
   }
 
-  /// (Re)arms the auto-fallback manager for the transport just created for
-  /// [config]. Widget tests inject a fake client and no Transport is
-  /// registered, so nothing is armed there.
-  void _reattachFallback(PairConfig config) {
-    if (getIt.isRegistered<Transport>()) {
-      final transport = getIt<Transport>();
-      if (_fallbackManager == null) {
-        _fallbackManager = ConnectionFallbackManager(
-          transport: transport,
-          config: config,
-          onFallback: _onAutoFallback,
-        );
-      } else {
-        // Keep the same manager so the set of already-failed modes survives
-        // the reconnect; otherwise an outage would bounce between the first
-        // two dead endpoints and never reach funnel/gateway.
-        _fallbackManager!.attach(transport, config);
-      }
-    } else {
-      _fallbackManager?.dispose();
-      _fallbackManager = null;
-    }
-  }
-
-  /// Applies a candidate config from [ConnectionFallbackManager]: tell the
-  /// user, remember the new endpoint set, and reconnect (which re-arms the
-  /// manager for the next hop).
-  Future<void> _onAutoFallback(PairConfig config) async {
+  /// Tells the user an auto-fallback switched the active mode (called by
+  /// [AppSessionController] before it reconnects).
+  void _showFallbackSnackBar(PairConfig config) {
     final nav = _navKey.currentContext;
     if (nav != null) {
       ScaffoldMessenger.of(nav).showSnackBar(
@@ -161,13 +129,6 @@ class _HerdRelayAppState extends State<HerdRelayApp> {
         ),
       );
     }
-    try {
-      await getIt<ConfigStore>().saveProfile(config);
-      await _setConfig(config);
-    } catch (_) {
-      // Save or reconnect failed; the current transport's own reconnect loop
-      // keeps retrying the original endpoint, so nothing is lost.
-    }
   }
 
   /// Deep links `herdrelay://pair?...` (Android intent-filter / iOS
@@ -175,7 +136,9 @@ class _HerdRelayAppState extends State<HerdRelayApp> {
   /// scanning a QR from another app.
   void _listenDeepLinks() {
     final appLinks = AppLinks();
-    appLinks.uriLinkStream.listen(_applyLink);
+    // Keep the subscription so it can be cancelled in dispose; the handler
+    // swaps the active relay and must not run after teardown.
+    _linkSub = appLinks.uriLinkStream.listen(_applyLink);
     appLinks.getInitialLink().then((uri) {
       if (uri != null) _applyLink(uri);
     }).catchError((_) {
@@ -190,7 +153,7 @@ class _HerdRelayAppState extends State<HerdRelayApp> {
       // Upsert: re-pairing the same relay (same relayId) replaces the saved
       // profile instead of adding a duplicate.
       await getIt<ConfigStore>().saveProfile(config);
-      await _setConfig(config);
+      await _session.setConfig(config);
     } on FormatException {
       // invalid link — ignore
     }
@@ -199,28 +162,12 @@ class _HerdRelayAppState extends State<HerdRelayApp> {
   /// Makes the profile active and reconnects to it.
   Future<void> _switchTo(PairConfig config) async {
     await getIt<ConfigStore>().setActive(config.profileKey);
-    await _setConfig(config);
+    await _session.setConfig(config);
   }
 
-  /// Forgets the active relay: closes the client and either returns to the
-  /// scanner (no profiles left) or reconnects to the next active profile.
-  Future<void> _forgetActive() async {
-    final store = getIt<ConfigStore>();
-    final active = _config;
-    if (active != null) await store.forget(active.profileKey);
-    await teardownRelayServices();
-    final next = await store.loadActive();
-    if (!mounted) return;
-    if (next == null) {
-      // No profile left: disarm the fallback manager, otherwise it would keep
-      // retrying the now-forgotten relay's endpoints in the background.
-      _fallbackManager?.dispose();
-      _fallbackManager = null;
-      setState(() => _config = null);
-    } else {
-      await _setConfig(next);
-    }
-  }
+  /// Forgets the active relay (delegates to the session, which either returns
+  /// to the scanner or reconnects to the next active profile).
+  Future<void> _forgetActive() => _session.forgetActive();
 
   Future<void> _showAddDevice() async {
     await _navKey.currentState?.push(
@@ -237,12 +184,12 @@ class _HerdRelayAppState extends State<HerdRelayApp> {
     if (mounted && (_navKey.currentState?.canPop() ?? false)) {
       _navKey.currentState?.pop();
     }
-    await _setConfig(config);
+    await _session.setConfig(config);
   }
 
   /// Opens the Connection screen: status, mode, saved devices, pair entry.
   Future<void> _openConnection() async {
-    final config = _config;
+    final config = _session.config;
     if (config == null) return;
     await _navKey.currentState?.push(
       MaterialPageRoute<void>(
@@ -261,28 +208,35 @@ class _HerdRelayAppState extends State<HerdRelayApp> {
     if (_loading) {
       return _app(const Scaffold(body: Center(child: CircularProgressIndicator())));
     }
-    final config = _config;
-    if (config == null) {
-      return _app(
-        PairPage(
-          onPaired: (config) async {
-            await getIt<ConfigStore>().saveProfile(config);
-            await _setConfig(config);
-          },
-        ),
-      );
-    }
-    // Key derived from config: when the pair changes via deep link, the screen
-    // is recreated with the new services.
-    return _app(
-      HomePage(
-        key: ValueKey('${config.host}:${config.port}:${config.token}'),
-        config: config,
-        onRequestSwitch: _openConnection,
-        onAddDevice: _showAddDevice,
-        onForgetDevice: _forgetActive,
-        onModeSelected: _switchTo,
-      ),
+    // Rebuild when the session switches config: a config change tears down and
+    // recreates the relay services, so HomePage must be recreated to drop its
+    // cached getIt references. The key includes profileKey + mode + version so
+    // any applied change (pair via deep link, mode switch, re-pair) rebuilds it.
+    return ListenableBuilder(
+      listenable: _session,
+      builder: (context, _) {
+        final config = _session.config;
+        if (config == null) {
+          return _app(
+            PairPage(
+              onPaired: (config) async {
+                await getIt<ConfigStore>().saveProfile(config);
+                await _session.setConfig(config);
+              },
+            ),
+          );
+        }
+        return _app(
+          HomePage(
+            key: ValueKey('${config.profileKey}:${config.mode}:${_session.version}'),
+            config: config,
+            onRequestSwitch: _openConnection,
+            onAddDevice: _showAddDevice,
+            onForgetDevice: _forgetActive,
+            onModeSelected: _switchTo,
+          ),
+        );
+      },
     );
   }
 

@@ -185,7 +185,12 @@ class WebSocketTransport with ReconnectMixin implements Transport {
     _stopKeepalive();
     await _sub?.cancel();
     _sub = null;
-    await _channel?.sink.close();
+    // A channel whose handshake never completed will never answer the close
+    // frame, so sink.close() would hang teardown forever — bound the wait.
+    await _channel?.sink.close().timeout(
+      const Duration(seconds: 1),
+      onTimeout: () {},
+    );
     _channel = null;
     status.value = ConnectionStatus.disconnected;
     await _messages.close();

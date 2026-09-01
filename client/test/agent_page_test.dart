@@ -1,3 +1,5 @@
+import 'package:client/controllers/app_session_controller.dart';
+import 'package:client/core/service_locator.dart';
 import 'package:client/models/pair_config.dart';
 import 'package:client/models/relay_agent.dart';
 import 'package:client/models/relay_event.dart';
@@ -188,7 +190,7 @@ Please choose an option:
     await pumpAgent(tester);
     final outputsBefore = client.outputCalls;
 
-    // Working agent: the page polls the current frame every 150ms, so \r-based
+    // Working agent: the page polls the current frame every second, so \r-based
     // spinners (which never emit pane.scroll_changed) still repaint.
     client.emit(AgentStatusChanged(paneId: agent.id, status: 'working'));
     await tester.pumpAndSettle();
@@ -196,7 +198,7 @@ Please choose an option:
 
     // No event — only the poll timer advances the output.
     client.outputText = 'второй\n';
-    await tester.pump(const Duration(milliseconds: 200));
+    await tester.pump(const Duration(milliseconds: 1100));
     await tester.pumpAndSettle();
 
     expect(find.text('второй\n'), findsOneWidget);
@@ -272,6 +274,22 @@ Please choose an option:
 
     expect(find.text('второй\n'), findsNothing);
     expect(find.text('первый\n'), findsOneWidget);
+  });
+
+  testWidgets('pane.output_changed без ревизии (0) всегда перечитывает вывод', (tester) async {
+    client.outputText = 'первый\n';
+    await pumpAgent(tester);
+    final outputsBefore = client.outputCalls;
+
+    client.outputText = 'второй\n';
+    client.emit(OutputChanged(paneId: agent.id, revision: 0));
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+
+    // Revision 0 = "something changed" with no trackable revision: the page
+    // must issue a real RPC, never reuse cached (possibly stale) text.
+    expect(find.text('второй\n'), findsOneWidget);
+    expect(client.outputCalls, greaterThan(outputsBefore));
   });
 
   testWidgets('pane.output_changed чужого агента не перечитывает вывод', (tester) async {
@@ -372,5 +390,42 @@ Please choose an option:
           .first,
     );
     expect(scrollable.position.pixels, lessThan(scrollable.position.maxScrollExtent));
+  });
+
+  // --- Phase 3: session version bumps close stale pages --------------------
+
+  testWidgets('смена конфига закрывает открытую страницу агента (pop)',
+      (tester) async {
+    client.outputText = 'hello\n';
+    // Push AgentPage as a nested route so Navigator.pop() works.
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => Center(
+              child: ElevatedButton(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(builder: (_) => AgentPage(agent: agent)),
+                ),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    expect(find.byType(AgentPage), findsOneWidget);
+
+    // Forgetting the config tears the services down (the store the page holds
+    // is disposed); the session version bump must pop the page without
+    // disposed-object errors.
+    final session = getIt<AppSessionController>();
+    await session.clear();
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AgentPage), findsNothing);
+    expect(find.text('open'), findsOneWidget);
   });
 }

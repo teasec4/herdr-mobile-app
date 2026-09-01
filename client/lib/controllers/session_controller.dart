@@ -49,6 +49,16 @@ class SessionController extends ChangeNotifier {
   /// starting an agent in Run).
   Future<void> refresh() => _load();
 
+  /// Starts an agent into the given free pane (`agent.start`), then refreshes
+  /// the session so free-pane info and workspace statuses stay current.
+  ///
+  /// UI callers use this instead of reaching for `getIt<RelayClient>()`
+  /// directly — the client stays owned by this controller.
+  Future<void> startAgent(String name, String kind, String paneId) async {
+    await _client.startAgent(name, kind, paneId);
+    await refresh();
+  }
+
   /// First free (agent-less) pane of [workspaceId], if any — the target for
   /// `agent.start` (docs/11-spaces.md §0.3).
   RelayPane? freePaneFor(String? workspaceId) {

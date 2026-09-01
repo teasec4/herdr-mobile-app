@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../controllers/agents_store.dart';
+import '../controllers/app_session_controller.dart';
 import '../core/service_locator.dart';
 import '../models/relay_agent.dart';
 import '../models/relay_event.dart';
@@ -32,6 +33,14 @@ class _AgentPageState extends State<AgentPage> {
   late final AgentsStore _store;
   late final CommandHistoryService _historyService;
   late final ActionParserService _parserService;
+
+  /// Root session: on a config switch the relay services are torn down and
+  /// recreated, so every cached getIt reference below becomes stale. We record
+  /// the version at open time and pop when it changes — the terminal is invalid
+  /// against the new repository (docs/plan, Critical 2).
+  late final AppSessionController _session;
+  late int _sessionVersionAtOpen;
+
   StreamSubscription<RelayEvent>? _eventSubscription;
   late RelayAgent _agent;
   late final TextEditingController _input = TextEditingController();
@@ -85,9 +94,15 @@ class _AgentPageState extends State<AgentPage> {
   @override
   void initState() {
     super.initState();
+    _session = getIt<AppSessionController>();
+    _sessionVersionAtOpen = _session.version;
+    _session.addListener(_onSessionChanged);
     _repository = getIt<AgentRepository>();
     _store = getIt<AgentsStore>();
     _store.ensureLoaded();
+    // Status flips arrive through the store (single source of truth); we sync
+    // the live-poll timer with them so the timer exists only while working.
+    _store.addListener(_onStoreChanged);
     _historyService = getIt<CommandHistoryService>();
     _parserService = getIt<ActionParserService>();
     _settings = getIt<AppSettings>();
@@ -98,12 +113,14 @@ class _AgentPageState extends State<AgentPage> {
     _eventSubscription = _repository.events.listen(_onEvent);
     _loadCommandHistory();
     _refresh();
-    _startLivePolling();
+    _syncPollTimer();
   }
 
   @override
   void dispose() {
     _eventSubscription?.cancel();
+    _store.removeListener(_onStoreChanged);
+    _session.removeListener(_onSessionChanged);
     _scroll.removeListener(_onScroll);
     _input.dispose();
     _scroll.dispose();
@@ -121,6 +138,18 @@ class _AgentPageState extends State<AgentPage> {
       setState(() => _stickToBottom = atBottom);
       // Remember the preference across page reopens.
       _settings.setAutoScrollFollow(atBottom);
+    }
+  }
+
+  /// A config switch (pair via deep link, mode change, forget) tears down and
+  /// recreates the relay services, leaving every getIt reference in this page
+  /// pointing at disposed objects. The terminal cannot be meaningfully kept
+  /// open against the new repository, so pop; the caller (notification flow,
+  /// navigation) re-opens it against the fresh services.
+  void _onSessionChanged() {
+    if (!mounted) return;
+    if (_session.version != _sessionVersionAtOpen) {
+      Navigator.of(context).pop();
     }
   }
 
@@ -146,25 +175,57 @@ class _AgentPageState extends State<AgentPage> {
       if (event.revision > 0) {
         if (_lastRevision != null && event.revision <= _lastRevision!) return;
         _lastRevision = event.revision;
+      } else {
+        // Revision 0 means "something changed but we have no revision to
+        // track": drop the cached revision so the refresh is a real RPC and
+        // can never hit the cache with stale text.
+        _lastRevision = null;
       }
       _outputDebounce?.cancel();
       _outputDebounce = Timer(
         const Duration(milliseconds: 100),
-        () => _refresh(silent: true, knownRevision: event.revision),
+        () => _refresh(silent: true, knownRevision: _lastRevision),
       );
       return;
     }
   }
 
-  /// Polls the current frame every 150ms while the agent is `working`.
+  /// Polls the current frame every second while the agent is `working`.
   /// `\r`-based animations (spinners, progress lines) rewrite the same line
   /// without scrolling, so herdr emits no `pane.scroll_changed` and the event
   /// path never fires; polling is the only way those redraw on screen. The
-  /// poll stops as soon as the agent leaves `working`.
+  /// poll only exists while `working` (see [_syncPollTimer]).
   void _startLivePolling() {
     _livePollTimer?.cancel();
     _livePollTimer =
-        Timer.periodic(const Duration(milliseconds: 150), (_) => _livePoll());
+        Timer.periodic(const Duration(seconds: 1), (_) => _livePoll());
+  }
+
+  /// Starts/stops the live poll to match the agent's current status: the timer
+  /// is created on entering `working` and cancelled on leaving it, so an idle
+  /// agent pays no timer cost. Called from initState and on every [AgentsStore]
+  /// change (status flips arrive through the store).
+  void _syncPollTimer() {
+    if (!mounted) return;
+    final status = (_store.statusOf(_agent.id) ?? _agent.status).toLowerCase();
+    final isWorking = status == 'working';
+    if (isWorking && _livePollTimer == null) {
+      _startLivePolling();
+    } else if (!isWorking && _livePollTimer != null) {
+      _livePollTimer?.cancel();
+      _livePollTimer = null;
+    }
+  }
+
+  void _onStoreChanged() {
+    // Status flips arrive through the store. In widget tests the store's event
+    // stream is subscribed before the test body runs, so its callbacks execute
+    // outside the test's fake-async zone; creating the periodic poll timer
+    // synchronously here would bind it to the real event loop and it would
+    // never fire under fake time. Deferring to a post-frame callback creates
+    // the timer in the binding's zone (which is also nicer: the timer starts
+    // after the rebuild caused by the status change).
+    WidgetsBinding.instance.addPostFrameCallback((_) => _syncPollTimer());
   }
 
   void _livePoll() {

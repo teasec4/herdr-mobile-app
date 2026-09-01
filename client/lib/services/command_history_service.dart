@@ -19,7 +19,7 @@ class CommandHistoryService {
     await _prefs.setStringList('$_keyPrefix$agentId', commands);
   }
 
-  /// Add command to history (avoids duplicates at end)
+  /// Add command to history (avoids duplicates at end).
   Future<void> addCommand(String agentId, String command) async {
     final history = await load(agentId);
 

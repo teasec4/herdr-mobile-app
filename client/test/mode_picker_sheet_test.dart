@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:client/controllers/modes_controller.dart';
 import 'package:client/core/connection/mode_service.dart';
 import 'package:client/models/pair_config.dart';
 import 'package:client/widgets/mode_picker_sheet.dart';
@@ -19,7 +20,7 @@ void main() {
   /// Navigator.pop inside the sheet works.
   Future<void> openSheet(
     WidgetTester tester, {
-    required Future<List<RelayModeInfo>> Function(PairConfig) fetcher,
+    required ModesController modesController,
     required void Function(PairConfig) onSelected,
   }) async {
     await tester.pumpWidget(
@@ -32,7 +33,7 @@ void main() {
                   context: context,
                   builder: (_) => ModePickerSheet(
                     config: config,
-                    fetcher: fetcher,
+                    modesController: modesController,
                     onSelected: (c) async => onSelected(c),
                   ),
                 ),
@@ -52,8 +53,8 @@ void main() {
     PairConfig? selected;
     await openSheet(
       tester,
-      fetcher: (_) async =>
-          throw const ModeFetchException('Cannot reach relay'),
+      modesController: ModesController(
+          (_) async => throw const ModeFetchException('Cannot reach relay')),
       onSelected: (c) => selected = c,
     );
 
@@ -78,7 +79,8 @@ void main() {
     PairConfig? selected;
     await openSheet(
       tester,
-      fetcher: (_) async => const <RelayModeInfo>[],
+      modesController:
+          ModesController((_) async => const <RelayModeInfo>[]),
       onSelected: (c) => selected = c,
     );
 
@@ -102,7 +104,7 @@ void main() {
                   context: context,
                   builder: (_) => ModePickerSheet(
                     config: config,
-                    fetcher: (_) => gate.future,
+                    modesController: ModesController((_) => gate.future),
                     onSelected: (_) async {},
                   ),
                 ),
@@ -127,7 +129,7 @@ void main() {
     PairConfig? selected;
     await openSheet(
       tester,
-      fetcher: (_) async => const [
+      modesController: ModesController((_) async => const [
         RelayModeInfo(
           mode: 'lan',
           url: 'ws://192.168.1.5:8375',
@@ -140,7 +142,7 @@ void main() {
           link: '',
           description: 'Tailscale VPN',
         ),
-      ],
+      ]),
       onSelected: (c) => selected = c,
     );
 
@@ -173,8 +175,8 @@ void main() {
                   context: context,
                   builder: (_) => ModePickerSheet(
                     config: withEndpoints,
-                    fetcher: (_) async =>
-                        throw const ModeFetchException('Cannot reach relay'),
+                    modesController: ModesController((_) async =>
+                        throw const ModeFetchException('Cannot reach relay')),
                     onSelected: (c) async => selected = c,
                   ),
                 ),
@@ -213,8 +215,8 @@ void main() {
                   context: context,
                   builder: (_) => ModePickerSheet(
                     config: withEndpoints,
-                    fetcher: (_) async =>
-                        throw const ModeFetchException('Cannot reach relay'),
+                    modesController: ModesController((_) async =>
+                        throw const ModeFetchException('Cannot reach relay')),
                     onSelected: (_) async {},
                   ),
                 ),

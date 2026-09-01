@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../controllers/agents_store.dart';
-import '../core/connection/mode_service.dart';
+import '../controllers/modes_controller.dart';
 import '../core/service_locator.dart';
 import '../models/pair_config.dart';
 import '../models/relay_agent.dart';
@@ -26,7 +26,7 @@ class HomePage extends StatefulWidget {
     required this.onAddDevice,
     required this.onForgetDevice,
     required this.onModeSelected,
-    this.modesFetcher,
+    this.modesController,
   });
 
   final PairConfig config;
@@ -45,8 +45,8 @@ class HomePage extends StatefulWidget {
   /// [PairConfig] parsed from the mode's link; the parent saves and reconnects.
   final Future<void> Function(PairConfig config) onModeSelected;
 
-  /// Injectable for tests; defaults to [ModeService.fetch].
-  final Future<List<RelayModeInfo>> Function(PairConfig config)? modesFetcher;
+  /// Injectable for tests; defaults to the global [ModesController].
+  final ModesController? modesController;
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -75,6 +75,10 @@ class _HomePageState extends State<HomePage> {
     final settings = getIt<AppSettings>();
     _tabIndex = settings.homeTabIndex.clamp(0, 2);
     _visitedTabs = {_tabIndex};
+    // Lazy load kept: the store is primed exactly when the Agents tab becomes
+    // visible — at startup if it's the restored tab, otherwise on first
+    // selection (see onDestinationSelected). Never from build.
+    if (_tabIndex == 1) _store.ensureLoaded();
   }
 
   Future<void> _disconnect() async {
@@ -82,15 +86,14 @@ class _HomePageState extends State<HomePage> {
     await widget.onForgetDevice();
   }
 
-  /// Opens the mode picker (fetches /pair modes via [ModeService], handles
+  /// Opens the mode picker (loads /pair modes via [ModesController], handles
   /// loading/error states inside the sheet) and applies the chosen mode.
   Future<void> _openModePicker() async {
-    final fetcher = widget.modesFetcher ?? getIt<ModeService>().fetch;
     await showModalBottomSheet<void>(
       context: context,
       builder: (_) => ModePickerSheet(
         config: widget.config,
-        fetcher: fetcher,
+        modesController: widget.modesController ?? getIt<ModesController>(),
         onSelected: widget.onModeSelected,
       ),
     );
@@ -265,6 +268,9 @@ class _HomePageState extends State<HomePage> {
         onDestinationSelected: (i) {
           // Remember the selected tab across app restarts (AppSettings).
           getIt<AppSettings>().setHomeTabIndex(i);
+          // Prime the Agents store the first time the tab is shown (was a
+          // build side effect before; ensureLoaded is idempotent).
+          if (i == 1) _store.ensureLoaded();
           setState(() {
             _tabIndex = i;
             _visitedTabs.add(i);
@@ -335,10 +341,9 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildBody() {
-    // Lazy load: the first build of the Agents tab triggers the snapshot
-    // fetch; later builds are no-ops (already loaded). Nothing is fetched
-    // until the user actually opens the tab.
-    _store.ensureLoaded();
+    // Lazy load: the store was primed when the Agents tab became visible
+    // (initState if restored, onDestinationSelected otherwise) — nothing is
+    // fetched until the user actually opens the tab.
     return ListenableBuilder(
       listenable: _store,
       builder: (context, _) {

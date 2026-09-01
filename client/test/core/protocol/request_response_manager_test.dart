@@ -23,7 +23,7 @@ void main() {
       expect(sent['type'], 'request');
       expect(sent['method'], 'agents.snapshot');
 
-      t.simulateMessage(jsonEncode({
+      rpc.handleMessage(jsonEncode({
         'type': 'response',
         'id': sent['id'],
         'ok': true,
@@ -43,7 +43,7 @@ void main() {
       await pumpEventQueue();
       final id = (jsonDecode(t.sentMessages.single) as Map)['id'];
 
-      t.simulateMessage(jsonEncode({
+      rpc.handleMessage(jsonEncode({
         'type': 'response',
         'id': id,
         'error': {'code': 'agent_blocked', 'message': 'agent is blocked'},
@@ -97,7 +97,7 @@ void main() {
       final rpc = RequestResponseManager(t);
       t.status.value = ConnectionStatus.connected;
 
-      t.simulateMessage('{"type":"ping"}');
+      rpc.handleMessage('{"type":"ping"}');
       await pumpEventQueue();
 
       expect(t.sentMessages, ['{"type":"pong"}']);
@@ -109,8 +109,8 @@ void main() {
       final rpc = RequestResponseManager(t);
       t.status.value = ConnectionStatus.connected;
 
-      t.simulateMessage('garbage');
-      t.simulateMessage('{"type":"event","event":"pane.updated","data":{}}');
+      rpc.handleMessage('garbage');
+      rpc.handleMessage('{"type":"event","event":"pane.updated","data":{}}');
       await pumpEventQueue();
 
       expect(t.sentMessages, isEmpty);
@@ -142,7 +142,7 @@ void main() {
       await pumpEventQueue();
 
       final sent = jsonDecode(t.sentMessages.single) as Map<String, dynamic>;
-      t.simulateMessage(jsonEncode({
+      rpc.handleMessage(jsonEncode({
         'type': 'response',
         'id': sent['id'],
         'ok': true,

@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../controllers/app_session_controller.dart';
+import '../controllers/modes_controller.dart';
 import '../core/connection/mode_service.dart';
 import '../core/service_locator.dart';
 import '../models/pair_config.dart';
@@ -23,7 +25,7 @@ class ConnectionPage extends StatefulWidget {
     required this.onSwitch,
     required this.onForgetActive,
     required this.onLink,
-    this.modesFetcher,
+    this.modesController,
   });
 
   /// The currently active pair.
@@ -38,8 +40,8 @@ class ConnectionPage extends StatefulWidget {
   /// Apply a pasted pair link (`herdrelay://pair?...`).
   final Future<void> Function(String link) onLink;
 
-  /// Injectable for tests; defaults to [ModeService.fetch] (with retries).
-  final Future<List<RelayModeInfo>> Function(PairConfig config)? modesFetcher;
+  /// Injectable for tests; defaults to the global [ModesController].
+  final ModesController? modesController;
 
   @override
   State<ConnectionPage> createState() => _ConnectionPageState();
@@ -50,8 +52,12 @@ class _ConnectionPageState extends State<ConnectionPage> {
   RelayClient? _client;
   List<PairConfig> _profiles = const [];
   String? _activeKey;
-  List<RelayModeInfo> _modes = const [];
-  bool _fetchingModes = true;
+  late final ModesController _modesController =
+      widget.modesController ?? getIt<ModesController>();
+  /// Root session: when a config switch recreates the relay services, the
+  /// cached [_client] becomes a reference to a disposed object, so the status
+  /// listener is re-bound to the fresh client (see [_attachClient]).
+  late final AppSessionController _session = getIt<AppSessionController>();
   bool _checking = false;
   bool _checkOk = false;
   String? _checkResult;
@@ -61,10 +67,9 @@ class _ConnectionPageState extends State<ConnectionPage> {
   @override
   void initState() {
     super.initState();
-    if (getIt.isRegistered<RelayClient>()) {
-      _client = getIt<RelayClient>();
-      _client!.status.addListener(_onStatus);
-    }
+    _session.addListener(_onSessionChanged);
+    _attachClient();
+    _modesController.addListener(_onModesChanged);
     _reloadProfiles();
     _loadModes();
   }
@@ -72,11 +77,33 @@ class _ConnectionPageState extends State<ConnectionPage> {
   @override
   void dispose() {
     _client?.status.removeListener(_onStatus);
+    _session.removeListener(_onSessionChanged);
+    _modesController.removeListener(_onModesChanged);
     _linkController.dispose();
     super.dispose();
   }
 
+  /// (Re)binds the status listener to the current relay client. Called at open
+  /// and again whenever [_onSessionChanged] fires: a config switch tears down
+  /// the old client and registers a fresh one, and the old reference must not
+  /// be listened to anymore.
+  void _attachClient() {
+    _client?.status.removeListener(_onStatus);
+    _client = getIt.isRegistered<RelayClient>() ? getIt<RelayClient>() : null;
+    _client?.status.addListener(_onStatus);
+  }
+
+  void _onSessionChanged() {
+    if (!mounted) return;
+    _attachClient();
+    setState(() {});
+  }
+
   void _onStatus() {
+    if (mounted) setState(() {});
+  }
+
+  void _onModesChanged() {
     if (mounted) setState(() {});
   }
 
@@ -91,22 +118,11 @@ class _ConnectionPageState extends State<ConnectionPage> {
     });
   }
 
-  Future<void> _loadModes() async {
-    setState(() => _fetchingModes = true);
-    try {
-      final modes = await (widget.modesFetcher ?? getIt<ModeService>().fetch)(
-          widget.config);
-      if (!mounted) return;
-      setState(() => _modes = modes);
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _modes = const []);
-      if (mounted) {
-        ToastService.showError(context, e);
-      }
-    } finally {
-      if (mounted) setState(() => _fetchingModes = false);
-    }
+  Future<void> _loadModes({bool force = false}) async {
+    await _modesController.load(widget.config, force: force);
+    if (!mounted) return;
+    final error = _modesController.state.errorOrNull;
+    if (error != null) ToastService.showError(context, error);
   }
 
   Future<void> _checkConnection() async {
@@ -152,11 +168,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
     try {
       // Merge every advertised endpoint into the profile so switching modes
       // never forgets the others (LAN IP + tailnet name + funnel).
-      final config = widget.config
-          .withEndpoints({
-            for (final m in _modes) m.mode: RelayEndpoint.fromUrl(m.url),
-          })
-          .connectVia(mode.mode, RelayEndpoint.fromUrl(mode.url));
+      final config = _modesController.switchMode(widget.config, mode);
       await widget.onSwitch(config);
       if (mounted) {
         ToastService.showSuccess(context, 'Switched to ${mode.mode}');
@@ -372,6 +384,8 @@ class _ConnectionPageState extends State<ConnectionPage> {
   }
 
   Widget _modesCard(ThemeData theme) {
+    final state = _modesController.state;
+    final modes = state.dataOrNull ?? const <RelayModeInfo>[];
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -385,11 +399,11 @@ class _ConnectionPageState extends State<ConnectionPage> {
                 IconButton(
                   icon: const Icon(Icons.refresh),
                   tooltip: 'Refresh modes',
-                  onPressed: _loadModes,
+                  onPressed: () => _loadModes(force: true),
                 ),
               ],
             ),
-            if (_fetchingModes)
+            if (state.isLoading)
               const Padding(
                 padding: EdgeInsets.all(8),
                 child: Center(
@@ -400,11 +414,11 @@ class _ConnectionPageState extends State<ConnectionPage> {
                   ),
                 ),
               )
-            else if (_modes.isEmpty)
+            else if (modes.isEmpty)
               Text('No modes available — relay unreachable?',
                   style: theme.textTheme.bodySmall)
             else
-              for (final mode in _modes)
+              for (final mode in modes)
                 RadioListTile<String>(
                   dense: true,
                   title: Text(mode.mode),

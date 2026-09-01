@@ -15,20 +15,39 @@ import 'agent_page.dart';
 /// Pure view over [SessionController] (load, reconnect catch-up and structure
 /// refresh) + [AgentsStore] (live workspace statuses derived from agent
 /// statuses — the same single source as the Agents tab).
-class SpacesPage extends StatelessWidget {
+class SpacesPage extends StatefulWidget {
   const SpacesPage({super.key});
 
   @override
+  State<SpacesPage> createState() => _SpacesPageState();
+}
+
+class _SpacesPageState extends State<SpacesPage> {
+  late final SessionController _controller;
+  late final AgentsStore _store;
+
+  /// The merged listenable is created once in [initState] — recreating it in
+  /// `build` would re-subscribe the builder on every rebuild.
+  late final Listenable _listenable;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = getIt<SessionController>();
+    _store = getIt<AgentsStore>();
+    // Loads once (idempotent afterwards); kept out of build so no side
+    // effects run during layout.
+    _controller.ensureLoaded();
+    _store.ensureLoaded();
+    _listenable = Listenable.merge([_controller, _store]);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final controller = getIt<SessionController>();
-    final store = getIt<AgentsStore>();
-    // Loads once on the first build (idempotent afterwards).
-    controller.ensureLoaded();
-    store.ensureLoaded();
     return ListenableBuilder(
-      listenable: Listenable.merge([controller, store]),
+      listenable: _listenable,
       builder: (context, _) {
-        return switch (controller.state) {
+        return switch (_controller.state) {
           AsyncIdle() || AsyncLoading() =>
             const Center(child: CircularProgressIndicator()),
           AsyncError(:final error) => Center(
@@ -40,7 +59,7 @@ class SpacesPage extends StatelessWidget {
                     Text('$error', textAlign: TextAlign.center),
                     const SizedBox(height: 12),
                     FilledButton.tonal(
-                      onPressed: controller.refresh,
+                      onPressed: _controller.refresh,
                       child: const Text('Retry'),
                     ),
                   ],
@@ -51,8 +70,8 @@ class SpacesPage extends StatelessWidget {
             const Center(child: Text('No workspaces')),
           AsyncData(:final data) => _WorkspaceList(
               session: data,
-              store: store,
-              onRefresh: controller.refresh,
+              store: _store,
+              onRefresh: _controller.refresh,
             ),
         };
       },

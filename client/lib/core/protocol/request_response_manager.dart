@@ -11,6 +11,11 @@ import 'relay_protocol.dart';
 /// This is the whole RPC semantics of the relay protocol, extracted from the
 /// legacy `WsRelayClient._request/_onResponse/_failPending/_waitForConnected`
 /// (docs/09-refactoring-plan.md §2.2).
+///
+/// The manager does NOT subscribe to [Transport.messages] itself: the owning
+/// [RelayClientImpl] is the single transport subscriber, parses each frame
+/// once, surfaces events, and routes everything else here via [handleFrame]
+/// (docs/09-refactoring-plan.md §2.3, M2 — one frame parse per message).
 class RequestResponseManager {
   /// [requestTimeout] and [connectWait] are injectable for tests
   /// (15 s / 8 s in production).
@@ -19,7 +24,6 @@ class RequestResponseManager {
     this.requestTimeout = const Duration(seconds: 15),
     this.connectWait = const Duration(seconds: 8),
   }) {
-    _messagesSub = _transport.messages.listen(_onMessage);
     _transport.status.addListener(_onStatus);
     _statusListener = _onStatus;
   }
@@ -30,7 +34,6 @@ class RequestResponseManager {
 
   final Map<int, Completer<Map<String, dynamic>>> _pending = {};
   int _nextId = 1;
-  StreamSubscription<String>? _messagesSub;
   late final void Function() _statusListener;
 
   /// Sends a request and waits for the matching response.
@@ -74,14 +77,25 @@ class RequestResponseManager {
     }
   }
 
-  void _onMessage(String raw) {
+  /// Handles one raw inbound frame.
+  ///
+  /// The owning client parses each frame exactly once and routes non-event
+  /// frames to [handleFrame]; this entry point exists for callers (and tests)
+  /// that only have the raw text — it parses, then delegates.
+  void handleMessage(String raw) {
     final Frame frame;
     try {
       frame = Frame.parse(raw);
     } on ProtocolException {
       return; // garbage frame — ignore
     }
+    handleFrame(frame);
+  }
 
+  /// Routes one already-parsed frame: resolves matching responses, answers
+  /// server pings, and ignores events/requests/pongs (events are surfaced to
+  /// the UI by RelayClientImpl, not here).
+  void handleFrame(Frame frame) {
     switch (frame) {
       case ResponseFrame():
         final completer = _pending.remove(frame.id);
@@ -143,8 +157,6 @@ class RequestResponseManager {
 
   /// Stops listening; call from the owning client's `close()`.
   void dispose() {
-    _messagesSub?.cancel();
-    _messagesSub = null;
     _transport.status.removeListener(_statusListener);
     _failPending();
   }

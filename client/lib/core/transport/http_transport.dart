@@ -144,11 +144,17 @@ class HttpTransport with ReconnectMixin implements Transport {
           if (res.statusCode == 200) {
             _messages.add(res.body);
           } else {
+            // A non-2xx RPC means the relay is down or rejected us: tear the
+            // connection down so pending requests fail fast through
+            // RequestResponseManager._failPending instead of waiting out the
+            // 15 s timeout (docs/09-refactoring-plan.md Phase 6).
             lastError = 'RPC ${res.statusCode}';
+            _onDisconnected();
           }
         })
         .catchError((Object e) {
           lastError = '$e';
+          _onDisconnected();
         });
   }
 

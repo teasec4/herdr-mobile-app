@@ -78,6 +78,11 @@ class RelayClientImpl implements RelayClient {
     }
     if (frame is EventFrame) {
       _events.add(RelayEvent.fromJson({'name': frame.event, 'data': frame.data}));
+    } else {
+      // Responses and server pings are the RPC manager's business. Passing the
+      // already-parsed frame keeps exactly one Frame.parse per inbound frame
+      // (docs/09-refactoring-plan.md §2.3, M2).
+      _rpc.handleFrame(frame);
     }
   }
 

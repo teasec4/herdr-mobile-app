@@ -17,10 +17,16 @@ class AgentRepository {
   /// disk write (status bursts can trigger many refreshes per second).
   String? _lastCachedJson;
 
+  /// Cap on the in-memory per-pane output cache: a long session opening many
+  /// panes would otherwise grow it unbounded.
+  static const int _outputCacheCap = 50;
+
   /// In-memory cache of the last fetched output per pane (id -> text+revision).
   /// A live refresh whose revision matches what we already hold skips the RPC
-  /// entirely (docs/14-terminal-stream-implementation-plan.md §2.4).
-  final Map<String, _CachedOutput> _outputCache = {};
+  /// entirely (docs/14-terminal-stream-implementation-plan.md §2.4). Backed by
+  /// an insertion-ordered map used as an LRU: hits/inserts refresh recency,
+  /// overflow evicts the least recently used entry.
+  final Map<String, _CachedOutput> _outputCache = <String, _CachedOutput>{};
 
   AgentRepository(this._client, this._settings);
 
@@ -70,6 +76,28 @@ class AgentRepository {
     }
   }
 
+  /// Whether a cache entry can satisfy a refresh for [knownRevision].
+  ///
+  /// Revisions <= 0 mean "changed or unknown" (herdr's scroll events carry no
+  /// revision and the default is 0), so an absent/zero known revision must
+  /// never hit the cache — replaying stale text would freeze the terminal.
+  bool _cacheHits(_CachedOutput? cached, int? knownRevision) =>
+      knownRevision != null &&
+      knownRevision > 0 &&
+      cached != null &&
+      cached.revision == knownRevision;
+
+  /// Stores the last output for [id], refreshing LRU recency and evicting the
+  /// least recently used entry when the cache exceeds its cap.
+  void _cacheOutput(String id, String text, int revision) {
+    _outputCache.remove(id); // re-insert so it becomes the most recent
+    _outputCache[id] = _CachedOutput(text, revision);
+    if (_outputCache.length > _outputCacheCap) {
+      // Insertion order == recency order; the first key is the oldest.
+      _outputCache.remove(_outputCache.keys.first);
+    }
+  }
+
   /// Get agent output.
   ///
   /// When [knownRevision] matches the revision of the last fetched output, the
@@ -77,13 +105,9 @@ class AgentRepository {
   Future<String> getOutput(String agentId,
       {int lines = 500, int? knownRevision}) async {
     final cached = _outputCache[agentId];
-    if (knownRevision != null &&
-        cached != null &&
-        cached.revision == knownRevision) {
-      return cached.text;
-    }
+    if (_cacheHits(cached, knownRevision)) return cached!.text;
     final result = await _client.output(agentId, lines: lines, format: 'ansi');
-    _outputCache[agentId] = _CachedOutput(result.text, result.revision);
+    _cacheOutput(agentId, result.text, result.revision);
     return result.text;
   }
 
@@ -91,13 +115,9 @@ class AgentRepository {
   Future<String> getPaneOutput(String paneId,
       {int lines = 500, int? knownRevision}) async {
     final cached = _outputCache[paneId];
-    if (knownRevision != null &&
-        cached != null &&
-        cached.revision == knownRevision) {
-      return cached.text;
-    }
+    if (_cacheHits(cached, knownRevision)) return cached!.text;
     final result = await _client.paneOutput(paneId, lines: lines, format: 'ansi');
-    _outputCache[paneId] = _CachedOutput(result.text, result.revision);
+    _cacheOutput(paneId, result.text, result.revision);
     return result.text;
   }
 
