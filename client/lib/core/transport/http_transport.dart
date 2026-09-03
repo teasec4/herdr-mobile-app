@@ -80,7 +80,12 @@ class HttpTransport with ReconnectMixin implements Transport {
       final request = http.Request('GET', _streamUri)
         ..headers['Accept'] = 'text/event-stream'
         ..headers['Authorization'] = 'Bearer $token';
-      final response = await _client.send(request);
+      // Bound the SSE open: a relay that accepts the TCP connection but never
+      // answers the GET headers must fail into the reconnect/backoff path
+      // instead of leaving the transport in "connecting" forever (same idea as
+      // WebSocketTransport.connectTimeout).
+      final response =
+          await _client.send(request).timeout(const Duration(seconds: 8));
       if (response.statusCode != 200) {
         lastError = 'SSE ${response.statusCode}';
         status.value = ConnectionStatus.disconnected;
@@ -141,6 +146,7 @@ class HttpTransport with ReconnectMixin implements Transport {
           body: data,
         )
         .then((res) {
+          if (_closed) return;
           if (res.statusCode == 200) {
             _messages.add(res.body);
           } else {
@@ -153,6 +159,7 @@ class HttpTransport with ReconnectMixin implements Transport {
           }
         })
         .catchError((Object e) {
+          if (_closed) return;
           lastError = '$e';
           _onDisconnected();
         });

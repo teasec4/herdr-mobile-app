@@ -62,9 +62,9 @@ command = ["herdr-board"]
 
 ```bash
 # из GitHub (shorthand owner/repo[/subdir]):
-herdr plugin install yg_kovalev/herdr_relay/plugin
+herdr plugin install teasec4/herdr-mobile-app/plugin
 # локально при разработке:
-herdr plugin link /Users/yg_kovalev/go/herdr_relay/plugin
+herdr plugin link ~/herdr-relay/plugin
 # проверить/управлять:
 herdr plugin list
 herdr plugin action list --plugin herdrelay.events

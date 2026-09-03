@@ -6,6 +6,7 @@ import 'package:client/models/relay_event.dart';
 import 'package:client/pages/agent_page.dart';
 import 'package:client/pages/help_page.dart';
 import 'package:client/pages/home_page.dart';
+import 'package:client/pages/settings_page.dart';
 import 'package:client/services/relay_client.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -54,17 +55,20 @@ void main() {
     Future<void> Function()? onSwitch,
     Future<void> Function(PairConfig)? onModeSelected,
     ModesController? modesController,
+    Duration gateTimeout = const Duration(seconds: 10),
+    PairConfig? cfg,
   }) async {
     await tester.pumpWidget(
       MaterialApp(
         home: HomePage(
-          config: config,
+          config: cfg ?? config,
           onRequestSwitch: onSwitch ?? () async {},
           onAddDevice: () async {},
           onForgetDevice: () async {},
           onModeSelected: onModeSelected ?? (_) async {},
           modesController:
               modesController ?? ModesController((_) async => stubModes),
+          gateTimeout: gateTimeout,
         ),
       ),
     );
@@ -260,35 +264,14 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('показывает четыре пункта: Connection, Add, Forget, Help',
-        (tester) async {
+    testWidgets('показывает пункты: Add, Forget', (tester) async {
       await pumpHome(tester);
       await openMenu(tester);
-      expect(find.text('Connection…'), findsOneWidget);
       expect(find.text('Add device…'), findsOneWidget);
       expect(find.text('Forget device'), findsOneWidget);
-      expect(find.text('Help'), findsOneWidget);
-    });
-
-    testWidgets('«Help» открывает HelpPage', (tester) async {
-      await pumpHome(tester);
-      await openMenu(tester);
-
-      await tester.tap(find.text('Help'));
-      await tester.pumpAndSettle();
-
-      expect(find.byType(HelpPage), findsOneWidget);
-      expect(find.text('Connection issues'), findsOneWidget);
-    });
-
-    testWidgets('«Connection…» вызывает onRequestSwitch', (tester) async {
-      var switched = false;
-      await pumpHome(tester, onSwitch: () async => switched = true);
-      await openMenu(tester);
-
-      await tester.tap(find.text('Connection…'));
-      await tester.pumpAndSettle();
-      expect(switched, isTrue);
+      // Connection/Help/Notifications теперь живут во вкладке Settings.
+      expect(find.text('Connection…'), findsNothing);
+      expect(find.text('Help'), findsNothing);
     });
 
     testWidgets('«Forget device» спрашивает подтверждение и забывает', (tester) async {
@@ -317,6 +300,102 @@ void main() {
       await tester.tap(find.widgetWithText(FilledButton, 'Forget'));
       await tester.pumpAndSettle();
       expect(forgot, isTrue);
+    });
+  });
+
+  group('вкладка Settings', () {
+    Future<void> goToSettings(WidgetTester tester) async {
+      await tester.tap(find.text('Settings'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('показывает разделы и статус соединения', (tester) async {
+      client.status.value = RelayStatus.connected;
+      await pumpHome(tester);
+      await goToSettings(tester);
+
+      expect(find.text('Connection'), findsOneWidget);
+      expect(find.text('Notifications'), findsOneWidget);
+      expect(find.textContaining('lan · 192.168.1.5'), findsOneWidget);
+      // «online» есть и в AppBar, и в карточке соединения.
+      expect(find.text('online'), findsWidgets);
+
+      // Секции Terminal/About ниже области видимости ListView — докручиваем.
+      await tester.dragUntilVisible(
+        find.text('About'),
+        find.byType(SettingsPage),
+        const Offset(0, -200),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Terminal'), findsOneWidget);
+      expect(find.text('About'), findsOneWidget);
+    });
+
+    testWidgets('свитч режима из сохранённых endpoints (офлайн)',
+        (tester) async {
+      PairConfig? switched;
+      final cfg = PairConfig(
+        host: '192.168.1.5',
+        port: 8375,
+        mode: 'lan',
+        token: '0123456789abcdef0123456789abcdef',
+        endpoints: {
+          'lan': RelayEndpoint(host: '192.168.1.5', port: 8375),
+          'tailscale': RelayEndpoint(host: 'mac.tailnet.ts.net', port: 8375),
+        },
+      );
+      await pumpHome(
+        tester,
+        cfg: cfg,
+        onModeSelected: (c) async => switched = c,
+      );
+      await goToSettings(tester);
+
+      await tester.tap(find.text('tailscale'));
+      await tester.pumpAndSettle();
+
+      expect(switched, isNotNull);
+      expect(switched!.mode, 'tailscale');
+      expect(switched!.host, 'mac.tailnet.ts.net');
+    });
+
+    testWidgets('«More modes…» открывает выбор режима', (tester) async {
+      await pumpHome(tester);
+      await goToSettings(tester);
+
+      await tester.tap(find.text('More modes…'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Connection mode'), findsOneWidget);
+    });
+
+    testWidgets('«Connection settings…» вызывает onRequestSwitch',
+        (tester) async {
+      var switched = false;
+      await pumpHome(tester, onSwitch: () async => switched = true);
+      await goToSettings(tester);
+
+      await tester.tap(find.text('Connection settings…'));
+      await tester.pumpAndSettle();
+      expect(switched, isTrue);
+    });
+
+    testWidgets('«Help & troubleshooting» открывает HelpPage', (tester) async {
+      await pumpHome(tester);
+      await goToSettings(tester);
+
+      await tester.dragUntilVisible(
+        find.text('Help & troubleshooting'),
+        find.byType(SettingsPage),
+        const Offset(0, -200),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Help & troubleshooting'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(HelpPage), findsOneWidget);
+      expect(find.text('Connection issues'), findsOneWidget);
     });
   });
 
@@ -402,5 +481,61 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
 
     expect(client.snapshotCalls, before, reason: 'offline events must not refresh');
+  });
+
+  // --- Phase B: unreachable-relay gate --------------------------------------
+
+  group('гейт при недоступном relay', () {
+    testWidgets('появляется после таймаута, если соединение не встало',
+        (tester) async {
+      client.status.value = RelayStatus.connecting;
+      await pumpHome(tester, gateTimeout: const Duration(seconds: 1));
+      expect(find.text('Cannot reach the relay'), findsNothing);
+
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump();
+      expect(find.text('Cannot reach the relay'), findsOneWidget);
+    });
+
+    testWidgets('«Try again» прячет гейт и перезапускает отсчёт',
+        (tester) async {
+      client.status.value = RelayStatus.connecting;
+      await pumpHome(tester, gateTimeout: const Duration(seconds: 1));
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump();
+      expect(find.text('Cannot reach the relay'), findsOneWidget);
+
+      await tester.tap(find.text('Try again'));
+      await tester.pump();
+      expect(find.text('Cannot reach the relay'), findsNothing);
+
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump();
+      expect(find.text('Cannot reach the relay'), findsOneWidget);
+    });
+
+    testWidgets('подключение до таймаута не показывает гейт', (tester) async {
+      client.status.value = RelayStatus.connecting;
+      await pumpHome(tester, gateTimeout: const Duration(seconds: 5));
+
+      await tester.pump(const Duration(seconds: 2));
+      expect(find.text('Cannot reach the relay'), findsNothing);
+
+      client.status.value = RelayStatus.connected;
+      await tester.pump(const Duration(seconds: 4));
+      expect(find.text('Cannot reach the relay'), findsNothing);
+    });
+
+    testWidgets('«Change mode…» открывает выбор режима из гейта', (tester) async {
+      client.status.value = RelayStatus.connecting;
+      await pumpHome(tester, gateTimeout: const Duration(seconds: 1));
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump();
+      expect(find.text('Cannot reach the relay'), findsOneWidget);
+
+      await tester.tap(find.text('Change mode…'));
+      await tester.pumpAndSettle();
+      expect(find.text('Connection mode'), findsOneWidget);
+    });
   });
 }

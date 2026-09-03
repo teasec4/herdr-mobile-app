@@ -36,15 +36,23 @@ class RequestResponseManager {
   int _nextId = 1;
   late final void Function() _statusListener;
 
+  /// Set by [dispose]; a request after close must fail fast instead of
+  /// registering a pending id whose completer no one will ever resolve.
+  bool _disposed = false;
+
   /// Sends a request and waits for the matching response.
   ///
-  /// Throws [RelayException] with `not_connected` if the transport is not
-  /// connected (after a short cold-start wait), `timeout` if the relay does
-  /// not answer within [requestTimeout], or the relay's own error code.
+  /// Throws [RelayException] with `closed` if the manager has been disposed,
+  /// `not_connected` if the transport is not connected (after a short
+  /// cold-start wait), `timeout` if the relay does not answer within
+  /// [requestTimeout], or the relay's own error code.
   Future<Map<String, dynamic>> request(
     String method,
     Map<String, dynamic> params,
   ) async {
+    if (_disposed) {
+      throw const RelayException('closed', 'Relay client is closed');
+    }
     if (_transport.status.value != ConnectionStatus.connected) {
       // Give the transport a moment to (re)connect on a cold start instead of
       // failing the first operation instantly.
@@ -157,6 +165,7 @@ class RequestResponseManager {
 
   /// Stops listening; call from the owning client's `close()`.
   void dispose() {
+    _disposed = true;
     _transport.status.removeListener(_statusListener);
     _failPending();
   }

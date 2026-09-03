@@ -8,7 +8,7 @@ Thank you for your interest in contributing to HerdRelay! This document provides
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/yg_kovalev/herdr_relay.git
+   git clone https://github.com/teasec4/herdr-mobile-app.git
    cd herdr_relay
    ```
 
@@ -207,6 +207,6 @@ By contributing, you agree that your contributions will be licensed under the sa
 
 ## Questions?
 
-Open a [Discussion](https://github.com/yg_kovalev/herdr_relay/discussions) or reach out in the herdr community.
+Open a [Discussion](https://github.com/teasec4/herdr-mobile-app/discussions) or reach out in the herdr community.
 
 Thank you for contributing! 🚀

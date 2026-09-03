@@ -32,7 +32,7 @@
 
 1. **quick-start.sh** — Скрипт быстрой установки
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/yg_kovalev/herdr_relay/main/quick-start.sh | bash
+   curl -fsSL https://raw.githubusercontent.com/teasec4/herdr-mobile-app/main/quick-start.sh | bash
    ```
 
 2. **GitHub Actions** — CI/CD пайплайны
@@ -74,7 +74,7 @@ mkdir -p docs/images
 
 Попроси кого-нибудь (или используй VM):
 ```bash
-herdr plugin install yg_kovalev/herdr_relay/plugin
+herdr plugin install teasec4/herdr-mobile-app/plugin
 # Следуй INSTALL.md
 # Запиши все проблемы
 ```

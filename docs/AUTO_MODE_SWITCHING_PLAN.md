@@ -65,7 +65,7 @@ When you leave home, you won't be able to connect unless:
 Device
 ┌─────────────────────────────────┐
 │ 💻 MacBook Pro    [LAN only] ⚠️│
-│ 192.168.31.89:8375              │
+│ 192.168.1.100:8375              │
 └─────────────────────────────────┘
 ```
 
@@ -394,7 +394,7 @@ class _HomePageState extends State<HomePage> {
 ```
 Connection mode
 ┌─────────────────────────────────────┐
-│ ○ LAN (192.168.31.89)               │
+│ ○ LAN (192.168.1.100)               │
 │ ○ Tailscale (not configured)        │
 │                                      │
 │ [Switch mode manually] →            │

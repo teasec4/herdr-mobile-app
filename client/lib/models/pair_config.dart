@@ -70,7 +70,8 @@ class PairConfig {
   /// Network mode: lan / tailscale / funnel / gateway.
   final String mode;
 
-  /// Pair secret (64 hex), also used as the WS token (`?token=` in the query).
+  /// Pair secret (64 hex), also used as the WS token — sent by
+  /// [WebSocketTransport] as an `Authorization: Bearer` header.
   final String token;
 
   /// Stable relay identity (32 hex), unique per relay machine.
@@ -86,6 +87,11 @@ class PairConfig {
 
   /// The stored endpoint for [mode], or null when never seen.
   RelayEndpoint? endpointFor(String mode) => endpoints[mode];
+
+  /// True when the relay is reachable over the local network only: exactly one
+  /// endpoint and that one is LAN. Away from home it is unreachable, so pages
+  /// surface a warning and push the user towards Tailscale/Funnel.
+  bool get isLanOnly => endpoints.length == 1 && mode == 'lan';
 
   /// Returns a copy with [more] endpoints merged in (active connection
   /// unchanged). Used to remember every mode /pair advertised.
@@ -116,8 +122,22 @@ class PairConfig {
     );
   }
 
+  /// Returns a copy connected via the stored endpoint for [mode], or null when
+  /// the profile never saw that mode. Offline quick-switch: null-check +
+  /// [connectVia] in one place, so callers cannot forget the null case.
+  PairConfig? viaStoredEndpoint(String mode) {
+    final endpoint = endpoints[mode];
+    if (endpoint == null) return null;
+    return connectVia(mode, endpoint);
+  }
+
   static const int defaultPort = 8375;
   static const String defaultMode = 'lan';
+
+  /// Network modes the relay can be reached over, in display order — the
+  /// single source for mode pickers/dropdowns (see `mode_icons.dart` for the
+  /// matching icon/label helpers).
+  static const List<String> knownModes = ['lan', 'tailscale', 'funnel'];
 
   static const String _scheme = 'herdrelay';
   static const String _pairHost = 'pair';
@@ -181,12 +201,15 @@ class PairConfig {
     if (token.length < _minTokenLength) {
       throw const FormatException('Token too short — corrupted link');
     }
-    // Token is embedded raw into the `wsUri` query string. Reject characters
-    // that would corrupt the URL (a real token is hex and never contains these).
+    // The token is sent to the relay as an Authorization: Bearer header.
+    // Reject characters that would break header framing (CR/LF) or that
+    // indicate a corrupted link (a real token is hex and never contains these).
     if (token.contains('&') ||
         token.contains('#') ||
         token.contains(' ') ||
-        token.contains('?')) {
+        token.contains('?') ||
+        token.contains('\n') ||
+        token.contains('\r')) {
       throw const FormatException('Token contains invalid characters — corrupted link');
     }
 
@@ -210,12 +233,13 @@ class PairConfig {
   /// Host wrapped in square brackets for IPv6 (`Uri.host` strips the brackets).
   String get _authority => host.contains(':') && !host.startsWith('[') ? '[$host]' : host;
 
-  /// WS address of the relay for the WebSocket connection (token in the query).
+  /// WS address of the relay for the WebSocket connection. The token is NOT
+  /// in the URL — [WebSocketTransport] sends it as an Authorization header.
   Uri get wsUri {
     // Funnel mode uses secure WebSocket (wss://) over HTTPS
     final scheme = mode == 'funnel' ? 'wss' : 'ws';
     final portSuffix = mode == 'funnel' ? '' : ':$port';
-    return Uri.parse('$scheme://$_authority$portSuffix/ws?token=$token');
+    return Uri.parse('$scheme://$_authority$portSuffix/ws');
   }
 
   /// HTTP address of /healthz for a quick availability check.

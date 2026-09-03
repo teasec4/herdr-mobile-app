@@ -11,6 +11,7 @@ import '../services/config_store.dart';
 import '../services/relay_client.dart';
 import '../utils/toast_service.dart';
 import '../widgets/manual_mode_dialog.dart';
+import '../widgets/mode_icons.dart';
 
 /// Connection screen: the active pair, live status, connection test,
 /// available modes from the relay, saved devices, and pair-link entry —
@@ -89,7 +90,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
   /// be listened to anymore.
   void _attachClient() {
     _client?.status.removeListener(_onStatus);
-    _client = getIt.isRegistered<RelayClient>() ? getIt<RelayClient>() : null;
+    _client = _session.liveClient;
     _client?.status.addListener(_onStatus);
   }
 
@@ -172,6 +173,23 @@ class _ConnectionPageState extends State<ConnectionPage> {
       await widget.onSwitch(config);
       if (mounted) {
         ToastService.showSuccess(context, 'Switched to ${mode.mode}');
+      }
+    } catch (e) {
+      if (mounted) ToastService.showError(context, e);
+    }
+  }
+
+  /// Switches to a stored endpoint (offline quick-switch: no /pair needed).
+  /// Shown when the relay is unreachable but the profile remembers endpoints
+  /// for this relay — e.g. Tailscale on the phone but the LAN /pair is not
+  /// reachable, exactly the case where the switch is needed.
+  Future<void> _switchToLocalMode(String mode) async {
+    final cfg = widget.config.viaStoredEndpoint(mode);
+    if (cfg == null) return;
+    try {
+      await widget.onSwitch(cfg);
+      if (mounted) {
+        ToastService.showSuccess(context, 'Switched to $mode');
       }
     } catch (e) {
       if (mounted) ToastService.showError(context, e);
@@ -268,7 +286,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
     final c = widget.config;
     // LAN-only profile: the badge + hint warn that the relay is unreachable
     // away from home (AUTO_MODE_SWITCHING_PLAN, Phase 1.2).
-    final lanOnly = c.endpoints.length == 1 && c.endpoints.containsKey('lan');
+    final lanOnly = c.isLanOnly;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -386,6 +404,11 @@ class _ConnectionPageState extends State<ConnectionPage> {
   Widget _modesCard(ThemeData theme) {
     final state = _modesController.state;
     final modes = state.dataOrNull ?? const <RelayModeInfo>[];
+    final saved = widget.config.endpoints;
+    // Spinner only while /pair is actually loading AND nothing usable is on
+    // screen yet: with saved endpoints we can offer an offline switch straight
+    // away instead of blocking on a ~16 s retry window.
+    final showSpinner = state.isLoading && modes.isEmpty && saved.isEmpty;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -403,7 +426,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
                 ),
               ],
             ),
-            if (state.isLoading)
+            if (showSpinner)
               const Padding(
                 padding: EdgeInsets.all(8),
                 child: Center(
@@ -414,10 +437,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
                   ),
                 ),
               )
-            else if (modes.isEmpty)
-              Text('No modes available — relay unreachable?',
-                  style: theme.textTheme.bodySmall)
-            else
+            else if (modes.isNotEmpty)
               for (final mode in modes)
                 RadioListTile<String>(
                   dense: true,
@@ -426,7 +446,33 @@ class _ConnectionPageState extends State<ConnectionPage> {
                   value: mode.mode,
                   groupValue: widget.config.mode,
                   onChanged: (_) => _switchMode(mode),
-                ),
+                )
+            else if (saved.isNotEmpty)
+              // Offline quick-switch: /pair failed, but the profile remembers
+              // endpoints for this relay — switch without any network.
+              ...[
+                Text('Saved modes for this relay',
+                    style: theme.textTheme.bodySmall),
+                const SizedBox(height: 4),
+                for (final entry in saved.entries)
+                  ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(
+                      modeIcon(entry.key),
+                      size: 18,
+                    ),
+                    title: Text(entry.key),
+                    subtitle: Text(entry.value.toString()),
+                    trailing: entry.key == widget.config.mode
+                        ? const Icon(Icons.check, size: 16)
+                        : null,
+                    onTap: () => _switchToLocalMode(entry.key),
+                  ),
+              ]
+            else
+              Text('No modes available — relay unreachable?',
+                  style: theme.textTheme.bodySmall),
             const SizedBox(height: 4),
             TextButton.icon(
               onPressed: _openManualMode,

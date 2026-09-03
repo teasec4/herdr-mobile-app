@@ -18,7 +18,6 @@ import '../services/relay_client_impl.dart';
 import 'connection/connection_manager.dart';
 import 'connection/mode_service.dart';
 import 'transport/http_transport.dart';
-import 'transport/retry_policy.dart';
 import 'transport/transport.dart';
 import 'transport/websocket_transport.dart';
 
@@ -121,15 +120,12 @@ Future<void> setupRelayServices(
     // One transport shared by the connection manager and the client.
     final Transport transport = switch (transportMode) {
       'http' => HttpTransport(baseUri: config.httpBaseUri, token: config.token),
-      _ => WebSocketTransport(),
+      _ => WebSocketTransport(token: config.token),
     };
-    final retryPolicy = ExponentialBackoff();
     // Expose the transport so ConnectionFallbackManager (main.dart) can watch
     // the connection state and auto-switch to another saved endpoint.
     getIt.registerSingleton<Transport>(transport);
-    getIt.registerSingleton<ConnectionManager>(
-      ConnectionManager(transport, retryPolicy),
-    );
+    getIt.registerSingleton<ConnectionManager>(ConnectionManager(transport));
     getIt.registerSingleton<RelayClient>(
       RelayClientImpl(config, transport: transport),
     );

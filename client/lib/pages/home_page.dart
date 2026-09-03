@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../controllers/agents_store.dart';
@@ -12,9 +14,8 @@ import '../utils/async_value.dart';
 import '../widgets/mode_picker_sheet.dart';
 import '../widgets/status_chip.dart';
 import 'agent_page.dart';
-import 'help_page.dart';
-import 'notification_settings_page.dart';
 import 'run_page.dart';
+import 'settings_page.dart';
 import 'spaces_page.dart';
 
 /// Main screen: connection status and the list of agents on the computer.
@@ -27,6 +28,7 @@ class HomePage extends StatefulWidget {
     required this.onForgetDevice,
     required this.onModeSelected,
     this.modesController,
+    this.gateTimeout = const Duration(seconds: 10),
   });
 
   final PairConfig config;
@@ -48,6 +50,10 @@ class HomePage extends StatefulWidget {
   /// Injectable for tests; defaults to the global [ModesController].
   final ModesController? modesController;
 
+  /// How long the connection may stay not-connected before the unreachable-
+  /// relay gate replaces the tab body (injectable for tests).
+  final Duration gateTimeout;
+
   @override
   State<HomePage> createState() => _HomePageState();
 }
@@ -60,7 +66,13 @@ class _HomePageState extends State<HomePage> {
   /// status copies, so every listener always shows the same current state).
   late final AgentsStore _store;
 
-  int _tabIndex = 0; // 0 = Spaces, 1 = Agents, 2 = Run
+  int _tabIndex = 0; // 0 = Spaces, 1 = Agents, 2 = Run, 3 = Settings
+
+  /// Unreachable-relay gate: after [HomePage.gateTimeout] of not-connected the
+  /// gate replaces the tab body and offers offline alternatives (switch mode,
+  /// connection settings, open anyway) instead of an endless spinner.
+  Timer? _gateTimer;
+  bool _gateVisible = false;
 
   /// Tabs ever visited: IndexedStack children are built lazily on first visit
   /// (eagerly building all three fetched getAgents + 2× session at startup).
@@ -73,12 +85,51 @@ class _HomePageState extends State<HomePage> {
     _repository = getIt<AgentRepository>();
     _store = getIt<AgentsStore>();
     final settings = getIt<AppSettings>();
-    _tabIndex = settings.homeTabIndex.clamp(0, 2);
+    _tabIndex = settings.homeTabIndex.clamp(0, 3);
     _visitedTabs = {_tabIndex};
+    _repository.status.addListener(_onStatusChanged);
+    // Seed from the current status (e.g. restored while connecting).
+    _onStatusChanged();
     // Lazy load kept: the store is primed exactly when the Agents tab becomes
     // visible — at startup if it's the restored tab, otherwise on first
     // selection (see onDestinationSelected). Never from build.
     if (_tabIndex == 1) _store.ensureLoaded();
+  }
+
+  @override
+  void dispose() {
+    _repository.status.removeListener(_onStatusChanged);
+    _gateTimer?.cancel();
+    super.dispose();
+  }
+
+  /// Restarts the gate countdown; no-op once connected.
+  void _startGateTimer() {
+    _gateTimer?.cancel();
+    _gateTimer = null;
+    if (_repository.status.value == RelayStatus.connected) return;
+    _gateTimer = Timer(widget.gateTimeout, () {
+      _gateTimer = null;
+      if (mounted && _repository.status.value != RelayStatus.connected) {
+        setState(() => _gateVisible = true);
+      }
+    });
+  }
+
+  void _onStatusChanged() {
+    if (_repository.status.value == RelayStatus.connected) {
+      _gateTimer?.cancel();
+      _gateTimer = null;
+      if (_gateVisible && mounted) setState(() => _gateVisible = false);
+    } else if (_gateTimer == null && !_gateVisible) {
+      _startGateTimer();
+    }
+  }
+
+  /// "Try again": hide the gate and give the auto-reconnect another chance.
+  void _dismissGate() {
+    setState(() => _gateVisible = false);
+    _startGateTimer();
   }
 
   Future<void> _disconnect() async {
@@ -122,23 +173,6 @@ class _HomePageState extends State<HomePage> {
     if (confirmed == true) {
       await _disconnect();
     }
-  }
-
-  /// Opens the in-app help & troubleshooting screen
-  /// (AUTO_MODE_SWITCHING_PLAN, Phase 5.1).
-  void _openHelp() {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => const HelpPage()),
-    );
-  }
-
-  /// Opens the local-notifications settings screen (blocked-agent alerts).
-  void _openNotificationSettings() {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => const NotificationSettingsPage(),
-      ),
-    );
   }
 
   @override
@@ -200,23 +234,13 @@ class _HomePageState extends State<HomePage> {
           PopupMenuButton<String>(
             onSelected: (v) {
               switch (v) {
-                case 'connection':
-                  widget.onRequestSwitch();
                 case 'add':
                   widget.onAddDevice();
                 case 'forget':
                   _confirmForget();
-                case 'help':
-                  _openHelp();
-                case 'notifications':
-                  _openNotificationSettings();
               }
             },
             itemBuilder: (context) => const [
-              PopupMenuItem(
-                value: 'connection',
-                child: Text('Connection…'),
-              ),
               PopupMenuItem(
                 value: 'add',
                 child: Text('Add device…'),
@@ -225,41 +249,56 @@ class _HomePageState extends State<HomePage> {
                 value: 'forget',
                 child: Text('Forget device'),
               ),
-              PopupMenuItem(
-                value: 'help',
-                child: Text('Help'),
-              ),
-              PopupMenuItem(
-                value: 'notifications',
-                child: Text('Notifications…'),
-              ),
             ],
           ),
         ],
       ),
+      // The gate overlays the tabs (kept alive underneath) so dismissing it
+      // restores the exact scroll/tab state; when visible it covers the body
+      // with offline alternatives instead of a forever-spinner.
       body: SafeArea(
         top: false,
-        child: IndexedStack(
-          index: _tabIndex,
+        child: Stack(
           children: [
-            // Tab order matches the NavigationBar: 0 Spaces, 1 Agents, 2 Run.
-            // Unvisited tabs stay as placeholders so no data is fetched until
-            // the user actually opens them (lazy init).
-            if (_visitedTabs.contains(0))
-              const SpacesPage()
-            else
-              const SizedBox.shrink(),
-            if (_visitedTabs.contains(1))
-              RefreshIndicator(
-                onRefresh: _store.refresh,
-                child: _buildBody(),
-              )
-            else
-              const SizedBox.shrink(),
-            if (_visitedTabs.contains(2))
-              const RunPage()
-            else
-              const SizedBox.shrink(),
+            IndexedStack(
+              index: _tabIndex,
+              children: [
+                // Tab order matches the NavigationBar: 0 Spaces, 1 Agents, 2 Run.
+                // Unvisited tabs stay as placeholders so no data is fetched until
+                // the user actually opens them (lazy init).
+                if (_visitedTabs.contains(0))
+                  const SpacesPage()
+                else
+                  const SizedBox.shrink(),
+                if (_visitedTabs.contains(1))
+                  RefreshIndicator(
+                    onRefresh: _store.refresh,
+                    child: _buildBody(),
+                  )
+                else
+                  const SizedBox.shrink(),
+                if (_visitedTabs.contains(2))
+                  const RunPage()
+                else
+                  const SizedBox.shrink(),
+                if (_visitedTabs.contains(3))
+                  SettingsPage(
+                    config: widget.config,
+                    modesController: widget.modesController,
+                    onModeSelected: widget.onModeSelected,
+                    onRequestSwitch: widget.onRequestSwitch,
+                  )
+                else
+                  const SizedBox.shrink(),
+              ],
+            ),
+            if (_gateVisible)
+              Positioned.fill(
+                child: ColoredBox(
+                  color: Theme.of(context).colorScheme.surface,
+                  child: _gateBody(),
+                ),
+              ),
           ],
         ),
       ),
@@ -292,7 +331,71 @@ class _HomePageState extends State<HomePage> {
             selectedIcon: Icon(Icons.play_circle),
             label: 'Run',
           ),
+          NavigationDestination(
+            icon: Icon(Icons.settings_outlined),
+            selectedIcon: Icon(Icons.settings),
+            label: 'Settings',
+          ),
         ],
+      ),
+    );
+  }
+
+  /// Unreachable-relay gate: after [HomePage.gateTimeout] without a working
+  /// connection the app stops spinning and offers offline alternatives —
+  /// switch mode (works from saved endpoints), connection settings, or open
+  /// the app anyway. Auto-dismisses the moment the connection comes up.
+  Widget _gateBody() {
+    final theme = Theme.of(context);
+    final c = widget.config;
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.wifi_off, size: 48, color: theme.colorScheme.error),
+            const SizedBox(height: 12),
+            Text('Cannot reach the relay', style: theme.textTheme.titleLarge),
+            const SizedBox(height: 4),
+            Text(
+              '${c.mode} · ${c.host}:${c.port}',
+              style: theme.textTheme.bodySmall,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'The relay has not connected for a while. Try again, or switch '
+              'to another mode — e.g. Tailscale if you are away from the '
+              'local network.',
+              style: theme.textTheme.bodyMedium,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: _dismissGate,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Try again'),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: _openModePicker,
+              icon: const Icon(Icons.swap_horiz),
+              label: const Text('Change mode…'),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: widget.onRequestSwitch,
+              icon: const Icon(Icons.tune),
+              label: const Text('Connection settings'),
+            ),
+            const SizedBox(height: 8),
+            TextButton(
+              onPressed: () => setState(() => _gateVisible = false),
+              child: const Text('Open app anyway'),
+            ),
+          ],
+        ),
       ),
     );
   }

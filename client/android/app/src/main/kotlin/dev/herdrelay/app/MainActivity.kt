@@ -1,4 +1,4 @@
-package com.example.client
+package dev.herdrelay.app
 
 import io.flutter.embedding.android.FlutterActivity
 

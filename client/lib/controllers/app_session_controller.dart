@@ -59,6 +59,13 @@ class AppSessionController extends ChangeNotifier {
   /// Pages compare it against the value at open time to detect staleness.
   int get version => _version;
 
+  /// The relay client registered for the active config, or null when the app
+  /// is unpaired. Pages resolve the client through the session instead of
+  /// asking getIt directly, so a config switch (which tears down and recreates
+  /// the client) is always observed from the same place.
+  RelayClient? get liveClient =>
+      getIt.isRegistered<RelayClient>() ? getIt<RelayClient>() : null;
+
   /// Cold start: restore the previously active profile (if any). Returns
   /// without doing anything when no profile is saved.
   Future<void> bootstrap() async {

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
 import '../models/pair_config.dart';
+import 'mode_icons.dart';
 
 /// Manual connection dialog: enter a custom host/port for any mode and test
 /// whether the relay answers before committing (AUTO_MODE_SWITCHING_PLAN,
@@ -117,10 +118,9 @@ class _ManualModeDialogState extends State<_ManualModeDialog> {
                 labelText: 'Mode',
                 border: OutlineInputBorder(),
               ),
-              items: const [
-                DropdownMenuItem(value: 'lan', child: Text('LAN')),
-                DropdownMenuItem(value: 'tailscale', child: Text('Tailscale')),
-                DropdownMenuItem(value: 'funnel', child: Text('Funnel')),
+              items: [
+                for (final m in PairConfig.knownModes)
+                  DropdownMenuItem(value: m, child: Text(modeLabel(m))),
               ],
               onChanged: (v) {
                 if (v == null) return;

@@ -1,5 +1,4 @@
 import 'package:client/core/connection/connection_manager.dart';
-import 'package:client/core/transport/retry_policy.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -11,7 +10,7 @@ void main() {
   testWidgets('paused/hidden pause the transport; resumed resumes it',
       (tester) async {
     final t = _CountingTransport();
-    final manager = ConnectionManager(t, ExponentialBackoff());
+    final manager = ConnectionManager(t);
     addTearDown(manager.dispose);
 
     WidgetsBinding.instance
@@ -29,7 +28,7 @@ void main() {
 
   testWidgets('inactive/detached do not touch the transport', (tester) async {
     final t = _CountingTransport();
-    final manager = ConnectionManager(t, ExponentialBackoff());
+    final manager = ConnectionManager(t);
     addTearDown(manager.dispose);
 
     WidgetsBinding.instance
@@ -43,7 +42,7 @@ void main() {
 
   testWidgets('dispose removes the lifecycle observer', (tester) async {
     final t = _CountingTransport();
-    final manager = ConnectionManager(t, ExponentialBackoff());
+    final manager = ConnectionManager(t);
 
     manager.dispose();
     WidgetsBinding.instance

@@ -1,11 +1,11 @@
 {
-    "name": "client",
-    "short_name": "client",
+    "name": "HerdRelay",
+    "short_name": "HerdRelay",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "HerdRelay mobile client — control herdr AI agents from your phone",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

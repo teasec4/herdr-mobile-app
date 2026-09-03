@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
+
 import '../../models/pair_config.dart';
 import '../transport/transport.dart';
 
@@ -127,7 +129,15 @@ class ConnectionFallbackManager {
       return;
     }
     _config = _config.connectVia(next, endpoint);
-    await onFallback(_config);
+    try {
+      await onFallback(_config);
+    } catch (e) {
+      // The app-layer handler failed (e.g. its own setup threw). Never let the
+      // error escape into the timer's zone as an unhandled async failure: the
+      // current transport keeps its own reconnect loop running, and a later
+      // status change will schedule a fresh fallback attempt.
+      debugPrint('ConnectionFallbackManager: fallback to $next failed: $e');
+    }
   }
 
   /// First mode in [_modePriority] that is not the current one, was not tried

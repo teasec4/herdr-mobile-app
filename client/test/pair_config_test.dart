@@ -103,11 +103,11 @@ void main() {
   });
 
   group('PairConfig.wsUri / healthUri', () {
-    test('wsUri содержит хост, порт и токен', () {
+    test('wsUri содержит хост и порт, но не токен', () {
       final config = PairConfig.fromLink(
         'herdrelay://pair?host=192.168.1.5&token=${'f' * 64}',
       );
-      expect(config.wsUri.toString(), 'ws://192.168.1.5:8375/ws?token=${'f' * 64}');
+      expect(config.wsUri.toString(), 'ws://192.168.1.5:8375/ws');
     });
 
     test('IPv6 host оборачивается в квадратные скобки', () {
@@ -270,6 +270,57 @@ void main() {
           const RelayEndpoint(host: '192.168.1.5', port: 8375));
       expect(RelayEndpoint.fromUrl('https://mac.tailnet.ts.net'),
           const RelayEndpoint(host: 'mac.tailnet.ts.net', port: 443));
+    });
+  });
+
+  group('PairConfig quick helpers', () {
+    test('isLanOnly — только один endpoint и это lan', () {
+      final lan = PairConfig.fromLink(
+        'herdrelay://pair?host=192.168.1.5&mode=lan&token=${'a' * 64}',
+      );
+      expect(lan.isLanOnly, isTrue);
+    });
+
+    test('isLanOnly — false, когда основной режим не lan', () {
+      final ts = PairConfig.fromLink(
+        'herdrelay://pair?host=mac.tailnet.ts.net&mode=tailscale&token=${'b' * 64}',
+      );
+      expect(ts.isLanOnly, isFalse);
+    });
+
+    test('isLanOnly — false при нескольких endpoints', () {
+      final multi = PairConfig.fromLink(
+        'herdrelay://pair?host=192.168.1.5&mode=lan&token=${'c' * 64}',
+      ).withEndpoints({
+        'tailscale': const RelayEndpoint(host: 'mac.tailnet.ts.net'),
+      });
+      expect(multi.isLanOnly, isFalse);
+    });
+
+    test('viaStoredEndpoint возвращает config для сохранённого режима', () {
+      final config = PairConfig.fromLink(
+        'herdrelay://pair?host=192.168.1.5&mode=lan&token=${'d' * 64}',
+      ).withEndpoints({
+        'tailscale': const RelayEndpoint(host: 'mac.tailnet.ts.net', port: 8375),
+      });
+      final switched = config.viaStoredEndpoint('tailscale');
+      expect(switched, isNotNull);
+      expect(switched!.mode, 'tailscale');
+      expect(switched.host, 'mac.tailnet.ts.net');
+      // LAN endpoint не потерялся при переключении.
+      expect(switched.endpointFor('lan'),
+          const RelayEndpoint(host: '192.168.1.5'));
+    });
+
+    test('viaStoredEndpoint возвращает null для неизвестного режима', () {
+      final config = PairConfig.fromLink(
+        'herdrelay://pair?host=192.168.1.5&mode=lan&token=${'e' * 64}',
+      );
+      expect(config.viaStoredEndpoint('funnel'), isNull);
+    });
+
+    test('knownModes — известные режимы в порядке отображения', () {
+      expect(PairConfig.knownModes, ['lan', 'tailscale', 'funnel']);
     });
   });
 }

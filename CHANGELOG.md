@@ -34,18 +34,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Full test suite green: 202 Flutter tests, `flutter analyze` no new issues
 
 #### Flutter Client (settings + offline mode switching)
-- **AppSettings** (`services/app_settings.dart`): типизированный слой над SharedPreferences
-  (homeTabIndex, terminalFontSize 9–20 + кнопки A−/A+ на AgentPage, autoScrollFollow, кэш
-  снапшота). HomePage восстанавливает выбранный таб, AgentPage — размер шрифта и автоскролл.
-- **Офлайн-переключение режимов**: пикер работал только через `/pair` (недоступный релей =
-  «курица и яйцо»); добавлены сохранённые endpoints профиля + ручной ввод (хост следует за
-  режимом, токен из профиля) — см. ниже.
-- **Режим = endpoint** (`PairConfig.endpoints`): профиль помнит адреса всех режимов релея
-  (LAN-IP, tailnet-имя, funnel); ссылка пары сидирует endpoint, каждый `/pair` дописывает
-  адреса, переключение `connectVia` не теряет остальные; офлайн-свитч из «Saved modes for
-  this relay». Шит сделан скроллящимся.
-- Тесты: endpoints round-trip/seed/legacy/connectVia/fromUrl, выбор из `/pair` с merge,
-  офлайн-переключение, хост следует за режимом. Итог: 225 Flutter-тестов, analyze 0 ошибок.
+- **AppSettings** (`services/app_settings.dart`): typed layer over SharedPreferences
+  (homeTabIndex, terminalFontSize 9–20 + A−/A+ buttons on AgentPage, autoScrollFollow,
+  snapshot cache). HomePage restores the selected tab, AgentPage restores font size and
+  auto-scroll.
+- **Offline mode switching**: the picker only worked through `/pair` (an unreachable relay
+  was a chicken-and-egg problem); saved profile endpoints + manual entry added (host follows
+  the mode, token comes from the profile) — see below.
+- **Mode = endpoint** (`PairConfig.endpoints`): the profile remembers addresses for every
+  relay mode (LAN IP, tailnet name, funnel); a pair link seeds the endpoint, each `/pair`
+  appends addresses, switching `connectVia` doesn't drop the others; offline switch from
+  "Saved modes for this relay". The sheet is scrollable.
+- Tests: endpoints round-trip/seed/legacy/connectVia/fromUrl, `/pair` selection with merge,
+  offline switching, host follows the mode. Result: 225 Flutter tests, analyze 0 errors.
 
 ## [0.2.0] - 2026-08-30
 
@@ -96,69 +97,69 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 #### Flutter Client
-- **Home Page**: список всех AI агентов на компьютере с real-time обновлением статусов
-- **Agent Page**: интерактивный терминал для взаимодействия с агентом
-  - Live вывод агента с ANSI поддержкой (цвета, форматирование)
-  - Отправка промптов и команд
-  - Ctrl-C для прерывания работы агента
-  - Умные интерактивные кнопки (парсят варианты ответа из вывода)
-  - История команд с навигацией стрелками
-- **Pair Page**: конфигурация подключения к relay (host, port, токен)
-- **Status indicators**: визуальные чипы статусов (working, blocked, idle, done)
-- **Provider-based DI**: RelayClient через Provider для shared state
-- **Comprehensive tests**: 55 тестов покрывают все основные сценарии
+- **Home Page**: list of all AI agents on the machine with real-time status updates
+- **Agent Page**: interactive terminal for interacting with an agent
+  - Live agent output with ANSI support (colors, formatting)
+  - Sending prompts and commands
+  - Ctrl-C to interrupt the agent
+  - Smart interactive buttons (parse answer options from the output)
+  - Command history with arrow-key navigation
+- **Pair Page**: relay connection configuration (host, port, token)
+- **Status indicators**: visual status chips (working, blocked, idle, done)
+- **Provider-based DI**: RelayClient via Provider for shared state
+- **Comprehensive tests**: 55 tests covering all the main scenarios
 
 #### Go Relay Server
-- **WebSocket API**: real-time двусторонняя связь с клиентами
-- **HTTP API**: REST endpoints для snapshot, agent output, prompt, keys
-- **Event broadcasting**: push-уведомления об изменении статусов агентов
-- **herdr integration**: взаимодействие с herdr CLI (agent list, read, prompt, send-keys)
-- **Token authentication**: безопасная аутентификация через Bearer токен
-- **Multi-client support**: одновременная работа нескольких клиентов
+- **WebSocket API**: real-time two-way communication with clients
+- **HTTP API**: REST endpoints for snapshot, agent output, prompt, keys
+- **Event broadcasting**: push notifications on agent status changes
+- **herdr integration**: interaction with the herdr CLI (agent list, read, prompt, send-keys)
+- **Token authentication**: secure authentication via Bearer token
+- **Multi-client support**: multiple clients working at the same time
 
 #### herdr Plugin
-- **Event forwarding**: автоматическая отправка событий в relay
-  - `pane.agent_status_changed` - изменение статуса агента
-  - `pane.output_changed` - обновление вывода
-  - `pane.updated` - общие изменения в pane
-- **Auto-configuration**: автоматическая генерация токена при установке
+- **Event forwarding**: automatic forwarding of events to the relay
+  - `pane.agent_status_changed` - agent status change
+  - `pane.output_changed` - output update
+  - `pane.updated` - general pane changes
+- **Auto-configuration**: automatic token generation on install
 - **Plugin lifecycle**: setup-menu, on-event hooks
 
 #### Utilities & Documentation
-- **relay-status.sh**: утилита управления relay (status, rebuild, restart, logs)
-- **Diagnostics tools**: логирование на всех уровнях (plugin → relay → client)
+- **relay-status.sh**: relay management utility (status, rebuild, restart, logs)
+- **Diagnostics tools**: logging at all levels (plugin → relay → client)
 - **Documentation**:
-  - `README.md` - общее описание проекта (EN)
-  - `RELAY_MANAGEMENT.md` - управление relay сервером
-  - `DIAGNOSTICS.md` - диагностика обновления статусов
-  - `DEBUG_STATUS_UPDATE.md` - детальная отладка событий
-  - `client/TERMINAL_UI.md` - интерактивные кнопки терминала
+  - `README.md` - general project description (EN)
+  - `RELAY_MANAGEMENT.md` - managing the relay server
+  - `DIAGNOSTICS.md` - diagnosing status updates
+  - `DEBUG_STATUS_UPDATE.md` - detailed event debugging
+  - `client/TERMINAL_UI.md` - interactive terminal buttons
 
 ### Features Details
 
 #### Smart Interactive Buttons
-Парсер автоматически распознаёт варианты ответа из вывода агента:
-- **Inline опции**: `(y/n)`, `[yes/no]`, `accept/reject`
-- **Вопросы**: "Would you like to...?" → Yes/No кнопки
-- **Нумерованные списки**: `1. Option` → кнопки с текстом опций
-- **Фильтрация**: task lists (◻/◼) не распознаются как варианты
+The parser automatically recognizes answer options from the agent's output:
+- **Inline options**: `(y/n)`, `[yes/no]`, `accept/reject`
+- **Questions**: "Would you like to...?" → Yes/No buttons
+- **Numbered lists**: `1. Option` → buttons with the option text
+- **Filtering**: task lists (◻/◼) are not recognized as options
 
 #### Real-time Status Updates
-- События от herdr пробрасываются через relay в Flutter
-- Задержка 150ms между событием и snapshot (race condition fix)
-- Правильная отмена подписок при dispose (no memory leaks)
+- Events from herdr are forwarded through the relay to Flutter
+- 150ms delay between event and snapshot (race condition fix)
+- Proper subscription cancellation on dispose (no memory leaks)
 
 #### Terminal Features
-- ANSI escape codes rendering (цвета, bold, курсив)
-- Auto-scroll to bottom (отключается при прокрутке вверх)
-- Debounced output updates (не перегружает UI при быстром стриминге)
-- Command history с навигацией (↑/↓)
+- ANSI escape code rendering (colors, bold, italic)
+- Auto-scroll to bottom (disabled when scrolling up)
+- Debounced output updates (no UI overload during fast streaming)
+- Command history with arrow-key navigation (↑/↓)
 
 ### Fixed
-- **Ctrl-C**: исправлен формат отправки (`C-c` вместо `['ctrl', 'c']`)
-- **Subscription leaks**: правильная отмена StreamSubscription в dispose
-- **Race condition**: задержка 150ms для синхронизации herdr state
-- **Parser false positives**: убрана стратегия поиска ключевых слов
+- **Ctrl-C**: fixed send format (`C-c` instead of `['ctrl', 'c']`)
+- **Subscription leaks**: proper StreamSubscription cancellation in dispose
+- **Race condition**: 150ms delay to sync herdr state
+- **Parser false positives**: removed the keyword-search strategy
 
 ### Technical Stack
 - **Frontend**: Flutter 3.24.3, Dart 3.5.3
@@ -167,61 +168,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Testing**: flutter_test, widget tests, integration tests
 
 ### Known Limitations
-- Только локальное подключение (localhost или IP в локальной сети)
-- Требуется herdr >= 0.7.5
-- macOS/Linux (Windows не тестировался)
-- Парсер интерактивных кнопок работает только с текстовым выводом
+- Local connection only (localhost or a LAN IP)
+- Requires herdr >= 0.7.5
+- macOS/Linux (Windows not tested)
+- The interactive-button parser only works with text output
 
 ---
 
 ## [Unreleased]
 
 ### Added
-- **Идентичность релея**: релей при первом запуске генерирует стабильный `relay_id` (32 hex) и `name` хоста (`~/.config/herdr/herdrelay.id`); `relay_id`/`name` добавлены в ссылку пары и в универсальный QR.
-- **Профили в клиенте**: приложение хранит несколько конфигураций пары (Switch / Add / Forget) — удобно при смене сети, сессии или переезде на другую машину.
-- **`herdrelay status`**: подкоманда диагностики — режим, адрес, идентичность, пути конфига и живое состояние (exit 0 = релей работает).
-- **Смена режима без пересборки**: `plugin/configure.sh` переписывает plist launchd (`HERDRELAY_MODE`, `HERDRELAY_GATEWAY_URL`) и перезапускает службу; install.sh и plist теперь читают `HERDRELAY_MODE`/`HERDRELAY_GATEWAY_URL` из окружения.
-- **Автопереключение режимов** (docs/AUTO_MODE_SWITCHING_PLAN.md, Phase 2): `ConnectionFallbackManager` — при обрыве текущего транспорта пробует сохранённые endpoints (tailscale → lan → funnel), SnackBar «Relay unreachable — switched to …»; интеграция в `main.dart`, `websocket_transport.dart` теперь уходит в `disconnected` при ошибке соединения.
-- **Manual Mode** (Phase 3): кнопка «Switch mode manually» в Connection page, диалог с live-проверкой `/healthz` — работает, даже когда релей недоступен (`widgets/manual_mode_dialog.dart`).
-- **Universal QR** (Phase 4): ссылка без `mode` тянет все режимы через `ModeService` и предлагает выбрать primary; LAN-only ссылки показывают предупреждение «Limited connectivity detected» (`widgets/lan_only_warning_dialog.dart`).
-- **Help page** (Phase 5): `pages/help_page.dart` — FAQ по Connection modes / remote access, пункт «Help» в меню HomePage.
-- **Балансировка документации**: README/INSTALL — секция «Best Practices for Remote Access»; чеклист плана отмечен.
+- **Relay identity**: on first start the relay generates a stable `relay_id` (32 hex) and a host `name` (`~/.config/herdr/herdrelay.id`); `relay_id`/`name` added to the pair link and to the universal QR.
+- **Client profiles**: the app stores several pair configurations (Switch / Add / Forget) — handy when changing networks, sessions or moving to another machine.
+- **`herdrelay status`**: diagnostic subcommand — mode, address, identity, config paths and live state (exit 0 = relay is running).
+- **Mode switch without rebuild**: `plugin/configure.sh` rewrites the launchd plist (`HERDRELAY_MODE`, `HERDRELAY_GATEWAY_URL`) and restarts the service; install.sh and the plist now read `HERDRELAY_MODE`/`HERDRELAY_GATEWAY_URL` from the environment.
+- **Automatic mode switching** (docs/AUTO_MODE_SWITCHING_PLAN.md, Phase 2): `ConnectionFallbackManager` — on transport drop it tries the saved endpoints (tailscale → lan → funnel), SnackBar "Relay unreachable — switched to …"; integrated in `main.dart`, `websocket_transport.dart` now goes `disconnected` on connection errors.
+- **Manual Mode** (Phase 3): "Switch mode manually" button in the Connection page, dialog with a live `/healthz` check — works even when the relay is unreachable (`widgets/manual_mode_dialog.dart`).
+- **Universal QR** (Phase 4): a mode-less link pulls all modes through `ModeService` and offers a primary choice; LAN-only links show a "Limited connectivity detected" warning (`widgets/lan_only_warning_dialog.dart`).
+- **Help page** (Phase 5): `pages/help_page.dart` — FAQ on Connection modes / remote access, "Help" item in the HomePage menu.
+- **Documentation rebalance**: README/INSTALL — "Best Practices for Remote Access" section; plan checklist marked.
 
-### Fixed (Flutter Client, надёжность)
-- **Reconnect без дублей**: перед новым соединением старая подписка отменяется, `onError`/`onDone` объединены в один обработчик с `cancelOnError: true`, повторное планирование reconnect блокируется. Исключено появление >1 активного WS-соединения и потеря ответов на запросы.
-- **Lifecycle**: при уходе приложения в фон reconnect-цикл приостанавливается, при возврате — возобновляется (бережёт батарею, не оставляет висящих pending-запросов).
-- **Race condition в ConfigStore**: конкурентные `saveProfile` сериализуются (in-memory lock) — параллельные deep link'и больше не теряют профили.
-- **Retry для healthz**: до 3 попыток с backoff вместо одной — единичный сетевой сбой не помечает релей офлайн.
-- **Debounce обновления списка**: пачка одновременных событий (например, при batch-запуске) вызывает один snapshot вместо N параллельных запросов.
-- **Offline cache агентов**: последний успешный снимок кэшируется и показывается, когда релей недоступен.
-- **Понятные ошибки**: протокольные ошибки (`not_connected`/`timeout`/`unauthorized`) мапятся в человекочитаемый текст вместо сырого `toString()`.
-- **Валидация ссылки пары**: токен не короче 16 символов и без символов, ломающих query-строку; `PairConfig.toJsonSafe()` маскирует токен для логов.
+### Fixed (Flutter Client, reliability)
+- **Reconnect without duplicates**: before a new connection the old subscription is cancelled, `onError`/`onDone` merged into a single handler with `cancelOnError: true`, re-scheduling reconnect is blocked. More than 1 active WS connection and lost request responses are excluded.
+- **Lifecycle**: when the app goes to background the reconnect loop pauses; it resumes on return (saves battery, leaves no dangling pending requests).
+- **ConfigStore race condition**: concurrent `saveProfile` calls are serialized (in-memory lock) — parallel deep links no longer lose profiles.
+- **healthz retry**: up to 3 attempts with backoff instead of one — a single network failure no longer marks the relay offline.
+- **List update debounce**: a burst of simultaneous events (e.g. batch start) triggers one snapshot instead of N parallel requests.
+- **Offline agent cache**: the last successful snapshot is cached and shown when the relay is unreachable.
+- **Clear errors**: protocol errors (`not_connected`/`timeout`/`unauthorized`) are mapped to human-readable text instead of a raw `toString()`.
+- **Pair link validation**: token at least 16 characters and without characters that break a query string; `PairConfig.toJsonSafe()` masks the token in logs.
 
-### Changed (event pipeline, устранение дублей — docs/12-fix-plan.md A1-A3)
-- **Один канал статусов**: убран плагинный хук (`on-event.sh` → `POST /api/events/herdr`) и роуты `/api/events/*` — статусы приходят только по socket-подписке (`events.subscribe`, `pane.agent_status_changed`). Одно изменение статуса = одно событие клиенту вместо двух.
-- **Agent-страница без лишних запросов**: событие `pane.agent_status_changed` обновляет статус локально (и имя/workspace из payload) — без повторного snapshot и перечитывания вывода; вывод читается только по `pane.output_changed` и ручному refresh.
-- **Событие статуса расширено**: `agent`, `display_agent`, `workspace_id`, `title` из herdr-payload доходят до клиента (`relay_event.dart`).
-- **Revision оживлён**: релей прикрепляет к `pane.output_changed` последний известный `revision` из `pane.updated` (только строго растущий) — клиентский revision-guard начинает работать, устаревшая ревизия не шлётся, чтобы не пропустить живой апдейт.
-- **AnsiTerminal мемоизация**: тот же текст → тот же инстанс `SelectableText` (без репарса ANSI и релэйаута) — дубли/статусные ребилды больше не пересобирают терминал.
-- **Pong не утекает в сообщения**: keepalive-pong потребляется транспортом, верхние слои не парсят пустой фрейм.
-- **Кэш агентов пишется только при изменении** списка (не на каждый снапшот).
-- **Прерываемый reconnect-цикл сокета**: `Close()` больше не ждёт backoff-сон (docs/12 B3).
-- **Debug-print убран** из `agent_page.dart` (и событийного пути `home_page.dart`).
+### Changed (event pipeline, dedup — docs/12-fix-plan.md A1-A3)
+- **Single status channel**: the plugin hook (`on-event.sh` → `POST /api/events/herdr`) and the `/api/events/*` routes removed — statuses now only come from the socket subscription (`events.subscribe`, `pane.agent_status_changed`). One status change = one event to the client instead of two.
+- **Agent page without extra requests**: the `pane.agent_status_changed` event updates the status locally (and name/workspace from the payload) — no re-snapshot or re-read of output; output is read only on `pane.output_changed` and manual refresh.
+- **Status event extended**: `agent`, `display_agent`, `workspace_id`, `title` from the herdr payload now reach the client (`relay_event.dart`).
+- **Revision revived**: the relay attaches the last known `revision` from `pane.updated` to `pane.output_changed` (strictly increasing only) — the client revision-guard starts working, a stale revision is not sent so a live update is never skipped.
+- **AnsiTerminal memoization**: same text → same `SelectableText` instance (no ANSI re-parse or re-layout) — duplicate/status rebuilds no longer rebuild the terminal.
+- **Pong no longer leaks into messages**: keepalive-pong is consumed by the transport, upper layers don't parse an empty frame.
+- **Agent cache written only on list change** (not on every snapshot).
+- **Interruptible socket reconnect loop**: `Close()` no longer waits for the backoff sleep (docs/12 B3).
+- **Debug print removed** from `agent_page.dart` (and the event path of `home_page.dart`).
 
-### Changed (view architecture: контроллеры вместо orchestration в State)
-- **Лёгкие ViewModel'ы** (plain `ChangeNotifier` + `ListenableBuilder`, без фреймворка): `AgentsController` (список агентов: дельты статусов, дебаунс, reconnect catch-up, пауза под AgentPage) и `SessionController` (session для табов Spaces/Run: одна загрузка вместо двух, live-обновление статусов, reconnect catch-up, `freePaneFor`).
-- **Устранено тройное дублирование** reconnect-catch-up (`_wasDisconnected` был в home/run/spaces — теперь живёт в двух контроллерах).
-- **Закрыты гонки refresh** (generation counter): устаревший ответ не перезаписывает свежий — `AgentsController`, `SessionController`, `AgentPage._refresh`, `ConnectionPage._checkConnection`.
-- **Ленивые табы HomePage**: Spaces/Agents/Run строятся по первому посещению — на старте нет `getAgents()` и двойного `session()` для невидимых табов (проверено тестом).
-- **Шапка HomePage не переполняется** на узких экранах: бейдж режима (TAILSCALE) и статус усекаются, отступы уменьшены; тест на 320 px.
-- **AnsiTerminalParser вынесен** в отдельный файл (`widgets/ansi_terminal_parser.dart`); тайлы списка обёрнуты в `RepaintBoundary`.
-- **Удалена мёртвая зависимость** `provider` из pubspec.
+### Changed (view architecture: controllers instead of orchestration in State)
+- **Lightweight ViewModels** (plain `ChangeNotifier` + `ListenableBuilder`, no framework): `AgentsController` (agent list: status deltas, debounce, reconnect catch-up, pause under AgentPage) and `SessionController` (session for the Spaces/Run tabs: one load instead of two, live status updates, reconnect catch-up, `freePaneFor`).
+- **Triple reconnect-catch-up duplication removed** (`_wasDisconnected` used to live in home/run/spaces — now it lives in the two controllers).
+- **Refresh races closed** (generation counter): a stale response no longer overwrites a fresh one — `AgentsController`, `SessionController`, `AgentPage._refresh`, `ConnectionPage._checkConnection`.
+- **Lazy HomePage tabs**: Spaces/Agents/Run are built on first visit — no `getAgents()` and no double `session()` for invisible tabs at startup (covered by a test).
+- **HomePage header no longer overflows** on narrow screens: the mode badge (TAILSCALE) and status are truncated, padding reduced; test at 320 px.
+- **AnsiTerminalParser moved** to a separate file (`widgets/ansi_terminal_parser.dart`); list tiles wrapped in `RepaintBoundary`.
+- **Dead `provider` dependency removed** from pubspec.
 
 ### Planned
-- Remote API доступ (за пределами локальной сети)
-- Поддержка мульти-workspace
-- Настройки темы (тёмная/светлая)
-- Поиск по выводу агента
-- Экспорт истории агента
-- Push notifications для критических событий
+- Remote API access (outside the local network)
+- Multi-workspace support
+- Theme settings (dark/light)
+- Search over agent output
+- Agent history export
+- Push notifications for critical events
 

@@ -1,7 +1,6 @@
 import 'package:flutter/widgets.dart';
 
 import '../transport/transport.dart';
-import '../transport/retry_policy.dart';
 
 /// Orchestrates the connection across the app lifecycle
 /// (docs/09-refactoring-plan.md §2.4).
@@ -11,16 +10,12 @@ import '../transport/retry_policy.dart';
 /// a reconnect loop would drain battery), on `resumed` it resumes it. This
 /// logic previously lived in `main.dart`; the app only wires this class up via
 /// the service locator and never talks lifecycle itself.
-///
-/// The [RetryPolicy] is held here (and passed to the transport) so policies
-/// can be swapped per deployment without touching Transport or Protocol.
 class ConnectionManager with WidgetsBindingObserver {
-  ConnectionManager(this.transport, this.retryPolicy) {
+  ConnectionManager(this.transport) {
     WidgetsBinding.instance.addObserver(this);
   }
 
   final Transport transport;
-  final RetryPolicy retryPolicy;
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {

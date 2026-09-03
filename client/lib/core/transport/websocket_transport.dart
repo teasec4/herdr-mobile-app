@@ -3,9 +3,12 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
+import '../protocol/relay_protocol.dart';
 import 'retry_policy.dart';
 import 'reconnect_mixin.dart';
 import 'transport.dart';
+import 'ws_channel_factory_io.dart'
+    if (dart.library.html) 'ws_channel_factory_web.dart';
 
 /// WebSocket [Transport]: raw text frames, auto-reconnect with a [RetryPolicy]
 /// (default [ExponentialBackoff]: 1, 2, 4, … 30 s), pause/resume for app
@@ -18,30 +21,46 @@ import 'transport.dart';
 /// for the response string; if none arrives within [keepalivePongTimeout] the
 /// connection is treated as dead and reconnected.
 class WebSocketTransport with ReconnectMixin implements Transport {
-  /// [channelFactory] is injectable for tests: it substitutes a fake
-  /// [WebSocketChannel] so reconnect/send/receive can be tested with no real
-  /// network. Production uses [WebSocketChannel.connect]. [retryPolicy]
-  /// defaults to [ExponentialBackoff].
+  /// [token] (if any) is sent as an `Authorization: Bearer` header on every
+  /// connect/reconnect. [channelFactory] is injectable for tests: it
+  /// substitutes a fake [WebSocketChannel] so reconnect/send/receive can be
+  /// tested with no real network. Production uses [connectWithHeaders]
+  /// (dart:io sends the headers on the handshake; the browser API cannot set
+  /// headers, so web connections degrade to no auth). [retryPolicy] defaults
+  /// to [ExponentialBackoff].
   ///
   /// Keepalive is on by default (every 20 s, 10 s pong window) — pass
   /// `keepaliveInterval: null` to disable it (tests do).
   WebSocketTransport({
-    WebSocketChannel Function(Uri uri)? channelFactory,
+    this.token,
+    WebSocketChannel Function(Uri uri, Map<String, dynamic> headers)?
+        channelFactory,
     RetryPolicy? retryPolicy,
+    this.connectTimeout = const Duration(seconds: 8),
     this.keepaliveInterval = const Duration(seconds: 20),
     this.keepalivePongTimeout = const Duration(seconds: 10),
-    this.keepaliveRequest = '{"type":"ping"}',
-    this.keepaliveResponse = '{"type":"pong"}',
-  })  : _channelFactory = channelFactory ?? WebSocketChannel.connect,
+    this.keepaliveRequest = PingFrame.wire,
+    this.keepaliveResponse = PongFrame.wire,
+  })  : _channelFactory = channelFactory ?? connectWithHeaders,
         retryPolicy = retryPolicy ?? ExponentialBackoff() {
     status = ValueNotifier<ConnectionStatus>(ConnectionStatus.disconnected);
     _messages = StreamController<String>.broadcast();
   }
 
-  final WebSocketChannel Function(Uri uri) _channelFactory;
+  final WebSocketChannel Function(Uri uri, Map<String, dynamic> headers)
+      _channelFactory;
+
+  /// Authentication token sent as an `Authorization: Bearer` header.
+  final String? token;
 
   @override
   final RetryPolicy retryPolicy;
+
+  /// How long to wait for the socket handshake (`ws.ready`) before declaring
+  /// the connect failed. Without this an unreachable host keeps the transport
+  /// in "connecting" forever — the UI spinner never ends and auto-fallback
+  /// never triggers (docs/03-relay.md, unreachable-relay scenario).
+  final Duration connectTimeout;
 
   /// How often a keepalive request is sent while connected; null disables
   /// keepalive entirely.
@@ -97,11 +116,19 @@ class WebSocketTransport with ReconnectMixin implements Transport {
     _sub = null;
 
     status.value = ConnectionStatus.connecting;
-    final ws = _channelFactory(uri);
+    // Build headers per connect: the factory runs on every reconnect, and a
+    // cached map would go stale if the token changed mid-session.
+    final headers = <String, dynamic>{
+      if (token != null) 'Authorization': 'Bearer $token',
+    };
+    final ws = _channelFactory(uri, headers);
     _channel = ws;
 
     try {
-      await ws.ready;
+      // Bound the handshake: an unreachable host must fail the connect (and
+      // fall into the reconnect/backoff + fallback path) instead of leaving
+      // the UI stuck on "connecting" indefinitely.
+      await ws.ready.timeout(connectTimeout);
       if (_closed) {
         ws.sink.close();
         return;
@@ -132,7 +159,7 @@ class WebSocketTransport with ReconnectMixin implements Transport {
       );
     } catch (e) {
       if (_closed) return;
-      lastError = '$e';
+      lastError = e is TimeoutException ? 'Connect timeout' : '$e';
       ws.sink.close();
       // A failed connect leaves the socket dead: report disconnected so
       // upper layers (e.g. ConnectionFallbackManager) see the outage

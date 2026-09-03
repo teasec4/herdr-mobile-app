@@ -20,12 +20,12 @@ func fetchPairInfo(base, token string) (domain.PairInfo, error) {
 	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return domain.PairInfo{}, fmt.Errorf("релей не отвечает (%v) — запустите его (launchctl start / install.sh)", err)
+		return domain.PairInfo{}, fmt.Errorf("relay is not responding (%v) — start it (launchctl start / install.sh)", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return domain.PairInfo{}, fmt.Errorf("релей ответил %s: %s", resp.Status, strings.TrimSpace(string(b)))
+		return domain.PairInfo{}, fmt.Errorf("relay responded %s: %s", resp.Status, strings.TrimSpace(string(b)))
 	}
 	var info domain.PairInfo
 	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {

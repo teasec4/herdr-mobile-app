@@ -54,11 +54,11 @@ it survives herdr restarts.
 
 ```bash
 # local development (herdr does not run build on link):
-herdr plugin link /Users/yg_kovalev/go/herdr_relay/plugin
+herdr plugin link ~/herdr-relay/plugin
 bash plugin/install.sh                  # build the relay + launchd service
 
 # from GitHub:
-herdr plugin install yg_kovalev/herdr_relay/plugin
+herdr plugin install teasec4/herdr-mobile-app/plugin
 
 # checks:
 herdr plugin list
@@ -68,7 +68,7 @@ herdr plugin log list --plugin herdrelay.events
 
 The token used for event forwarding lives in
 `~/.config/herdr/herdrelay.token` (the same one the relay puts into the QR
-pairing link). Override with env `HERDR_RELAY_TOKEN_FILE`.
+pairing link). Override with env `HERDRELAY_TOKEN_FILE`.
 
 ## Files
 

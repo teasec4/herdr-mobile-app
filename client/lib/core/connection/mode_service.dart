@@ -115,4 +115,11 @@ class ModeService {
     }
     return 'Could not load connection modes ($error).';
   }
+
+  /// Releases the underlying HTTP client (same contract as [HttpHealth.close]).
+  ///
+  /// The service is a global singleton that outlives relay connections, so
+  /// production never calls this; it exists so tests and a full DI teardown
+  /// do not leak a socket per service.
+  void close() => _client.close();
 }

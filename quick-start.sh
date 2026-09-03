@@ -2,7 +2,7 @@
 # Quick start script for HerdRelay installation and setup
 set -euo pipefail
 
-REPO_URL="https://github.com/yg_kovalev/herdr_relay"
+REPO_URL="https://github.com/teasec4/herdr-mobile-app"
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
@@ -47,7 +47,7 @@ echo ""
 
 if [ "$CHOICE" = "1" ]; then
     echo "Installing plugin from GitHub..."
-    herdr plugin install yg_kovalev/herdr_relay/plugin
+    herdr plugin install teasec4/herdr-mobile-app/plugin
 
 elif [ "$CHOICE" = "2" ]; then
     read -p "Enter path to herdr_relay repository: " REPO_PATH
@@ -103,7 +103,7 @@ echo "  • Funnel:    Run 'tailscale funnel 8375' for public HTTPS"
 echo ""
 echo "Useful commands:"
 echo "  • Check status:  curl http://127.0.0.1:8375/healthz"
-echo "  • View logs:     tail -f ~/.local/state/herdrelay/relay.out.log"
+echo "  • View logs:     tail -f ~/.local/state/herdrelay/relay.err.log"
 echo "  • Change mode:   bash plugin/configure.sh [lan|tailscale|funnel]"
 echo ""
 echo "Documentation: ${BLUE}${REPO_URL}${NC}"

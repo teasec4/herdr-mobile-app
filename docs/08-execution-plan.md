@@ -167,7 +167,7 @@ launchctl print gui/$(id -u)/com.herdrelay.relay  # релей жив, подп�
 ```bash
 bash plugin/install.sh              # собран bin/herdrelay, launchd, "relay is running on :8375"
 launchctl print gui/$(id -u)/com.herdrelay.relay   # state=running, pid, пути логов
-herdr plugin link /Users/yg_kovalev/go/herdr_relay/plugin
+herdr plugin link ~/herdr-relay/plugin
 herdr plugin list                   # herdrelay.events (HerdRelay) enabled [local:...]
 herdr plugin action list --plugin herdrelay.events # show-pair-link
 # живые события (не эмуляция): сменить статус агента → 

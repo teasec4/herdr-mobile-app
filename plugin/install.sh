@@ -34,6 +34,11 @@ GW="${HERDRELAY_GATEWAY_URL:-}"
 # herdr lives in a user-local dir that launchd's minimal PATH does not include,
 # so resolve its absolute path here and hand it to the relay via env.
 HERDR_BIN="${HERDR_BIN:-$(command -v herdr || true)}"
+if [ -z "$HERDR_BIN" ]; then
+    echo "HerdRelay: warning: herdr not found in PATH — the relay will still run," >&2
+    echo "HerdRelay: but herdr-socket integration (event subscription) will be unavailable." >&2
+    echo "HerdRelay: install herdr, then re-run install.sh to enable it." >&2
+fi
 
 source "$ROOT/relay-lib.sh"
 
@@ -44,9 +49,22 @@ echo "HerdRelay: installing launchd service (mode=$MODE)..."
 write_relay_plist "$MODE" "$HERDR_BIN" "$GW"
 
 echo "HerdRelay: service installed. Checking relay..."
-sleep 1
-if curl -s -m 2 "http://127.0.0.1:${PORT}/healthz" >/dev/null; then
-    echo "HerdRelay: relay is running on :${PORT}"
-else
-    echo "HerdRelay: relay not answering yet — see $LOG_DIR/relay.err.log"
+up=0
+for _ in $(seq 1 10); do
+    if curl -s -m 2 "http://127.0.0.1:${PORT}/healthz" >/dev/null 2>&1; then
+        up=1
+        break
+    fi
+    # The plist is written with RunAtLoad, but a plain `load` is unreliable on
+    # modern macOS — actively start the job if it did not come up on its own.
+    launchctl kickstart "gui/$(id -u)/com.herdrelay.relay" >/dev/null 2>&1 || true
+    sleep 1
+done
+if [ "$up" -ne 1 ]; then
+    echo "HerdRelay: relay did not come up on :${PORT} within ~10s" >&2
+    echo "HerdRelay: check $LOG_DIR/relay.err.log for errors." >&2
+    echo "HerdRelay: re-run 'bash plugin/install.sh', or start the service with:" >&2
+    echo "HerdRelay:   launchctl kickstart -k gui/$(id -u)/com.herdrelay.relay" >&2
+    exit 1
 fi
+echo "HerdRelay: relay is running on :${PORT}"

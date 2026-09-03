@@ -80,17 +80,41 @@ class _HerdRelayAppState extends State<HerdRelayApp> {
   @override
   void dispose() {
     _linkSub?.cancel();
-    _session.dispose();
+    // The session is a global getIt singleton (survives relay teardown); the
+    // container owns its lifecycle, not the root widget — which is never
+    // disposed during a real app run anyway.
     teardownRelayServices();
     super.dispose();
   }
 
+  /// Cold start: restore the active relay (if any) and drop the splash screen.
+  ///
+  /// The splash must never stick. Whatever happens below — a storage error, a
+  /// hung restore, an exception anywhere in the session — the app always lands
+  /// on a real screen: HomePage (which shows the connection gate when the relay
+  /// is unreachable) when a config is active, the scanner otherwise. Both the
+  /// try/catch and the deadline guarantee this: a thrown error cannot leave
+  /// `_loading` true forever, and neither can a future that never completes.
   Future<void> _bootstrap() async {
-    await _session.bootstrap();
+    try {
+      await _session.bootstrap().timeout(
+            const Duration(seconds: 15),
+            // Safety net: even a hung restore must fall through to a screen.
+            onTimeout: () {},
+          );
+    } catch (_) {
+      // Restore/setup failure — fall through to the scanner or HomePage instead
+      // of an endless spinner; the gate on HomePage surfaces unreachable relays.
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
     if (!mounted) return;
-    setState(() => _loading = false);
     if (_session.config != null) {
-      await _handleNotificationLaunch();
+      try {
+        await _handleNotificationLaunch();
+      } catch (_) {
+        // Notification launch is best-effort; a failure must not crash the app.
+      }
     }
   }
 
@@ -135,15 +159,22 @@ class _HerdRelayAppState extends State<HerdRelayApp> {
   /// URL scheme) let the app be reconfigured from a link — including via
   /// scanning a QR from another app.
   void _listenDeepLinks() {
-    final appLinks = AppLinks();
-    // Keep the subscription so it can be cancelled in dispose; the handler
-    // swaps the active relay and must not run after teardown.
-    _linkSub = appLinks.uriLinkStream.listen(_applyLink);
-    appLinks.getInitialLink().then((uri) {
-      if (uri != null) _applyLink(uri);
-    }).catchError((_) {
-      // deep links may be unsupported on desktop/web — not critical
-    });
+    // Deep links are a nice-to-have, not a hard dependency: on platforms or
+    // embeddings without the plugin (desktop/web/tests) a throwing AppLinks
+    // must not take startup down with it.
+    try {
+      final appLinks = AppLinks();
+      // Keep the subscription so it can be cancelled in dispose; the handler
+      // swaps the active relay and must not run after teardown.
+      _linkSub = appLinks.uriLinkStream.listen(_applyLink);
+      appLinks.getInitialLink().then((uri) {
+        if (uri != null) _applyLink(uri);
+      }).catchError((_) {
+        // deep links may be unsupported on desktop/web — not critical
+      });
+    } catch (_) {
+      // Deep-link plugin unavailable — proceed without it.
+    }
   }
 
   Future<void> _applyLink(Uri uri) async {
@@ -205,42 +236,12 @@ class _HerdRelayAppState extends State<HerdRelayApp> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) {
-      return _app(const Scaffold(body: Center(child: CircularProgressIndicator())));
-    }
-    // Rebuild when the session switches config: a config change tears down and
-    // recreates the relay services, so HomePage must be recreated to drop its
-    // cached getIt references. The key includes profileKey + mode + version so
-    // any applied change (pair via deep link, mode switch, re-pair) rebuilds it.
-    return ListenableBuilder(
-      listenable: _session,
-      builder: (context, _) {
-        final config = _session.config;
-        if (config == null) {
-          return _app(
-            PairPage(
-              onPaired: (config) async {
-                await getIt<ConfigStore>().saveProfile(config);
-                await _session.setConfig(config);
-              },
-            ),
-          );
-        }
-        return _app(
-          HomePage(
-            key: ValueKey('${config.profileKey}:${config.mode}:${_session.version}'),
-            config: config,
-            onRequestSwitch: _openConnection,
-            onAddDevice: _showAddDevice,
-            onForgetDevice: _forgetActive,
-            onModeSelected: _switchTo,
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _app(Widget home) {
+    // The MaterialApp stays constant for the app's lifetime: its navigatorKey
+    // keeps pushed routes (ConnectionPage, AgentPage, scanner) alive across
+    // config switches. The root screen swaps inside `home` instead — a live
+    // Navigator never replaces its own '/' route when MaterialApp.home is
+    // mutated, which is exactly what used to leave the splash on screen after
+    // bootstrap finished.
     return MaterialApp(
       navigatorKey: _navKey,
       title: 'HerdRelay',
@@ -252,7 +253,39 @@ class _HerdRelayAppState extends State<HerdRelayApp> {
         ),
         useMaterial3: true,
       ),
-      home: home,
+      home: _appRoot(),
+    );
+  }
+
+  /// Root screen switcher: splash while bootstrapping, the scanner when there
+  /// is no active relay, HomePage otherwise. HomePage is recreated whenever the
+  /// session applies a change (its key includes profileKey + mode + version) so
+  /// it never outlives the relay services it caches getIt references to.
+  Widget _appRoot() {
+    if (_loading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    return ListenableBuilder(
+      listenable: _session,
+      builder: (context, _) {
+        final config = _session.config;
+        if (config == null) {
+          return PairPage(
+            onPaired: (config) async {
+              await getIt<ConfigStore>().saveProfile(config);
+              await _session.setConfig(config);
+            },
+          );
+        }
+        return HomePage(
+          key: ValueKey('${config.profileKey}:${config.mode}:${_session.version}'),
+          config: config,
+          onRequestSwitch: _openConnection,
+          onAddDevice: _showAddDevice,
+          onForgetDevice: _forgetActive,
+          onModeSelected: _switchTo,
+        );
+      },
     );
   }
 }

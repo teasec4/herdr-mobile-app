@@ -1,8 +1,8 @@
 # herdr-plugin.toml registers HerdRelay with herdr as a plugin.
 #
 # Install/link:
-#   herdr plugin link /Users/yg_kovalev/go/herdr_relay/plugin   # local dev
-#   herdr plugin install yg_kovalev/herdr_relay/plugin          # from GitHub (clones the repo)
+#   herdr plugin link ~/herdr-relay/plugin   # local dev
+#   herdr plugin install teasec4/herdr-mobile-app/plugin          # from GitHub (clones the repo)
 #
 # [[build]] runs install.sh on `plugin install`: builds the Go relay from the
 # repo root into bin/ and installs the launchd service. `herdr plugin link`
@@ -15,9 +15,9 @@
 
 id = "herdrelay.events"
 name = "HerdRelay"
-version = "0.1.0"
+version = "0.3.0"
 description = "Remote control for Herdr: monitor and check agents from your phone over LAN/Tailscale"
-min_herdr_version = "0.7.5"
+min_herdr_version = "0.8.0"
 platforms = ["macos", "linux"]
 
 # Build the Go relay into bin/ and install the launchd service (macOS).
@@ -33,7 +33,7 @@ command = ["bash", "install.sh"]
 # Live terminal output (Б-lite) is NOT driven by a plugin hook: herdr's hook
 # system rejects every output-ish event name (pane.updated, pane.output_changed,
 # pane.scroll_changed — all "unknown event"), so the relay subscribes to
-# pane.scroll_changed itself over herdr's unix socket (see cmd/relay/herdrevents.go)
+# pane.scroll_changed itself over herdr's unix socket (see internal/infrastructure/herdr/socket_event_repository.go)
 # and streams pane.output_changed to the phone.
 
 # "Show QR" — opens the setup pane with the pairing link/QR.

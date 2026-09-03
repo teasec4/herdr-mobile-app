@@ -18,8 +18,8 @@ func runStatusCmd() int {
 		return 1
 	}
 
-	fmt.Printf("Режим:    %s\n", cfg.Mode)
-	fmt.Printf("Слушать:  %s\n", cfg.Listen)
+	fmt.Printf("Mode:     %s\n", cfg.Mode)
+	fmt.Printf("Listen:   %s\n", cfg.Listen)
 
 	// Identity is read-only here: loadIdentity would create the file anew.
 	identity := ""
@@ -29,30 +29,30 @@ func runStatusCmd() int {
 		}
 	}
 	if identity == "" {
-		fmt.Printf("Релей:    не настроен\n")
+		fmt.Printf("Relay:    not configured\n")
 	} else {
-		fmt.Printf("Релей:    %s\n", identity)
+		fmt.Printf("Relay:    %s\n", identity)
 	}
 
-	fmt.Println("Файлы:")
+	fmt.Println("Files:")
 	paths := [][2]string{
-		{"токен", cfg.TokenFile},
+		{"token", cfg.TokenFile},
 		{"identity", cfg.IdentityFile},
-		{"сокет herdr", cfg.Socket},
+		{"herdr socket", cfg.Socket},
 	}
 	for _, p := range paths {
 		mark := ""
 		if _, err := os.Stat(p[1]); err != nil {
-			mark = " (нет)"
+			mark = " (missing)"
 		}
 		fmt.Printf("  %-14s %s%s\n", p[0]+":", p[1], mark)
 	}
-	fmt.Printf("  %-14s %s\n", "бинарник herdr:", cfg.HerdrBin)
+	fmt.Printf("  %-14s %s\n", "herdr binary:", cfg.HerdrBin)
 
 	base := "http://127.0.0.1:" + listenPort(cfg)
 	if !relayAlive(base) {
-		fmt.Println("\nСтатус: НЕ ЗАПУЩЕН")
-		fmt.Println("Запустите релей: install.sh или 'launchctl start com.herdrelay.relay'")
+		fmt.Println("\nStatus: NOT RUNNING")
+		fmt.Println("Start the relay: install.sh or 'launchctl start com.herdrelay.relay'")
 		return 1
 	}
 
@@ -63,11 +63,11 @@ func runStatusCmd() int {
 	}
 	info, err := fetchPairInfo(base, token)
 	if err != nil {
-		fmt.Printf("\nСтатус: RUNNING, но /pair недоступен: %v\n", err)
+		fmt.Printf("\nStatus: RUNNING, but /pair unavailable: %v\n", err)
 		return 1
 	}
 
-	fmt.Println("\nСтатус: RUNNING")
+	fmt.Println("\nStatus: RUNNING")
 	fmt.Printf("  primary: %s\n", info.Primary)
 	names := make([]string, 0, len(info.URLs))
 	for n := range info.URLs {
@@ -76,13 +76,13 @@ func runStatusCmd() int {
 	sort.Strings(names)
 	for _, n := range names {
 		m := info.URLs[n]
-		avail := "недоступен"
+		avail := "unavailable"
 		if m.Available {
-			avail = "доступен"
+			avail = "available"
 		}
 		fmt.Printf("  %-10s %-11s %s\n", n+":", avail, m.URL)
 	}
-	fmt.Println("\nQR для телефона: herdrelay pair --qr")
+	fmt.Println("\nQR for your phone: herdrelay pair --qr")
 	return 0
 }
 

@@ -5,6 +5,7 @@ import '../core/connection/mode_service.dart';
 import '../core/service_locator.dart';
 import '../models/pair_config.dart';
 import '../utils/toast_service.dart';
+import 'mode_icons.dart';
 
 /// Bottom sheet that fetches the relay's available connection modes and lets
 /// the user switch. Handles loading / error (with Retry) / empty states —
@@ -237,11 +238,7 @@ class _ModePickerSheetState extends State<ModePickerSheet> {
                 ListTile(
                   dense: true,
                   leading: Icon(
-                    entry.key == 'lan'
-                        ? Icons.wifi
-                        : entry.key == 'tailscale'
-                            ? Icons.vpn_lock
-                            : Icons.public,
+                    modeIcon(entry.key),
                     size: 18,
                   ),
                   title: Text(entry.key),
@@ -270,12 +267,10 @@ class _ModePickerSheetState extends State<ModePickerSheet> {
                     children: [
                       DropdownButton<String>(
                         value: _manualMode,
-                        items: const [
-                          DropdownMenuItem(value: 'lan', child: Text('LAN')),
-                          DropdownMenuItem(
-                              value: 'tailscale', child: Text('Tailscale')),
-                          DropdownMenuItem(
-                              value: 'funnel', child: Text('Funnel')),
+                        items: [
+                          for (final m in PairConfig.knownModes)
+                            DropdownMenuItem(
+                                value: m, child: Text(modeLabel(m))),
                         ],
                         onChanged: _switching
                             ? null

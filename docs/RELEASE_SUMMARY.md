@@ -87,7 +87,7 @@ Create and add to README:
 
 ```bash
 # On a fresh VM or ask a friend:
-herdr plugin install yg_kovalev/herdr_relay/plugin
+herdr plugin install teasec4/herdr-mobile-app/plugin
 # Follow the INSTALL.md step by step
 # Note any issues or unclear instructions
 ```

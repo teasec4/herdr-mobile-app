@@ -12,7 +12,7 @@
 ### Step 1: Install the Plugin
 
 ```bash
-herdr plugin install yg_kovalev/herdr_relay/plugin
+herdr plugin install teasec4/herdr-mobile-app/plugin
 ```
 
 This command will:
@@ -34,7 +34,7 @@ Or use the menu: **HerdRelay → Show phone link / QR**
 ### Step 3: Install Mobile App
 
 **Android:**
-- Download the APK from the [Releases](https://github.com/yg_kovalev/herdr_relay/releases) page
+- Download the APK from the [Releases](https://github.com/teasec4/herdr-mobile-app/releases) page
 - Install on your phone
 - Grant necessary permissions
 
@@ -135,8 +135,8 @@ After changing modes, scan the new QR code in the app.
 ### Check Status
 
 ```bash
-# Via relay command
-~/go/herdr_relay/plugin/bin/herdrelay status
+# Via relay command (from the repo root)
+./plugin/bin/herdrelay status
 
 # Via health check
 curl http://127.0.0.1:8375/healthz
@@ -146,7 +146,7 @@ curl http://127.0.0.1:8375/healthz
 
 ```bash
 # Relay logs
-tail -f ~/.local/state/herdrelay/relay.out.log
+tail -f ~/.local/state/herdrelay/relay.log
 tail -f ~/.local/state/herdrelay/relay.err.log
 
 # Plugin logs
@@ -178,8 +178,8 @@ cat ~/.local/state/herdrelay/relay.err.log
 ### Reset Pairing Token
 
 ```bash
-# Regenerate token and show new QR
-~/go/herdr_relay/plugin/bin/herdrelay pair --qr
+# Regenerate token and show new QR (from the repo root)
+./plugin/bin/herdrelay pair --qr
 ```
 
 ## Building from Source
@@ -187,7 +187,7 @@ cat ~/.local/state/herdrelay/relay.err.log
 ### Relay Binary
 
 ```bash
-git clone https://github.com/yg_kovalev/herdr_relay.git
+git clone https://github.com/teasec4/herdr-mobile-app.git
 cd herdr_relay
 go build -o plugin/bin/herdrelay ./cmd/relay
 bash plugin/install.sh
@@ -198,7 +198,7 @@ bash plugin/install.sh
 ```bash
 cd client
 flutter pub get
-flutter test  # Run 241 tests
+flutter test  # Run 259 tests
 
 # Android
 flutter build apk --release
@@ -211,8 +211,8 @@ flutter build ios --release
 ## Uninstall
 
 ```bash
-# Stop and remove service
-launchctl unload ~/Library/LaunchAgents/com.herdrelay.relay.plist
+# Stop and remove service (macOS)
+launchctl bootout gui/$(id -u)/com.herdrelay.relay
 rm ~/Library/LaunchAgents/com.herdrelay.relay.plist
 
 # Remove plugin
@@ -231,6 +231,6 @@ rm -rf ~/.local/state/herdrelay
 
 ## Getting Help
 
-- **Issues**: [GitHub Issues](https://github.com/yg_kovalev/herdr_relay/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yg_kovalev/herdr_relay/discussions)
+- **Issues**: [GitHub Issues](https://github.com/teasec4/herdr-mobile-app/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/teasec4/herdr-mobile-app/discussions)
 - **herdr Community**: [herdr.dev](https://herdr.dev)

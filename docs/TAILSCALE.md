@@ -1,69 +1,69 @@
 # Tailscale Remote Access
 
-Приложение поддерживает три режима подключения к relay:
+The app supports three connection modes to the relay:
 
-## 1. LAN (Локальная сеть)
-**Когда использовать:** Дома или в офисе, когда телефон и компьютер в одной сети Wi-Fi.
+## 1. LAN (local network)
+**When to use:** At home or in the office, when the phone and the computer are on the same Wi-Fi network.
 
-**Настройка:** Не требуется дополнительных настроек, работает автоматически.
+**Setup:** No extra configuration — works automatically.
 
-**Пример ссылки:**
+**Example link:**
 ```
-herdrelay://pair?host=192.168.31.89&port=8375&mode=lan&token=...
+herdrelay://pair?host=192.168.1.100&port=8375&mode=lan&token=...
 ```
 
 ## 2. Tailscale (VPN)
-**Когда использовать:** Удалённый доступ через Tailscale VPN. Безопасное подключение из любой точки мира.
+**When to use:** Remote access through the Tailscale VPN. A secure connection from anywhere in the world.
 
-**Настройка:**
-1. Установите Tailscale на компьютер: https://tailscale.com/download
-2. Установите Tailscale на телефон из App Store / Google Play
-3. Войдите в один аккаунт на обоих устройствах
-4. Запустите Tailscale на обоих устройствах
-5. Relay автоматически обнаружит Tailscale и предложит этот режим
+**Setup:**
+1. Install Tailscale on the computer: https://tailscale.com/download
+2. Install Tailscale on the phone from the App Store / Google Play
+3. Sign in to the same account on both devices
+4. Run Tailscale on both devices
+5. The relay automatically detects Tailscale and offers this mode
 
-**Пример ссылки:**
+**Example link:**
 ```
-herdrelay://pair?host=macbook-pro.tail85247a.ts.net&port=8375&mode=tailscale&token=...
+herdrelay://pair?host=<your-machine>.<tailnet>.ts.net&port=8375&mode=tailscale&token=...
 ```
 
-**Преимущества:**
-- Работает из любого места (дом, кафе, другой город)
-- Зашифрованное соединение
-- Не нужно открывать порты в роутере
-- Бесплатно для личного использования
+**Advantages:**
+- Works from anywhere (home, a cafe, another city)
+- Encrypted connection
+- No need to open ports on the router
+- Free for personal use
 
-## 3. Funnel (Публичный HTTPS)
-**Когда использовать:** Когда нужен публичный доступ или Tailscale на телефоне недоступен.
+## 3. Funnel (public HTTPS)
+**When to use:** When you need public access or Tailscale is not available on the phone.
 
-**Настройка:**
-1. Включите Tailscale Funnel на компьютере:
+**Setup:**
+1. Enable Tailscale Funnel on the computer:
    ```bash
    tailscale funnel --bg 8375
    ```
-2. Relay автоматически предложит режим funnel
+2. The relay automatically offers the funnel mode
 
-**Пример ссылки:**
+**Example link:**
 ```
-herdrelay://pair?host=macbook-pro.tail85247a.ts.net&mode=funnel&token=...
+herdrelay://pair?host=<your-machine>.<tailnet>.ts.net&mode=funnel&token=...
 ```
 
-**Важно:** 
-- Использует HTTPS (безопасное соединение)
-- Не требует Tailscale на телефоне
-- Relay будет доступен публично (защищено токеном)
+**Important:**
+- Uses HTTPS (secure connection)
+- Does not require Tailscale on the phone
+- The relay becomes publicly reachable (protected by the token)
 
-## Как переключить режим
+## How to switch the mode
 
-1. В приложении откройте настройки
-2. Нажмите "Отключиться" 
-3. Отсканируйте QR код заново или вставьте новую ссылку с другим режимом
+1. Open Settings in the app
+2. Tap "Disconnect"
+3. Scan the QR code again or paste a new link with a different mode
 
-## Проверка доступных режимов
+## Checking the available modes
 
-На компьютере выполните:
+On the computer run:
 ```bash
 curl "http://localhost:8375/pair?token=$(cat ~/.config/herdr/herdrelay.token)" | python3 -m json.tool
 ```
 
-Вы увидите список доступных режимов в секции `urls`.
+You will see the list of available modes in the `urls` section.

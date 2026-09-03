@@ -7,6 +7,7 @@ import '../core/service_locator.dart';
 import '../models/pair_config.dart';
 import '../utils/toast_service.dart';
 import '../widgets/lan_only_warning_dialog.dart';
+import '../widgets/mode_icons.dart';
 
 /// Onboarding: scan a QR with the relay pair link or paste a link manually.
 class PairPage extends StatefulWidget {
@@ -54,7 +55,7 @@ class _PairPageState extends State<PairPage> {
 
       // LAN-only pair: warn that the relay is unreachable away from home
       // (AUTO_MODE_SWITCHING_PLAN, Phase 1.1).
-      if (config.endpoints.length == 1 && config.mode == 'lan') {
+      if (config.isLanOnly) {
         final proceed = await showLanOnlyWarning(context);
         if (!proceed || !mounted) return;
       }
@@ -112,14 +113,7 @@ class _PairPageState extends State<PairPage> {
             for (final mode in modes)
               ListTile(
                 dense: true,
-                leading: Icon(
-                  switch (mode.mode) {
-                    'lan' => Icons.wifi,
-                    'tailscale' => Icons.lan,
-                    'funnel' => Icons.public,
-                    _ => Icons.link,
-                  },
-                ),
+                leading: Icon(modeIcon(mode.mode)),
                 title: Text(mode.mode),
                 subtitle: Text(
                   mode.description.isEmpty ? mode.url : mode.description,

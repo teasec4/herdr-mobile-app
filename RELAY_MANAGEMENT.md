@@ -144,7 +144,7 @@ export HERDRELAY_MODE=gateway    # требует HERDRELAY_GATEWAY_URL
 
 ### Плагин не работает
 1. Проверьте статус: `herdr plugin list | grep herdrelay`
-2. Если не установлен: `herdr plugin link /Users/yg_kovalev/go/herdr_relay/plugin`
+2. Если не установлен: `herdr plugin link ~/herdr-relay/plugin`
 3. Если disabled: `herdr plugin enable herdrelay.events`
 
 ### Flutter клиент не подключается
@@ -193,7 +193,7 @@ flutter run
 ## Файлы и пути
 
 ```
-/Users/yg_kovalev/go/herdr_relay/
+~/herdr-relay/
 ├── cmd/relay/              # Go код relay сервера
 │   ├── main.go
 │   ├── server.go
@@ -202,7 +202,6 @@ flutter run
 ├── plugin/                 # Плагин для herdr
 │   ├── herdr-plugin.toml   # Манифест плагина
 │   ├── install.sh          # Сборка и установка
-│   ├── on-event.sh         # Обработчик событий
 │   ├── setup-menu.sh       # Меню настройки
 │   └── bin/herdrelay       # Скомпилированный бинарник
 ├── client/                 # Flutter клиент

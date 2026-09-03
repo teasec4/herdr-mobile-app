@@ -57,10 +57,11 @@ send-keys / prompt` — стабильный id агента (из снимка:
   [01-architecture](01-architecture.md)).
 - HTTP-эндпоинты (удобно для отладки/curl и для простого клиента):
   - `GET /api/snapshot` — агенты + статусы (JSON).
-  - `GET /api/agents/<id>/output?lines=N&format=text|ansi` — ответ
-    `{"output":"...","revision":N}`: `revision` — последняя известная ревизия
-    вывода (строго растущая, отслеживается из событий), нужна клиенту для
-    дедупликации живых апдейтов.
+  - `GET /api/agents/<id>/output?lines=N&format=text|ansi` — отвечает
+    **plain text** (срез последних N строк, `Content-Type: text/plain`);
+    ревизию вывода эндпоинт не отдаёт — её клиент получает из RPC
+    `agent.output`/`pane.output` и из событий `pane.output_changed`
+    (WS/SSE), строго растущую, и использует для дедупликации живых апдейтов.
   - `POST /api/agents/<id>/keys` `{"keys":["Esc"]}`.
   - `POST /api/agents/<id>/prompt` `{"text":"..."}`.
 - `GET /healthz`.

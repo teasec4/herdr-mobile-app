@@ -74,8 +74,15 @@ $gw_block  </dict>
 EOF
 
     if command -v launchctl >/dev/null 2>&1; then
-        launchctl unload "$plist" >/dev/null 2>&1 || true
-        launchctl load "$plist"
+        local target="gui/$(id -u)/com.herdrelay.relay"
+        # Unload any previous instance, then load the new plist. `launchctl load`
+        # alone does not reliably honor RunAtLoad on modern macOS (the job ends up
+        # loaded but not running), so kickstart the job afterwards.
+        launchctl bootout "$target" >/dev/null 2>&1 || true
+        launchctl bootstrap "gui/$(id -u)" "$plist" >/dev/null 2>&1 || \
+            launchctl load "$plist" >/dev/null 2>&1 || true
+        launchctl kickstart -k "$target" >/dev/null 2>&1 || \
+            launchctl start com.herdrelay.relay >/dev/null 2>&1 || true
     else
         echo "HerdRelay: launchctl not found — plist written, service reload skipped"
     fi

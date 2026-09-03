@@ -124,14 +124,22 @@ class EventFrame extends Frame {
 class PingFrame extends Frame {
   const PingFrame();
 
+  /// The exact wire string the relay's pong matcher expects. Transport-layer
+  /// keepalive (WebSocketTransport) reuses this so the literal lives in one
+  /// place (docs/03-relay.md keepalive section).
+  static const String wire = '{"type":"ping"}';
+
   @override
-  String encode() => '{"type":"ping"}';
+  String encode() => wire;
 }
 
 /// Client's answer to a [PingFrame].
 class PongFrame extends Frame {
   const PongFrame();
 
+  /// Wire string consumed by the transport's keepalive watchdog.
+  static const String wire = '{"type":"pong"}';
+
   @override
-  String encode() => '{"type":"pong"}';
+  String encode() => wire;
 }

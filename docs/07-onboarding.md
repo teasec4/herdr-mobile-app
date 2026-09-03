@@ -1,163 +1,166 @@
-# 07 — Онбординг «навёл на QR — работает»
+# 07 — Onboarding: "point at the QR and it works"
 
-## Проблема
+## Problem
 
-Для опен-сорс-проекта требование «подними VPS, сконфигурируй домен, TLS,
-гейтвей» — непреодолимый барьер. Хочется:
+For an open-source project, requiring users to "spin up a VPS, configure a
+domain, TLS, and a gateway" is an insurmountable barrier. The goal is:
 
-1. Установил плагин на ноуте (`herdr plugin install ...`).
-2. Открыл пейн «HerdRelay: Setup».
-3. Навёл телефон на QR.
-4. Всё работает.
+1. Install the plugin on the laptop (`herdr plugin install ...`).
+2. Open the "HerdRelay: Setup" pane.
+3. Point the phone at the QR code.
+4. Done.
 
-Без VPS, без регистрации, без вбивания адресов руками. VPS при этом
-остаётся опцией для тех, кому он действительно нужен.
+No VPS, no sign-up, no typing addresses by hand. A VPS stays an option for
+those who genuinely need it.
 
-**Статус: LAN-онбординг проверен живьём** — релей печатает QR, телефон сканирует
-(системной камерой или встроенным сканером), приложение открывается и
-подключается (режим A, домашняя сеть). Tailscale (B1) и funnel (B2) на
-устройстве ещё не проверялись.
+**Status: LAN onboarding is verified live** — the relay prints a QR, the phone
+scans it (with the system camera or the built-in scanner), the app opens and
+connects (mode A, home network). Tailscale (B1) and funnel (B2) have not been
+tested on a device yet.
 
-## Модель: релей генерирует QR, телефон сканирует
+## Model: the relay generates the QR, the phone scans it
 
-- Релей при первом запуске генерирует токен пары и определяет доступные
-  режимы подключения.
-- Экшен/пейн плагина «показать QR» запрашивает у релея `GET /pair` и рисует
-  QR в пейне herdr.
-- QR = одна custom-scheme-ссылка. Телефон сканирует (системной камерой или
-  встроенным сканером в приложении) → приложение открывается, сохраняет
-  конфиг, коннектит WS. Повторный скан = «переключить режим»; при этом
-  профиль помнит адреса **всех** режимов релея и умеет переключаться офлайн
-  (см. «Профили подключений» ниже).
+- On first start the relay generates a pairing token and detects the available
+  connection modes.
+- The plugin's "show QR" action/pane asks the relay for `GET /pair` and draws
+  the QR inside the herdr pane.
+- The QR is a single custom-scheme link. The phone scans it (system camera or
+  the scanner built into the app) → the app opens, saves the config, connects
+  over WS. Scanning again = "switch mode"; the profile remembers the addresses
+  of **all** relay modes and can switch offline (see "Connection profiles"
+  below).
 
-## URL-схема пары
+## Pair link URL scheme
 
 `herdrelay://pair?mode=<mode>&token=<T>&...`
 
-| режим | содержимое QR | когда |
+| mode | QR content | when |
 | --- | --- | --- |
-| `lan` | `herdrelay://pair?mode=lan&host=192.168.1.50&port=8375&relay_id=R&name=macbook&token=T` | телефон в одной Wi-Fi с ноутом |
-| `tailscale` (B1) | `herdrelay://pair?mode=tailscale&host=macbook-pro.tail85247a.ts.net&port=8375&relay_id=R&name=macbook&token=T` | телефон в той же tailnet |
-| `funnel` (B2) | `herdrelay://pair?mode=funnel&host=macbook-pro.tail85247a.ts.net&relay_id=R&name=macbook&token=T` | телефону Tailscale не нужен (публичный HTTPS) |
-| `gateway` (C) | `herdrelay://pair?mode=gateway&url=wss://gw.example.com/ws&relay_id=R&name=macbook&token=T` | VPS-гейтвей (опция) |
+| `lan` | `herdrelay://pair?mode=lan&host=192.168.1.100&port=8375&relay_id=R&name=macbook&token=T` | phone on the same Wi-Fi as the laptop |
+| `tailscale` (B1) | `herdrelay://pair?mode=tailscale&host=<your-machine>.<tailnet>.ts.net&port=8375&relay_id=R&name=macbook&token=T` | phone in the same tailnet |
+| `funnel` (B2) | `herdrelay://pair?mode=funnel&host=<your-machine>.<tailnet>.ts.net&relay_id=R&name=macbook&token=T` | phone does not need Tailscale (public HTTPS) |
+| `gateway` (C) | `herdrelay://pair?mode=gateway&url=wss://gw.example.com/ws&relay_id=R&name=macbook&token=T` | VPS gateway (optional) |
 
-`relay_id` и `name` — идентичность релея (см. ниже).
+`relay_id` and `name` identify the relay (see below).
 
-### Идентичность релея (relay_id)
+### Relay identity (relay_id)
 
-Каждая ссылка пары несёт стабильный `relay_id` (32 hex, генерируется при первом
-запуске релея, хранится в `~/.config/herdr/herdrelay.id`) и человекочитаемый
-`name` (имя хоста). Клиент использует `relay_id`, чтобы распознать один и тот
-же релей при смене сессии или переезде на другую машину, и показывает `name` в
-списке сохранённых подключений. Посмотреть свои `relay_id`/`name`:
+Every pair link carries a stable `relay_id` (32 hex, generated on the relay's
+first start, stored in `~/.config/herdr/herdrelay.id`) and a human-readable
+`name` (the hostname). The client uses `relay_id` to recognize the same relay
+across sessions or when it moves to another machine, and shows `name` in the
+list of saved connections. See your own `relay_id`/`name` with:
 `herdrelay status`.
 
-### Профили подключений (несколько машин/режимов)
+### Connection profiles (several machines/modes)
 
-Клиент хранит несколько профилей пары (переключение `Switch` / добавление
-`Add` / удаление `Forget`):
+The client stores several pair profiles (switching with `Switch` / adding with
+`Add` / deleting with `Forget`):
 
-- **Add** — новый QR добавляет профиль, не стирая прежние.
-- **Switch** — выбор между сохранёнными профилями: удобно при смене сети
-  (`lan` дома → `tailscale` в дороге → `funnel`/`gateway` из интернета) или
-  при работе с несколькими компьютерами.
-- **Forget** — удаляет профиль.
+- **Add** — a new QR adds a profile without erasing the previous ones.
+- **Switch** — choose between saved profiles: handy when changing networks
+  (`lan` at home → `tailscale` on the road → `funnel`/`gateway` from the
+  internet) or when working with several computers.
+- **Forget** — deletes a profile.
 
-Приложение парсит ссылку, складывает в `shared_preferences` base URL + токен
-и подключается. Если хост резолвится в недоступный адрес — показывает ошибку
-и предлагает «посмотреть другой QR» (например, переключиться с `lan` на
-`tailscale` при смене сети).
+The app parses the link, stores the base URL + token in `shared_preferences`
+and connects. If the host resolves to an unreachable address it shows an error
+and offers to "look at another QR" (for example, switch from `lan` to
+`tailscale` when the network changes).
 
-### Режим = endpoint (профиль помнит все адреса релея)
+### Mode = endpoint (the profile remembers all relay addresses)
 
-Один релей достижим по нескольким адресам (LAN-IP, tailnet-имя, funnel-URL).
-Профиль (`PairConfig`) хранит их в `endpoints: {mode → host:port}` — см.
-`docs/05-flutter-app.md` → бейдж режима:
+One relay is reachable at several addresses (LAN IP, tailnet name, funnel URL).
+A profile (`PairConfig`) keeps them in `endpoints: {mode → host:port}` — see
+`docs/05-flutter-app.md` → mode badge:
 
-- **Сидирование**: ссылка пары записывает endpoint своего режима; legacy-
-  профили (без `endpoints`) получают его автоматически при загрузке.
-- **Обогащение**: каждый успешный `GET /pair` дописывает адреса всех режимов
-  в профиль (`withEndpoints`), переключение — `connectVia` (адреса других
-  режимов не теряются).
-- **Офлайн-переключение**: если текущий режим недоступен (например, tailscale
-  выключен дома), пикер показывает «Saved modes for this relay» — выбор
-  сохранённого endpoint'а без сети; ручной ввод как запасной (хост следует за
-  режимом, токен берётся из профиля).
+- **Seeding**: the pair link writes the endpoint of its own mode; legacy
+  profiles (without `endpoints`) get it automatically on load.
+- **Enrichment**: every successful `GET /pair` appends the addresses of all
+  modes to the profile (`withEndpoints`); switching uses `connectVia` (the
+  other modes' addresses are not lost).
+- **Offline switching**: if the current mode is unreachable (for example,
+  Tailscale is off at home), the picker shows "Saved modes for this relay" — a
+  choice of saved endpoints without the network; manual entry as a fallback
+  (the host follows the mode, the token comes from the profile).
 
-## Почему custom scheme, а не http-ссылка
+## Why a custom scheme instead of an http link
 
-- HTTP-ссылку на LAN-IP или MagicDNS-имя приложение не откроет автоматически:
-  «universal links» / App Links требуют HTTPS-домена и AASA-файла на нём, что
-  на локальной сети/Tailscale не работает.
-- Custom scheme (`herdrelay://`) открывает приложение всегда и везде, без
-  публичного домена. Это стандартный механизм iOS (Info.plist `CFBundleURLTypes`)
-  и Android (intent-filter).
+- An app will not open an http link to a LAN IP or a MagicDNS name
+  automatically: "universal links" / App Links require an HTTPS domain with an
+  AASA file on it, which does not work on a local network/Tailscale.
+- A custom scheme (`herdrelay://`) opens the app always and everywhere, with no
+  public domain. This is the standard mechanism on iOS (Info.plist
+  `CFBundleURLTypes`) and Android (intent-filter).
 
-## Автоопределение режимов (wizard в релее/плагине)
+## Mode auto-detection (wizard in the relay/plugin)
 
-Релей на `GET /pair` возвращает только те режимы, которые реально доступны:
+On `GET /pair` the relay returns only the modes that are actually available:
 
-- **A (lan):** LAN-IP через `ipconfig getifaddr en0` (macOS) или
-  `hostname -I` (Linux). Доступен всегда.
-- **B1 (tailscale):** если `tailscale status` показывает живую tailnet —
-  берём `DNSName` из `tailscale status --json` (MagicDNS-имя машины). Порт
-  открыт в tailnet автоматически (WireGuard), ничего настраивать не надо.
-- **B2 (funnel):** одной командой `tailscale funnel 8375`; включается по
-  выбору пользователя в wizard-пейне (не по умолчанию — адрес публичный).
-  После этого в QR идёт `https://<machine>.<tailnet>.ts.net`.
-- **C (gateway):** только если задан `HERDRELAY_GATEWAY_URL` в конфиге релея.
+- **A (lan):** the LAN IP via `ipconfig getifaddr en0` (macOS) or
+  `hostname -I` (Linux). Always available.
+- **B1 (tailscale):** if `tailscale status` shows a live tailnet — take the
+  `DNSName` from `tailscale status --json` (the machine's MagicDNS name). The
+  port is open in the tailnet automatically (WireGuard), nothing to configure.
+- **B2 (funnel):** a single command `tailscale funnel 8375`; enabled at the
+  user's choice in the wizard pane (not by default — the address is public).
+  After that the QR carries `https://<your-machine>.<tailnet>.ts.net`.
+- **C (gateway):** only if `HERDRELAY_GATEWAY_URL` is set in the relay config.
 
-Wizard-пейн в herdr показывает крупный QR выбранного режима и кнопки выбора
-(по умолчанию — первый доступный: `lan` → `tailscale` → `funnel` → `gateway`).
-На этом же экране — «показать/сбросить токен» (ротация, если QR засветился).
+The wizard pane in herdr shows a large QR for the selected mode plus mode
+selection buttons (the default is the first available: `lan` → `tailscale` →
+`funnel` → `gateway`). The same screen has "show/reset token" (rotation if the
+QR was exposed).
 
-## Проверка состояния: `herdrelay status`
+## Health check: `herdrelay status`
 
-`herdrelay status` печатает режим, адрес, идентичность релея (`relay_id`
-и `name`), пути конфига и живое состояние:
+`herdrelay status` prints the mode, the address, the relay identity (`relay_id`
+and `name`), config paths and the live state:
 
-- если релей запущен — `primary`-режим, список всех доступных режимов с URL и
-  подсказку `herdrelay pair --qr`;
-- если не запущен — «Статус: НЕ ЗАПУЩЕН» и как поднять службу;
-- exit code 0 = релей работает, 1 = нет (удобно для скриптов и проверок).
+- if the relay is running — the `primary` mode, the list of all available modes
+  with URLs and the hint `herdrelay pair --qr`;
+- if it is not running — "Status: NOT RUNNING" and how to start the service;
+- exit code 0 = the relay is running, 1 = not (handy for scripts and checks).
 
-## Смена режима
+## Changing the mode
 
-Переключить режим без пересборки бинарника — экшен плагина
-«HerdRelay: configure mode», либо вручную:
+Switch the mode without rebuilding the binary — the plugin action
+"HerdRelay: configure mode", or manually:
 `bash plugin/configure.sh <mode> [gateway_url]` (`lan | tailscale | funnel | gateway`).
-Скрипт переписывает launchd-конфиг (`HERDRELAY_MODE`, для `gateway` —
-`HERDRELAY_GATEWAY_URL`) и перезапускает службу через launchctl; при выборе
-`funnel` пытается включить `tailscale funnel 8375`. После смены режима
-обновите QR на телефоне (`herdrelay pair --qr`) — повторный скан переключает
-режим существующего профиля.
+The script rewrites the launchd config (`HERDRELAY_MODE`, for `gateway` —
+`HERDRELAY_GATEWAY_URL`) and restarts the service via launchctl; choosing
+`funnel` tries to enable `tailscale funnel 8375`. After switching modes, update
+the QR on the phone (`herdrelay pair --qr`) — rescanning switches the mode of
+the existing profile.
 
-## Флоу для OSS-пользователя (без VPS)
+## Flow for an OSS user (no VPS)
 
-1. `herdr plugin install <owner>/<repo>/plugin` → `[[build]]` собирает/качает
-   релей, ставит launchd-сервис, релей создаёт токен.
-2. В herdr: пейн «HerdRelay: Setup» → виден QR (режим выбран автодетектом,
-   обычно `lan`).
-3. Навести телефон → приложение открылось, подключилось. Готово.
-4. Ушёл из дома → в приложении/на ноуте переключить режим на `tailscale`
-   (или `funnel`, если на телефоне нет Tailscale) → повторный QR.
+1. `herdr plugin install <owner>/<repo>/plugin` → `[[build]]` builds/downloads
+   the relay, installs the launchd service, the relay creates the token.
+2. In herdr: "HerdRelay: Setup" pane → the QR is visible (the mode is chosen by
+   auto-detect, usually `lan`).
+3. Point the phone at it → the app opens and connects. Done.
+4. Left home → switch the mode to `tailscale` in the app/on the laptop (or
+   `funnel` if the phone has no Tailscale) → scan the new QR.
 
-Итого для «личного» и для большинства пользователей достаточно **Tailscale на
-ноуте** (он бесплатный, personal plan) + Tailscale-приложение на телефоне.
-VPS не нужен вообще.
+In short, for "personal" use and for most users **Tailscale on the laptop**
+(it is free, personal plan) + the Tailscale app on the phone is enough. No VPS
+needed at all.
 
-## Безопасность QR
+## QR security
 
-- QR несёт токен пары — это секрет. Показывать в пейне по запросу (экшен), не
-  в логи. Токен ротируется экшеном «reset token».
-- Режимы `funnel` (публичный) и `gateway` — токен обязателен и проверяется на
-  каждом запросе/коннекте.
-- В режимах `lan`/`tailscale` трафик не TLS (внутри доверенной сети/WireGuard);
-  при желании закрыть и его — ставить `funnel` или `gateway` (там HTTPS/WSS).
+- The QR carries the pairing token — it is a secret. Show it in the pane on
+  request (an action), not in logs. The token is rotated by the "reset token"
+  action.
+- The `funnel` (public) and `gateway` modes require the token and check it on
+  every request/connect.
+- In `lan`/`tailscale` modes the traffic is not TLS (inside a trusted
+  network/WireGuard); if you want to secure it too — use `funnel` or `gateway`
+  (those are HTTPS/WSS).
 
-## Что дальше
+## What's next
 
-- v1 (сделано): QR + custom scheme + wizard-пейн; проверено по LAN с телефона.
-- v2+: если телефон видит сеть, в которой не резолвится текущий режим —
-  предложить «показать QR заново» (пуш/нотификация) либо автопереключение
-  по сети.
+- v1 (done): QR + custom scheme + wizard pane; verified over LAN from a phone.
+- v2+: if the phone sees a network where the current mode does not resolve —
+  offer to "show the QR again" (push/notification) or auto-switch based on the
+  network.

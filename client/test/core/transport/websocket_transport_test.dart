@@ -34,7 +34,7 @@ void main() {
     test('connect delivers status transitions and inbound string frames',
         () async {
       final channel = FakeWebSocketChannel();
-      final t = WebSocketTransport(channelFactory: (_) => channel);
+      final t = WebSocketTransport(channelFactory: (uri, headers) => channel);
 
       expect(t.status.value, ConnectionStatus.disconnected);
       final messages = <String>[];
@@ -54,7 +54,7 @@ void main() {
 
     test('send writes the raw string to the channel', () async {
       final channel = FakeWebSocketChannel();
-      final t = WebSocketTransport(channelFactory: (_) => channel);
+      final t = WebSocketTransport(channelFactory: (uri, headers) => channel);
       await t.connect(uri);
 
       t.send('{"type":"ping"}');
@@ -66,7 +66,7 @@ void main() {
 
     test('non-string inbound frames are ignored', () async {
       final channel = FakeWebSocketChannel();
-      final t = WebSocketTransport(channelFactory: (_) => channel);
+      final t = WebSocketTransport(channelFactory: (uri, headers) => channel);
       final messages = <String>[];
       final sub = t.messages.listen(messages.add);
       await t.connect(uri);
@@ -80,11 +80,43 @@ void main() {
       await t.close();
     });
 
+    test('connect sends the token as an Authorization Bearer header', () async {
+      Map<String, dynamic>? seenHeaders;
+      final t = WebSocketTransport(
+        token: 'sekrit',
+        channelFactory: (uri, headers) {
+          seenHeaders = headers;
+          return FakeWebSocketChannel();
+        },
+      );
+      await t.connect(uri);
+      expect(seenHeaders, {'Authorization': 'Bearer sekrit'});
+      // The token must never leak into the URL / query string.
+      expect(uri.queryParameters.containsKey('token'), isFalse);
+      expect(uri.toString(), isNot(contains('token=')));
+
+      await t.close();
+    });
+
+    test('connect without a token sends no Authorization header', () async {
+      Map<String, dynamic>? seenHeaders;
+      final t = WebSocketTransport(
+        channelFactory: (uri, headers) {
+          seenHeaders = headers;
+          return FakeWebSocketChannel();
+        },
+      );
+      await t.connect(uri);
+      expect(seenHeaders, isEmpty);
+
+      await t.close();
+    });
+
     test('disconnect triggers reconnect with backoff', () async {
       var calls = 0;
       late FakeWebSocketChannel first;
       final channels = <FakeWebSocketChannel>[];
-      final t = WebSocketTransport(channelFactory: (u) {
+      final t = WebSocketTransport(channelFactory: (u, headers) {
         calls++;
         final c = FakeWebSocketChannel();
         channels.add(c);
@@ -111,7 +143,7 @@ void main() {
     test('pause stops reconnect; resume restarts it', () async {
       var calls = 0;
       late FakeWebSocketChannel first;
-      final t = WebSocketTransport(channelFactory: (u) {
+      final t = WebSocketTransport(channelFactory: (u, headers) {
         calls++;
         final c = FakeWebSocketChannel();
         if (calls == 1) first = c;
@@ -134,7 +166,7 @@ void main() {
 
     test('error on the stream is treated as a disconnect', () async {
       final channel = FakeWebSocketChannel();
-      final t = WebSocketTransport(channelFactory: (_) => channel);
+      final t = WebSocketTransport(channelFactory: (uri, headers) => channel);
       await t.connect(uri);
 
       channel.simulateError(Exception('socket blew up'));
@@ -148,7 +180,7 @@ void main() {
     test('close stops reconnects and closes the message stream', () async {
       var calls = 0;
       late FakeWebSocketChannel first;
-      final t = WebSocketTransport(channelFactory: (u) {
+      final t = WebSocketTransport(channelFactory: (u, headers) {
         calls++;
         final c = FakeWebSocketChannel();
         if (calls == 1) first = c;
@@ -166,7 +198,7 @@ void main() {
 
     test('connect failure schedules a reconnect (bad channel ready)', () async {
       var calls = 0;
-      final t = WebSocketTransport(channelFactory: (u) {
+      final t = WebSocketTransport(channelFactory: (u, headers) {
         calls++;
         // Channel whose ready never completes: connect stalls, no crash.
         return FakeWebSocketChannel(connected: false);
@@ -182,11 +214,37 @@ void main() {
       await t.close();
     });
 
+    test('connect timeout fails the handshake and schedules a reconnect',
+        () async {
+      var calls = 0;
+      final t = WebSocketTransport(
+        channelFactory: (u, headers) {
+          calls++;
+          // Channel whose ready never completes: the handshake timeout bounds
+          // the wait so "connecting" cannot hang forever.
+          return FakeWebSocketChannel(connected: false);
+        },
+        connectTimeout: const Duration(milliseconds: 100),
+      );
+
+      // connect() now completes (previously it would stall indefinitely).
+      await t.connect(uri);
+      expect(t.status.value, ConnectionStatus.disconnected);
+      expect(t.lastError, 'Connect timeout');
+      expect(calls, 1);
+
+      // First backoff is 1 s (2^0): the second attempt also times out.
+      await Future<void>.delayed(const Duration(milliseconds: 1300));
+      expect(calls, 2);
+
+      await t.close();
+    });
+
     test('keepalive sends ping and reconnects when no pong arrives', () async {
       var calls = 0;
       late FakeWebSocketChannel first;
       final t = WebSocketTransport(
-        channelFactory: (u) {
+        channelFactory: (u, headers) {
           calls++;
           final c = FakeWebSocketChannel();
           if (calls == 1) first = c;
@@ -216,7 +274,7 @@ void main() {
       var calls = 0;
       FakeWebSocketChannel? channel;
       final t = WebSocketTransport(
-        channelFactory: (u) {
+        channelFactory: (u, headers) {
           calls++;
           channel = FakeWebSocketChannel();
           return channel!;
@@ -241,7 +299,7 @@ void main() {
 
     test('keepalive pong is consumed, not forwarded to messages', () async {
       final channel = FakeWebSocketChannel();
-      final t = WebSocketTransport(channelFactory: (_) => channel);
+      final t = WebSocketTransport(channelFactory: (uri, headers) => channel);
       final messages = <String>[];
       final sub = t.messages.listen(messages.add);
       await t.connect(uri);

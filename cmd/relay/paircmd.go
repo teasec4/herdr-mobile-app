@@ -38,10 +38,10 @@ func runPairCmd(args []string) int {
 	}
 	pm, ok := info.URLs[info.Primary]
 	if !ok {
-		fmt.Fprintf(os.Stderr, "herdrelay pair: нет доступного режима подключения\n")
+		fmt.Fprintf(os.Stderr, "herdrelay pair: no connection mode available\n")
 		return 1
 	}
-	fmt.Printf("Режим: %s\nWS:    %s\nСсылка: %s\n", info.Primary, pm.URL, pm.Link)
+	fmt.Printf("Mode:  %s\nWS:    %s\nLink:  %s\n", info.Primary, pm.URL, pm.Link)
 	if qr {
 		qrterminal.GenerateWithConfig(pm.Link, qrterminal.Config{
 			Level:      qrterminal.M,

@@ -582,7 +582,7 @@ Action id квалифицируется как `<plugin_id>.<action_id>`.
 10. **`HERDR_SOCKET` игнорируется CLI; работает только `HERDR_SOCKET_PATH`**
     (проверено живьём, `HERDR_SOCKET=/nonexistent/foo.sock herdr api snapshot` вернул
     снапшот с дефолтного сокета; с `HERDR_SOCKET_PATH` → `server_not_running`).
-    Наш `cli_repository.go` шлёт `HERDR_SOCKET` — баг для named session, чинить.
+    Исправлено: `cli_repository.go` шлёт `HERDR_SOCKET_PATH`, named-session работает.
 11. **`agent.prompt` с `wait` при уже заблокированном агенте** возвращает
     `agent_blocked`, не отправляя ввод. Проверять статус перед промптом или обрабатывать
     ошибку.

@@ -267,6 +267,43 @@ void main() {
     expect(find.text('Manual Connection'), findsNothing);
   });
 
+  // --- Phase A1: offline quick-switch from saved endpoints ------------------
+
+  testWidgets('офлайн: /pair недоступен, но endpoints сохранены — быстрый switch',
+      (tester) async {
+    PairConfig? switched;
+    await pumpConnection(
+      tester,
+      profileConfig: const PairConfig(
+        host: 'mymac.tailnet.ts.net',
+        port: 8375,
+        mode: 'lan',
+        token: '0123456789abcdef0123456789abcdef',
+        relayId: 'r1',
+        name: 'MacBook Pro',
+        endpoints: {
+          'lan': RelayEndpoint(host: '192.168.1.5', port: 8375),
+          'tailscale': RelayEndpoint(host: 'mac.tailnet.ts.net', port: 8375),
+        },
+      ),
+      // /pair unreachable (empty result): the saved-endpoints branch appears
+      // and offers the switch without any network round-trip.
+      modes: const [],
+      onSwitch: (c) => switched = c,
+    );
+
+    await scrollTo(tester, find.text('Saved modes for this relay'));
+    expect(find.text('Saved modes for this relay'), findsOneWidget);
+    expect(find.text('tailscale'), findsOneWidget); // saved endpoint tile
+
+    await tester.tap(find.text('tailscale'));
+    await tester.pumpAndSettle();
+
+    expect(switched, isNotNull);
+    expect(switched!.mode, 'tailscale');
+    expect(switched!.host, 'mac.tailnet.ts.net');
+  });
+
   // --- Phase 3: session version bumps re-bind status to the fresh client ---
 
   testWidgets('смена конфига перепривязывает статус на свежий клиент',

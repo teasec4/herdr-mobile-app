@@ -49,7 +49,7 @@ transport.send('{"type":"ping"}');
 
 ```dart
 final channel = FakeWebSocketChannel();
-final t = WebSocketTransport(channelFactory: (_) => channel);
+final t = WebSocketTransport(channelFactory: (uri, headers) => channel);
 await t.connect(uri);
 channel.simulateMessage('hello');
 expect(await t.messages.first, 'hello');
