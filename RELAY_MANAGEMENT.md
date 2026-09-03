@@ -1,225 +1,223 @@
-# HerdRelay: Управление и диагностика
+# HerdRelay: Management and Diagnostics
 
-## Быстрая проверка статуса
+## Quick Status Check
 
 ```bash
 ./relay-status.sh
 ```
 
-Показывает:
-- ✓/✗ Процесс relay запущен (PID, использование CPU/памяти, время сборки бинарника)
-- ✓/✗ Порт 8375 слушается
-- ✓/✗ API отвечает (количество агентов, их статусы)
-- ✓/✗ Плагин herdr установлен и включен
-- Токен доступа (первые/последние символы)
+Shows:
+- ✓/✗ Relay process is running (PID, CPU/memory usage, binary build time)
+- ✓/✗ Port 8375 is listening
+- ✓/✗ API responds (number of agents, their statuses)
+- ✓/✗ herdr plugin is installed and enabled
+- Access token (first/last characters)
 
-## Команды
+## Commands
 
-### Статус (по умолчанию)
+### Status (default)
 ```bash
 ./relay-status.sh status
-./relay-status.sh          # то же самое
+./relay-status.sh          # the same thing
 ```
 
-### Обновление после изменений — основной режим
+### Update after Changes — the Main Mode
 
 ```bash
 ./relay-status.sh update
 ```
 
-Одна команда делает всё:
-1. Собирает relay-бинарник (`plugin/bin/herdrelay`) из Go-кода;
-2. Перезапускает launchd-сервис `com.herdrelay.relay`, чтобы новая сборка подхватилась;
-3. Перелинкует herdr-плагин `herdrelay.events` — манифест и hook-скрипты перечитываются;
-4. Проверяет здоровье: `/healthz` и `agents.snapshot`.
+One command does everything:
+1. Builds the relay binary (`plugin/bin/herdrelay`) from the Go code;
+2. Restarts the launchd service `com.herdrelay.relay` so the new build gets picked up;
+3. Relinks the herdr plugin `herdrelay.events` — the manifest and hook scripts are re-read;
+4. Checks health: `/healthz` and `agents.snapshot`.
 
-Применять **после любых изменений**: Go-кода (`cmd/relay/*.go`), плагина (`plugin/*.sh`, `plugin/herdr-plugin.toml`).
+Run it **after any changes**: Go code (`cmd/relay/*.go`), plugin (`plugin/*.sh`, `plugin/herdr-plugin.toml`).
 
-`rebuild` — то же самое (алиас).
+`rebuild` — the same thing (alias).
 
-Статус сам подскажет: если исходники новее собранного бинарника, `status` покажет жёлтое предупреждение «бинарник устарел».
+The status itself will tell you: if the sources are newer than the built binary, `status` will show a yellow warning "binary is outdated".
 
-**Просто перезапустить** (без пересборки):
+**Just restart** (without rebuilding):
 ```bash
 ./relay-status.sh restart
 ```
 
-### Логи
+### Logs
 ```bash
 ./relay-status.sh logs
 ```
-Показывает последние 20 строк из `~/.local/state/herdrelay/relay.err.log`
+Shows the last 20 lines from `~/.local/state/herdrelay/relay.err.log`
 
-### Обрезать логи
+### Trim Logs
 ```bash
 ./relay-status.sh logs --trim
 ```
-Обнуляет `relay.err.log` и `relay.log`. Безопасно на ходу: процесс пишет с
-`O_APPEND`, запись просто продолжается с начала файла. Пригодится, когда лог
-разросся (например после диагностики или когда reconnect-цикл всё же насорил).
+Clears `relay.err.log` and `relay.log`. Safe to run on the fly: the process writes with `O_APPEND`, so writing simply continues from the beginning of the file. Useful when the log has grown large (for example after diagnostics or when the reconnect loop left junk behind).
 
-### Токен
+### Token
 ```bash
 ./relay-status.sh token
 ```
-Показывает токен доступа (нужен для подключения Flutter клиента)
+Shows the access token (needed to connect the Flutter client)
 
-### Проверка только API
+### API-Only Check
 ```bash
 ./relay-status.sh api
 ```
 
-## Ручные команды
+## Manual Commands
 
-### Проверить процесс
+### Check the Process
 ```bash
 ps aux | grep herdrelay | grep -v grep
 ```
 
-### Проверить порт
+### Check the Port
 ```bash
 lsof -nP -iTCP:8375 -sTCP:LISTEN
 ```
 
-### Проверить API напрямую
+### Check the API Directly
 ```bash
 curl -H "Authorization: Bearer $(cat ~/.config/herdr/herdrelay.token)" \
   http://localhost:8375/api/snapshot | jq '.'
 ```
 
-### Проверить плагин herdr
+### Check the herdr Plugin
 ```bash
 herdr plugin list | grep -A2 herdrelay
 ```
 
-### Пересобрать вручную
+### Rebuild Manually
 ```bash
 bash plugin/install.sh
 ```
 
-### Перезапустить через launchd (macOS)
+### Restart via launchd (macOS)
 ```bash
 launchctl unload ~/Library/LaunchAgents/com.herdrelay.relay.plist
 launchctl load ~/Library/LaunchAgents/com.herdrelay.relay.plist
 ```
 
-### Или убить процесс (автоматически перезапустится)
+### Or Kill the Process (it restarts automatically)
 ```bash
 pkill herdrelay
 ```
 
-## Конфигурация
+## Configuration
 
-### Порт
-Relay работает на порту **8375** (не 8787!)
+### Port
+Relay runs on port **8375** (not 8787!)
 
-Настраивается через:
-- `HERDRELAY_LISTEN` env переменную
-- Или в `cmd/relay/config.go` (по умолчанию `:8375`)
+Configured via:
+- The `HERDRELAY_LISTEN` env variable
+- Or in `cmd/relay/config.go` (default `:8375`)
 
-### Токен
-Хранится в `~/.config/herdr/herdrelay.token`
-- Генерируется автоматически при первом запуске
-- 64 символа hex (32 байта random)
+### Token
+Stored in `~/.config/herdr/herdrelay.token`
+- Generated automatically on first launch
+- 64 hex characters (32 bytes of random)
 
-### Режимы
+### Modes
 ```bash
-export HERDRELAY_MODE=lan        # по умолчанию (слушает :8375)
+export HERDRELAY_MODE=lan        # default (listens on :8375)
 export HERDRELAY_MODE=funnel     # 127.0.0.1:8375
 export HERDRELAY_MODE=tailscale  # :8375
-export HERDRELAY_MODE=gateway    # требует HERDRELAY_GATEWAY_URL
+export HERDRELAY_MODE=gateway    # requires HERDRELAY_GATEWAY_URL
 ```
 
 ## Troubleshooting
 
-### Relay не запускается
-1. Проверьте логи: `./relay-status.sh logs`
-2. Проверьте, что порт 8375 свободен: `lsof -nP -iTCP:8375`
-3. Пересоберите: `./relay-status.sh rebuild`
+### Relay Does Not Start
+1. Check the logs: `./relay-status.sh logs`
+2. Check that port 8375 is free: `lsof -nP -iTCP:8375`
+3. Rebuild: `./relay-status.sh rebuild`
 
-### API не отвечает
-1. Проверьте токен: `cat ~/.config/herdr/herdrelay.token`
-2. Проверьте порт: `./relay-status.sh` (должен показать "Слушает порт 8375")
-3. Проверьте firewall (если подключаетесь с телефона)
+### API Does Not Respond
+1. Check the token: `cat ~/.config/herdr/herdrelay.token`
+2. Check the port: `./relay-status.sh` (should show "Listening on port 8375")
+3. Check the firewall (if connecting from a phone)
 
-### Плагин не работает
-1. Проверьте статус: `herdr plugin list | grep herdrelay`
-2. Если не установлен: `herdr plugin link ~/herdr-relay/plugin`
-3. Если disabled: `herdr plugin enable herdrelay.events`
+### Plugin Does Not Work
+1. Check the status: `herdr plugin list | grep herdrelay`
+2. If not installed: `herdr plugin link ~/herdr-relay/plugin`
+3. If disabled: `herdr plugin enable herdrelay.events`
 
-### Flutter клиент не подключается
-1. Убедитесь, что используете правильный порт: **8375**
-2. Проверьте токен в клиенте (должен совпадать с `~/.config/herdr/herdrelay.token`)
-3. Проверьте, что компьютер и телефон в одной сети
-4. Проверьте IP адрес компьютера: `ifconfig | grep "inet " | grep -v 127.0.0.1`
+### Flutter Client Does Not Connect
+1. Make sure you use the correct port: **8375**
+2. Check the token in the client (must match `~/.config/herdr/herdrelay.token`)
+3. Make sure the computer and phone are on the same network
+4. Check the computer's IP address: `ifconfig | grep "inet " | grep -v 127.0.0.1`
 
-### relay.err.log растёт очень быстро (по паре строк в секунду)
-Симптом: в логе одна за другой строки
-`herdr socket: connected to ... (N pane subscriptions)` и
-`herdr socket: connection closed, reconnecting` — раз в секунду, бесконечно.
+### relay.err.log Grows Very Fast (a couple of lines per second)
+Symptom: the log contains lines one after another
+`herdr socket: connected to ... (N pane subscriptions)` and
+`herdr socket: connection closed, reconnecting` — once per second, endlessly.
 
-Причина (исправлена): relay держал в подписках pane_id, которого больше нет
-(таб/пэйн был закрыт, или pane_id поменялся при pane.moved). herdr отвечает на
-такую подписку JSON-RPC ошибкой `pane_not_found` и закрывает соединение; раньше
-relay игнорировал error-кадр, видел «чистый EOF» и переподключался с тем же
-мёртвым pane_id — вечный цикл.
+Cause (fixed): relay kept a pane_id in its subscriptions that no longer exists
+(the tab/pane was closed, or the pane_id changed on pane.moved). herdr answers
+such a subscription with a JSON-RPC error `pane_not_found` and closes the
+connection; previously relay ignored the error frame, saw a "clean EOF" and
+reconnected with the same dead pane_id — an endless loop.
 
-Что делать сейчас:
-1. Проверьте, не вернулась ли проблема: `./relay-status.sh logs` — должно быть
-   тихо (несколько строк в минуту, не в секунду).
-2. Если лог уже разросся: `./relay-status.sh logs --trim`.
-3. При повторе цикла: `./relay-status.sh update` (пересобрать + перезапустить) и
-   заглянуть в `docs/10-herdr-api.md` — подписка на мёртвый pane_id.
+What to do now:
+1. Check whether the problem is back: `./relay-status.sh logs` — it should be
+   quiet (a few lines per minute, not per second).
+2. If the log has already grown: `./relay-status.sh logs --trim`.
+3. If the loop repeats: `./relay-status.sh update` (rebuild + restart) and
+   look at `docs/10-herdr-api.md` — subscribing to a dead pane_id.
 
-## Workflow после изменений
+## Workflow After Changes
 
-### Изменили Go код (cmd/relay/\*.go) или плагин (plugin/\*.sh, plugin/\*.toml)
+### Changed Go Code (cmd/relay/\*.go) or Plugin (plugin/\*.sh, plugin/\*.toml)
 ```bash
 ./relay-status.sh update
 ```
 
-### Изменили Flutter клиент (client/\*)
+### Changed the Flutter Client (client/\*)
 ```bash
 cd client
 flutter run
 ```
 
-### Хотите проверить, что всё работает
+### Want to Verify Everything Works
 ```bash
 ./relay-status.sh
 ```
-Должны быть все галочки зелёные ✓
+All checkmarks should be green ✓
 
-## Файлы и пути
+## Files and Paths
 
 ```
 ~/herdr-relay/
-├── cmd/relay/              # Go код relay сервера
+├── cmd/relay/              # Go code for the relay server
 │   ├── main.go
 │   ├── server.go
 │   ├── httpapi.go
 │   └── ...
-├── plugin/                 # Плагин для herdr
-│   ├── herdr-plugin.toml   # Манифест плагина
-│   ├── install.sh          # Сборка и установка
-│   ├── setup-menu.sh       # Меню настройки
-│   └── bin/herdrelay       # Скомпилированный бинарник
-├── client/                 # Flutter клиент
+├── plugin/                 # Plugin for herdr
+│   ├── herdr-plugin.toml   # Plugin manifest
+│   ├── install.sh          # Build and install
+│   ├── setup-menu.sh       # Setup menu
+│   └── bin/herdrelay       # Compiled binary
+├── client/                 # Flutter client
 │   └── lib/
-├── relay-status.sh         # Этот скрипт
-└── RELAY_MANAGEMENT.md     # Эта документация
+├── relay-status.sh         # This script
+└── RELAY_MANAGEMENT.md     # This documentation
 
 ~/.config/herdr/
-├── herdrelay.token         # Токен доступа
+├── herdrelay.token         # Access token
 ├── herdr.sock              # Unix socket herdr
 └── plugins/
     └── config/
         └── herdrelay.events/
 
 ~/Library/LaunchAgents/
-└── com.herdrelay.relay.plist   # launchd конфиг (macOS)
+└── com.herdrelay.relay.plist   # launchd config (macOS)
 
 ~/.local/state/herdrelay/
-├── relay.log                   # Логи relay (stdout)
-└── relay.err.log               # Логи relay (stderr, основной)
+├── relay.log                   # Relay logs (stdout)
+└── relay.err.log               # Relay logs (stderr, main)
 ```

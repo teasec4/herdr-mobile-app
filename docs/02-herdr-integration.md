@@ -1,42 +1,43 @@
-# 02 — Интеграция с herdr: как «подрубается» плагин
+# 02 — Integration with herdr: how the plugin is wired up
 
-Этот документ отвечает на вопрос «как плагин прописывается в herdr».
-Всё ниже проверено по официальной документации herdr (`docs/.../plugins.mdx`,
-`cli-reference`) и по живым примерам: `persiyanov/herdr-reviewr` и
-`0cv/herdr-mobile-relay`. Пункты, помеченные «проверено живьём», подтверждены
-на реальном herdr 0.8.0 в ходе разработки этого релея (луп L4).
+This document answers the question "how the plugin is registered with herdr".
+Everything below is verified against the official herdr documentation
+(`docs/.../plugins.mdx`, `cli-reference`) and against live examples:
+`persiyanov/herdr-reviewr` and `0cv/herdr-mobile-relay`. Items marked
+"verified live" were confirmed on a real herdr 0.8.0 while developing this
+relay (loop L4).
 
-## Модель плагина (коротко)
+## Plugin model (in short)
 
-Плагин herdr — это **просто каталог с манифестом `herdr-plugin.toml` и
-командами**. Никакого SDK и специального языка нет: плагином может быть
-Bash-скрипт, JS-приложение, Rust/Go/Python бинарь, что угодно, что умеет
-выполнять машина. Весь CLI herdr — это и есть API плагина: внутри команд
-плагин зовёт `herdr ...` через переменную окружения `HERDR_BIN_PATH`
-(указывает на запущенный бинарь herdr, переносимо между unix-сокетом и
-named pipe). Кто хочет — шлёт сырой JSON-RPC прямо в сокет.
+A herdr plugin is **just a directory with a `herdr-plugin.toml` manifest and
+commands**. There is no SDK or special language: a plugin can be a Bash script,
+a JS application, a Rust/Go/Python binary, anything the machine can execute.
+The entire herdr CLI is the plugin API: inside its commands the plugin calls
+`herdr ...` through the `HERDR_BIN_PATH` environment variable (it points to the
+running herdr binary, portable between the unix socket and the named pipe).
+Those who want to can send raw JSON-RPC straight into the socket.
 
-Ядро herdr написано на Rust и ведёт себя как «хост»: владеет установкой,
-валидацией манифеста, хоткеями, терминальными пейнами, событиями, сокетом.
-Плагин владеет своей логикой, зависимостями и состоянием.
+The herdr core is written in Rust and behaves as a "host": it owns installation,
+manifest validation, hotkeys, terminal panes, events, and the socket. The plugin
+owns its own logic, dependencies, and state.
 
-## Манифест `herdr-plugin.toml`
+## The `herdr-plugin.toml` manifest
 
-Обязательные поля: `id`, `name`, `version`, `min_herdr_version`.
-Опциональные: `platforms`, `description`.
+Required fields: `id`, `name`, `version`, `min_herdr_version`.
+Optional: `platforms`, `description`.
 
-Секции-хуки, которые нам интересны:
+Hook sections we care about:
 
-| секция | зачем |
+| section | purpose |
 | --- | --- |
-| `[[build]]` | команды при установке (скачать бинарь, собрать, `npm ci`) |
-| `[[startup]]` | команды при старте herdr (автозапуск) |
-| `[[actions]]` | действия в меню herdr, можно повесить на хоткей в `config.toml` |
-| `[[events]]` | реакция на события herdr (например `pane.agent_status_changed`) |
-| `[[panes]]` | управляемые herdr терминальные пейны (setup-меню, QR) |
-| `[[link_handlers]]` | обработчики ссылок (нам не нужно) |
+| `[[build]]` | commands at install time (download a binary, build, `npm ci`) |
+| `[[startup]]` | commands when herdr starts (autostart) |
+| `[[actions]]` | actions in the herdr menu, can be bound to a hotkey in `config.toml` |
+| `[[events]]` | reactions to herdr events (e.g. `pane.agent_status_changed`) |
+| `[[panes]]` | herdr-managed terminal panes (setup menu, QR) |
+| `[[link_handlers]]` | link handlers (not needed for us) |
 
-Пример из еёр-документации:
+Example from the herdr documentation:
 
 ```toml
 id = "example.layout"
@@ -56,62 +57,65 @@ placement = "overlay"
 command = ["herdr-board"]
 ```
 
-`command` — это argv-массив, без шелла (если нужен шелл — сам запускай).
+`command` is an argv array, no shell involved (if you need a shell — run it
+yourself).
 
-## Установка и линковка
+## Installation and linking
 
 ```bash
-# из GitHub (shorthand owner/repo[/subdir]):
+# from GitHub (shorthand owner/repo[/subdir]):
 herdr plugin install teasec4/herdr-mobile-app/plugin
-# локально при разработке:
+# locally during development:
 herdr plugin link ~/herdr-relay/plugin
-# проверить/управлять:
+# check/manage:
 herdr plugin list
 herdr plugin action list --plugin herdrelay.events
 herdr plugin log list --plugin herdrelay.events
 ```
 
-Установка из GitHub: herdr клонирует репо в
-`~/.config/herdr/plugins/github/<id>-<hash>/`, показывает превью (в
-интерактивном терминале), гоняет `[[build]]`, регистрирует. Переустановка
-заменяет checkout. `herdr plugin install` понимает только GitHub-shorthand.
-Установленные и слинкованные плагины глобальны для юзера, доступны во всех
-сессиях herdr.
+Installing from GitHub: herdr clones the repo into
+`~/.config/herdr/plugins/github/<id>-<hash>/`, shows a preview (in the
+interactive terminal), runs `[[build]]`, and registers the plugin.
+Reinstalling replaces the checkout. `herdr plugin install` only understands
+GitHub shorthand. Installed and linked plugins are global to the user and
+available in all herdr sessions.
 
-**Проверено живьём:** `herdr plugin link` сработал, `herdrelay.events` виден
-в `herdr plugin list` как `enabled [local:...]`. При линковке (в отличие от
-`install`) herdr **не выполняет** `[[build]]` — локально релей ставится
-вручную: `bash plugin/install.sh` (детали в «Запуск релея»).
+**Verified live:** `herdr plugin link` worked, `herdrelay.events` shows up in
+`herdr plugin list` as `enabled [local:...]`. On linking (unlike `install`)
+herdr **does not run** `[[build]]` — locally the relay is installed manually:
+`bash plugin/install.sh` (details in "Running the relay").
 
-## Что нам реально нужно от плагина
+## What we actually need from the plugin
 
-Сам релей — **отдельный Go-процесс**, он не живёт внутри herdr. Плагин нужен
-как тонкая обёртка для двух вещей:
+The relay itself is a **separate Go process**, it does not live inside herdr.
+The plugin is needed as a thin wrapper for two things:
 
-1. **Пейринг.** Экшен «показать QR» (`show-pair-link`) и пейн `setup` —
-   удобно сканировать с телефона один раз вместо вбивания URL+токен руками.
-   QR = custom-scheme-ссылка `herdrelay://pair?...` с автоопределением режима
-   (LAN / Tailscale / gateway), URL берётся из `GET /pair` релея — см.
-   [07 — Онбординг](07-onboarding.md). Рендерит QR подкоманда
-   `herdrelay pair --qr` (ANSI half-blocks прямо в терминал herdr).
+1. **Pairing.** The "show QR" action (`show-pair-link`) and the `setup` pane —
+   convenient to scan once from the phone instead of typing URL + token by hand.
+   QR = custom-scheme link `herdrelay://pair?...` with automatic mode detection
+   (LAN / Tailscale / gateway); the URL comes from the relay's `GET /pair` — see
+   [07 — Onboarding](07-onboarding.md). The QR is rendered by the
+   `herdrelay pair --qr` subcommand (ANSI half-blocks straight into the herdr
+   terminal).
 
-2. **Установка/запуск релея.** `[[build]]` → `install.sh` собирает Go-релей в
-   `bin/herdrelay` и ставит launchd-сервис (см. «Запуск релея»).
+2. **Installing/starting the relay.** `[[build]]` → `install.sh` builds the Go
+   relay into `bin/herdrelay` and installs the launchd service (see "Running
+   the relay").
 
-**Живой статус и вывод — НЕ через плагин (раньше статусы шли хуком, теперь
-только сокет).** Хук-система herdr не имеет события для вывода терминала:
-`pane.updated`, `pane.output_changed`, `pane.scroll_changed` отвергаются
-линковщиком как unknown event (проверено брутфорсом на herdr 0.8.0). Статусы
-раньше дублировались: хуком `on-event.sh` (`POST /api/events/herdr`) **и**
-сокет-подпиской. Сокет самодостаточен (`events.subscribe` включает
-`pane.agent_status_changed` по pane_id), поэтому хук и HTTP-роуты
-`/api/events/*` удалены — одно изменение статуса = одно событие клиенту
-(см. `docs/12-fix-plan.md` A1). Реализация:
-`internal/infrastructure/herdr/socket_event_repository.go` и
-[03-relay.md](03-relay.md) → «Обработка событий herdr». Плагин в этой схеме
-не участвует вовсе.
+**Live status and output — NOT through the plugin (statuses used to go through
+a hook, now socket only).** The herdr hook system has no event for terminal
+output: `pane.updated`, `pane.output_changed`, `pane.scroll_changed` are
+rejected by the linker as unknown events (verified by brute force on herdr
+0.8.0). Statuses used to be duplicated: via the `on-event.sh` hook
+(`POST /api/events/herdr`) **and** via a socket subscription. The socket is
+self-sufficient (`events.subscribe` includes `pane.agent_status_changed` per
+pane_id), so the hook and the `/api/events/*` HTTP routes were removed — one
+status change = one event to the client (see `docs/12-fix-plan.md` A1).
+Implementation: `internal/infrastructure/herdr/socket_event_repository.go` and
+[03-relay.md](03-relay.md) → "Handling herdr events". The plugin does not
+participate in this scheme at all.
 
-Реализованный манифест (`plugin/herdr-plugin.toml`):
+The implemented manifest (`plugin/herdr-plugin.toml`):
 
 ```toml
 id = "herdrelay.events"
@@ -120,14 +124,14 @@ version = "0.1.0"
 description = "Remote control for Herdr: monitor and check agents from your phone over LAN/Tailscale"
 platforms = ["macos", "linux"]
 
-# собрать Go-релей в bin/ и поставить launchd-сервис (macOS)
+# build the Go relay into bin/ and install the launchd service (macOS)
 [[build]]
 command = ["bash", "install.sh"]
 
-# [[events]]-хука нет: статусы и живой вывод релей получает напрямую по
-# unix-сокету herdr (events.subscribe) — см. «Живой статус и вывод» ниже.
+# no [[events]] hook: the relay receives statuses and live output directly over
+# herdr's unix socket (events.subscribe) — see "Live status and output" below.
 
-# «Показать QR» — открывает пейн setup со ссылкой/QR пары
+# "Show QR" — opens the setup pane with the pairing link/QR
 [[actions]]
 id = "show-pair-link"
 title = "HerdRelay: show phone link / QR"
@@ -140,64 +144,68 @@ placement = "zoomed"
 command = ["bash", "setup-menu.sh"]
 ```
 
-Про `id`: точки внутри id плагина допустимы (`herdrelay.events`), а внутри id
-экшенов/пейнов — нет; herdr квалифицирует как `plugin.id.action`.
+On `id`: dots are allowed inside a plugin id (`herdrelay.events`), but not
+inside action/pane ids; herdr qualifies them as `plugin.id.action`.
 
-## Запуск релея: плагин против сервиса
+## Running the relay: plugin vs. service
 
-Было два подхода (Решение 2). **Закрыто: выбран A — релей = системный сервис.**
+There were two approaches (Decision 2). **Closed: A was chosen — the relay is
+a system service.**
 
-- **A. Релей = системный сервис** (launchd на macOS / systemd на Linux).
-  Плагин только для событий, QR и установки. Управление жизненным циклом
-  предсказуемое, релей переживает перезапуски herdr. ← **реализовано:**
-  `install.sh` собирает `bin/herdrelay` и ставит
+- **A. Relay = system service** (launchd on macOS / systemd on Linux).
+  The plugin is only for events, QR, and installation. Lifecycle management is
+  predictable, the relay survives herdr restarts. ← **implemented:**
+  `install.sh` builds `bin/herdrelay` and installs
   `~/Library/LaunchAgents/com.herdrelay.relay.plist` (RunAtLoad + KeepAlive,
-  логи в `${XDG_STATE_HOME:-$HOME/.local/state}/herdrelay/`, env
-  `HERDRELAY_MODE=lan`), порт по умолчанию 8375 (env `HERDRELAY_PORT`).
-- **B. Релей = `[[startup]]`-хук** плагина, стартует вместе с herdr.
-  Проще в установке (один `plugin install`), но жизненный цикл связан с herdr
-  — отклонён.
+  logs in `${XDG_STATE_HOME:-$HOME/.local/state}/herdrelay/`, env
+  `HERDRELAY_MODE=lan`), default port 8375 (env `HERDRELAY_PORT`).
+- **B. Relay = `[[startup]]` hook** of the plugin, starts together with herdr.
+  Simpler to install (one `plugin install`), but the lifecycle is tied to herdr
+  — rejected.
 
-Проверка сервиса (проверено живьём):
+Service check (verified live):
 ```bash
-launchctl print gui/$(id -u)/com.herdrelay.relay  # state=running, pid, пути логов
+launchctl print gui/$(id -u)/com.herdrelay.relay  # state=running, pid, log paths
 curl -s localhost:8375/healthz                    # {"ok":true}
 ```
 
-## События herdr: что проверено живьём
+## herdr events: what was verified live
 
-- **`pane.agent_status_changed`** — смена статуса агента. Приходит релею по
-  unix-сокету (`events.subscribe` с per-pane подпиской), а не через плагин-хук
-  (хук удалён — он дублировал сокет, см. `docs/12-fix-plan.md` A1).
-  Подтверждено на реальном herdr 0.8.0: WS-клиент получал событие с полным
-  `data` (pane_id, agent_status, agent, display_agent, workspace_id, title).
-- `worktree.created` — ревьюровский кейс, нам не нужен.
+- **`pane.agent_status_changed`** — agent status change. It reaches the relay
+  over the unix socket (`events.subscribe` with a per-pane subscription), not
+  through a plugin hook (the hook was removed — it duplicated the socket, see
+  `docs/12-fix-plan.md` A1). Confirmed on a real herdr 0.8.0: the WS client
+  received the event with full `data` (pane_id, agent_status, agent,
+  display_agent, workspace_id, title).
+- `worktree.created` — a reviewer case, not needed for us.
 
-События статусов и вывода — только через сокет, не через хук. Все имена
-событий вывода (`pane.updated`, `pane.output_changed`, `pane.scroll_changed`)
-линковщик отвергает: `herdr plugin link` → warning «unknown event». Проверено
-на herdr 0.8.0. Живой статус/вывод работает через JSON-RPC-подписку релея по
-unix-сокету: `events.subscribe` c `pane.updated` (глобальная),
-`pane.scroll_changed` и `pane.agent_status_changed` по pane_id; нотификации
-приходят как `{"event":"pane.scroll_changed","data":{...}}`
-(данные: pane_id, scroll.max_offset_from_bottom, offset_from_bottom,
-viewport_rows), `{"event":"pane.agent_status_changed","data":{...}}` и
-`{"event":"pane_updated","data":{"pane":{...}}}`. Формат запроса/ответа и
-диалект сокета — в [03-relay.md](03-relay.md) → «Обработка событий herdr».
+Status and output events come only through the socket, not through a hook. The
+linker rejects all output event names (`pane.updated`, `pane.output_changed`,
+`pane.scroll_changed`): `herdr plugin link` → warning "unknown event". Verified
+on herdr 0.8.0. Live status/output works via the relay's JSON-RPC subscription
+over the unix socket: `events.subscribe` with `pane.updated` (global),
+`pane.scroll_changed` and `pane.agent_status_changed` per pane_id;
+notifications arrive as `{"event":"pane.scroll_changed","data":{...}}` (data:
+pane_id, scroll.max_offset_from_bottom, offset_from_bottom, viewport_rows),
+`{"event":"pane.agent_status_changed","data":{...}}` and
+`{"event":"pane_updated","data":{"pane":{...}}}`. The request/response format
+and the socket dialect are in [03-relay.md](03-relay.md) → "Handling herdr
+events".
 
-Раньше статусы шли ещё и плагинным хуком (`on-event.sh` → `POST
-/api/events/herdr`, контракт env `HERDR_PLUGIN_EVENT_JSON`), что давало два
-события на одно изменение. Хук и роуты `/api/events/*` удалены — сокет
-самодостаточен (`pane_updated` при подписке перечисляет существующие панели).
+Previously statuses also came via a plugin hook (`on-event.sh` → `POST
+/api/events/herdr`, env contract `HERDR_PLUGIN_EVENT_JSON`), which produced two
+events per single change. The hook and the `/api/events/*` routes were removed —
+the socket is self-sufficient (`pane_updated` on subscription lists existing
+panes).
 
-Полный список доступных событий уточняется по схеме/докам herdr на этапе
-реализации (в `docs/next/.../plugins.mdx` и `cli-reference`).
+The full list of available events is refined against the herdr schema/docs
+during implementation (in `docs/next/.../plugins.mdx` and `cli-reference`).
 
-## Ссылки
+## Links
 
-- Официальная документация плагинов лазит тут:
+- The official plugin documentation lives here:
   `<herdr repo>/docs/next/website/src/content/docs/plugins.mdx`.
-- `herdr api schema` — полный контракт сокета (то же самое в репо herdr:
-  `docs/next/api/herdr-api.schema.json`).
-- Референсы: `persiyanov/herdr-reviewr` (Rust-плагин, манифест с build/panes/
-  actions/events), `0cv/herdr-mobile-relay` (Go-плагин + событие + сервис).
+- `herdr api schema` — the full socket contract (the same thing in the herdr
+  repo: `docs/next/api/herdr-api.schema.json`).
+- References: `persiyanov/herdr-reviewr` (Rust plugin, manifest with build/panes/
+  actions/events), `0cv/herdr-mobile-relay` (Go plugin + event + service).

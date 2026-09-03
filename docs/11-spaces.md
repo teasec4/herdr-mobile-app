@@ -24,11 +24,11 @@ A live herdr snapshot (`herdr api snapshot`) contains the full hierarchy:
 workspaces (4): awake · pi · ai-chat-2 · herdr_relay(working)
   └─ tabs (4)
       └─ panes (6)
-          ├─ wH:p8  agent=kimi  working   ← сейчас видно (агент)
-          ├─ wH:pA  agent=kimi  working   ← сейчас видно (агент)
-          └─ w7:p1  agent=None  unknown   ← «пустой» терминал (скрыт)
-             wE:p2  agent=None  unknown   ← «пустой» терминал (скрыт)
-             wF:p5  agent=None  unknown   ← «пустой» терминал (скрыт)
+          ├─ wH:p8  agent=kimi  working   ← currently visible (agent)
+          ├─ wH:pA  agent=kimi  working   ← currently visible (agent)
+          └─ w7:p1  agent=None  unknown   ← "empty" terminal (hidden)
+             wE:p2  agent=None  unknown   ← "empty" terminal (hidden)
+             wF:p5  agent=None  unknown   ← "empty" terminal (hidden)
 ```
 
 CLI available to the relay (verified):
@@ -73,7 +73,7 @@ the client just didn't read them).
 
 ```
 ┌─────────────────────────────┐
-│  Spaces   Agents   +Run     │   ← нижняя навигация (заменяет flat-список)
+│  Spaces   Agents   +Run     │   ← bottom navigation (replaces flat-list)
 └─────────────────────────────┘
 ```
 

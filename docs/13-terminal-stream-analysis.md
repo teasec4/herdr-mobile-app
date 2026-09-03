@@ -1,12 +1,12 @@
-# Анализ архитектуры terminal stream и стратегия улучшения надёжности
+# Terminal Stream Architecture Analysis and Reliability Improvement Strategy
 
-**Дата:** 2026-08-30  
-**Статус:** черновик для обсуждения  
-**Цель:** Улучшить reliability, снизить latency, добавить client-side cache и pagination для терминального вывода
+**Date:** 2026-08-30  
+**Status:** draft for discussion  
+**Goal:** Improve reliability, reduce latency, add client-side cache and pagination for terminal output
 
 ---
 
-## 1. Текущая архитектура (as of f7a701f)
+## 1. Current architecture (as of f7a701f)
 
 ### 1.1 Data Flow
 
@@ -35,10 +35,10 @@
 Client: AnsiTerminal widget parses & renders 500 lines
 ```
 
-### 1.2 Проблемы (verified)
+### 1.2 Problems (verified)
 
-#### P1: Каждый запрос = subprocess spawn
-**Файл:** `internal/infrastructure/herdr/cli_repository.go:96-105`
+#### P1: Every request = subprocess spawn
+**File:** `internal/infrastructure/herdr/cli_repository.go:96-105`
 
 ```go
 func (r *CLIRepository) ReadOutput(target string, lines int, format string) (string, error) {
@@ -47,48 +47,48 @@ func (r *CLIRepository) ReadOutput(target string, lines int, format string) (str
 }
 ```
 
-**Проблема:**
-- Каждый `agent.output` RPC → один `exec.Command("herdr", "agent", "read", ...)`
+**Problem:**
+- Every `agent.output` RPC → one `exec.Command("herdr", "agent", "read", ...)`
 - Subprocess spawn latency: **10-30ms** (fork + exec + herdr CLI init + JSON parse)
-- На мобильном клиенте: ~20 refreshes/minute → **400ms CPU** только на subprocess overhead
-- Нет кэша: читаем тот же tail повторно при каждом `pane.output_changed` событии
+- On a mobile client: ~20 refreshes/minute → **400ms CPU** just on subprocess overhead
+- No cache: the same tail is re-read on every `pane.output_changed` event
 
-**Сценарий:**
-- Агент выводит 10 строк/сек (streaming response)
-- `pane.scroll_changed` debounce 500ms → 2 события/сек
-- Клиент на AgentPage → 2 subprocess/сек × 30ms = **60ms overhead**
-- Для 5 активных агентов = **300ms/sec CPU** только на CLI spawn
+**Scenario:**
+- Agent outputs 10 lines/sec (streaming response)
+- `pane.scroll_changed` debounce 500ms → 2 events/sec
+- Client on AgentPage → 2 subprocesses/sec × 30ms = **60ms overhead**
+- For 5 active agents = **300ms/sec CPU** just on CLI spawn
 
-#### P2: Client-side нет инкрементального чтения
-**Файл:** `client/lib/pages/agent_page.dart:136-159`
+#### P2: No incremental reading on the client side
+**File:** `client/lib/pages/agent_page.dart:136-159`
 
 ```dart
 Future<void> _refresh({bool silent = false}) async {
     final output = await _repository.getOutput(_agent.id, lines: 500);
     setState(() {
-        _output = output;  // полная замена
+        _output = output;  // full replacement
         _suggestedActions = _parserService.parse(output);
     });
     _scrollToBottom();
 }
 ```
 
-**Проблема:**
-- Всегда читаем полный tail (500 строк)
-- AnsiTerminal memoization спасает от reparse (строка 62 `ansi_terminal.dart`), но только если текст **идентичен**
-- При append 1 строки к 500-строчному tail → весь текст изменился → reparse 500 строк (20-50ms на мобиле)
-- Нет delta/incremental: всегда full replace
+**Problem:**
+- We always read the full tail (500 lines)
+- AnsiTerminal memoization avoids reparse (line 62 `ansi_terminal.dart`), but only if the text is **identical**
+- Appending 1 line to a 500-line tail → the whole text changed → reparse 500 lines (20-50ms on mobile)
+- No delta/incremental: always full replace
 
-**Измерения (примерные):**
-- 500 строк × 80 символов = 40KB текст
-- ANSI parse: ~20-50ms (Flutter Release на iPhone 12)
+**Measurements (approximate):**
+- 500 lines × 80 chars = 40KB text
+- ANSI parse: ~20-50ms (Flutter Release on iPhone 12)
 - Network latency (LAN): 5-10ms
 - Total refresh latency: **50-100ms** per update
 
-#### P3: Revision tracking работает, но неоптимально
-**Файл:** `internal/infrastructure/herdr/socket_event_repository.go:189-191, 223-228`
+#### P3: Revision tracking works, but is suboptimal
+**File:** `internal/infrastructure/herdr/socket_event_repository.go:189-191, 223-228`
 
-Relay прикрепляет `revision` к `pane.output_changed`, **только если он строго увеличился** с последнего отправленного. Клиент проверяет revision guard (строка 106 `agent_page.dart`):
+The relay attaches `revision` to `pane.output_changed` **only if it strictly increased** since the last one sent. The client checks the revision guard (line 106 `agent_page.dart`):
 
 ```dart
 if (event.revision > 0) {
@@ -97,43 +97,43 @@ if (event.revision > 0) {
 }
 ```
 
-**Проблемы:**
-1. Revision приходит из `pane.updated` (`PaneInfo.revision` — инкрементный счётчик в herdr)
-2. `pane.scroll_changed` **НЕ несёт revision** (docs/10-herdr-api.md gotcha #5)
-3. Relay решает это, кэшируя `lastRevision[pane]` из `pane.updated` и прикрепляя к `output_changed`
-4. Но: revision — это **счётчик изменений terminal output**, не **content hash**
-5. При `pane.updated(rev=10)` → `scroll_changed` → клиент читает output → revision=10 в ответе `PaneReadResult`, но мы его **не используем** для cache key
-6. Client debounce 400ms может пропустить промежуточные ревизии (rev=10, 11, 12 → клиент видит только 12)
+**Problems:**
+1. Revision comes from `pane.updated` (`PaneInfo.revision` — an incrementing counter in herdr)
+2. `pane.scroll_changed` **does NOT carry revision** (docs/10-herdr-api.md gotcha #5)
+3. The relay solves this by caching `lastRevision[pane]` from `pane.updated` and attaching it to `output_changed`
+4. But: revision is a **change counter for terminal output**, not a **content hash**
+5. On `pane.updated(rev=10)` → `scroll_changed` → the client reads output → revision=10 in the `PaneReadResult` response, but we **don't use it** for the cache key
+6. A 400ms client debounce can skip intermediate revisions (rev=10, 11, 12 → the client only sees 12)
 
-**Итого:** revision guard защищает от **out-of-order delivery**, но не даёт инкрементальность.
+**Summary:** the revision guard protects against **out-of-order delivery**, but does not provide incrementality.
 
-#### P4: Нет server-side кэша
-**Обоснование:** `docs/12-fix-plan.md` D10:
-> "Server-side snapshot не кэшируется: каждый запрос спавнит CLI-подпроцесс"
+#### P4: No server-side cache
+**Rationale:** `docs/12-fix-plan.md` D10:
+> "Server-side snapshot is not cached: every request spawns a CLI subprocess"
 
-Terminal output ещё хуже: herdr daemon держит **full terminal buffer** (scrollback), но relay его не кэширует. Каждый `agent.output` RPC → CLI → herdr читает tail из PTY buffer → возвращает полный текст.
+Terminal output is even worse: the herdr daemon holds a **full terminal buffer** (scrollback), but the relay doesn't cache it. Every `agent.output` RPC → CLI → herdr reads the tail from the PTY buffer → returns the full text.
 
-**Почему нельзя просто кэшировать на relay?**
-- herdr может отдать **устаревший tail** (если процесс в pane ещё пишет)
-- revision растёт асинхронно (событие `pane.updated` может придти позже, чем клиент запросил output)
-- Нужна стратегия инвалидации: по `pane.output_changed` событию, но между событием и CLI-запросом может пройти время
+**Why can't we simply cache on the relay?**
+- herdr may return a **stale tail** (if the process in the pane is still writing)
+- revision grows asynchronously (the `pane.updated` event may arrive later than the client's output request)
+- We need an invalidation strategy: based on `pane.output_changed` events, but time may pass between the event and the CLI request
 
 #### P5: No pagination / infinite scroll
-Клиент всегда читает последние **500 строк**. Если пользователь хочет увидеть больше истории:
-- Надо менять hardcoded `lines: 500` (некрасиво)
-- Нет UI для «load more» / scroll-to-top
-- herdr поддерживает чтение с offset (`source: visible/recent/recent_unwrapped`), но relay/клиент не используют
+The client always reads the last **500 lines**. If the user wants to see more history:
+- Requires changing the hardcoded `lines: 500` (ugly)
+- No UI for "load more" / scroll-to-top
+- herdr supports reading with offset (`source: visible/recent/recent_unwrapped`), but relay/client don't use it
 
 **Use case:**
-- Агент сделал 50 tool calls → 2000+ строк вывода
-- Клиент показывает только последние 500 → пользователь не видит начало работы
-- Хочется: «scroll to top → load previous 500 lines»
+- Agent made 50 tool calls → 2000+ lines of output
+- Client only shows the last 500 → the user doesn't see the start of the work
+- We want: "scroll to top → load previous 500 lines"
 
 ---
 
-## 2. Herdr API capabilities (что мы можем использовать)
+## 2. Herdr API capabilities (what we can use)
 
-### 2.1 `pane.read` / `agent.read` параметры (docs/10-herdr-api.md §4.1, §6.3)
+### 2.1 `pane.read` / `agent.read` parameters (docs/10-herdr-api.md §4.1, §6.3)
 
 ```json
 {
@@ -148,7 +148,7 @@ Terminal output ещё хуже: herdr daemon держит **full terminal buffe
 }
 ```
 
-**Ответ — `PaneReadResult`:**
+**Response — `PaneReadResult`:**
 ```json
 {
   "type": "pane_read",
@@ -157,36 +157,36 @@ Terminal output ещё хуже: herdr daemon держит **full terminal buffe
   "workspace_id": "wH",
   "source": "recent",
   "format": "ansi",
-  "revision": 42,              // ← КЛЮЧЕВОЕ ПОЛЕ
+  "revision": 42,              // ← KEY FIELD
   "text": "...",
   "truncated": false
 }
 ```
 
-**Ключевые факты:**
-1. **`revision`** — монотонно растущий счётчик изменений terminal output (herdr bump'ит его при каждом write в PTY)
-2. **`truncated`** — true, если terminal scrollback больше, чем запрошено `lines`
-3. **`source`** варианты:
-   - `recent` — последние N строк (tail)
-   - `visible` — что сейчас на экране (viewport)
-   - `recent_unwrapped` — последние N строк без line wrapping
-   - `detection` — используется для agent detection (нас не интересует)
+**Key facts:**
+1. **`revision`** — a monotonically increasing counter of terminal output changes (herdr bumps it on every write to the PTY)
+2. **`truncated`** — true if the terminal scrollback is larger than the requested `lines`
+3. **`source`** options:
+   - `recent` — last N lines (tail)
+   - `visible` — what's currently on screen (viewport)
+   - `recent_unwrapped` — last N lines without line wrapping
+   - `detection` — used for agent detection (not relevant to us)
 
-**Что мы НЕ используем:**
-- `revision` в ответе (читаем, но не кэшируем)
-- `truncated` (не показываем UI для «load more»)
-- `source: visible` (могли бы использовать для «show only viewport», но всегда шлём `recent`)
+**What we DON'T use:**
+- `revision` in the response (read, but not cached)
+- `truncated` (no "load more" UI shown)
+- `source: visible` (could be used for "show only viewport", but we always send `recent`)
 
-### 2.2 Event: `pane.updated` несёт PaneInfo с revision
+### 2.2 Event: `pane.updated` carries PaneInfo with revision
 
-**Из socket подписки** (строка 179-193 `socket_event_repository.go`):
+**From the socket subscription** (line 179-193 `socket_event_repository.go`):
 ```json
 {
   "event": "pane_updated",
   "data": {
     "pane": {
       "pane_id": "wH:p3",
-      "revision": 42,          // ← тот же revision, что в PaneReadResult
+      "revision": 42,          // ← same revision as in PaneReadResult
       "agent_status": "working",
       ...
     }
@@ -194,13 +194,13 @@ Terminal output ещё хуже: herdr daemon держит **full terminal buffe
 }
 ```
 
-Relay извлекает `revision` и кэширует в `lastRevision[paneID]` (строка 190). Затем при `pane.scroll_changed` прикрепляет его к `pane.output_changed`, если revision строго вырос (строка 223-228).
+The relay extracts `revision` and caches it in `lastRevision[paneID]` (line 190). Then on `pane.scroll_changed` it attaches it to `pane.output_changed` if the revision strictly increased (lines 223-228).
 
-**Проблема:** между `pane.updated(rev=10)` и клиентским `agent.output` RPC может пройти 400ms (debounce), за это время herdr может ещё bump'нуть revision → клиент получит `PaneReadResult{revision: 11}`, но мы его игнорируем.
+**Problem:** 400ms (debounce) may pass between `pane.updated(rev=10)` and the client's `agent.output` RPC; during that time herdr may bump the revision again → the client gets `PaneReadResult{revision: 11}`, but we ignore it.
 
 ### 2.3 Scroll metrics: `PaneScrollInfo`
 
-**В `pane.scroll_changed` event** (docs/10-herdr-api.md §5.3):
+**In the `pane.scroll_changed` event** (docs/10-herdr-api.md §5.3):
 ```json
 {
   "event": "pane.scroll_changed",
@@ -215,29 +215,29 @@ Relay извлекает `revision` и кэширует в `lastRevision[paneID]
 }
 ```
 
-**Семантика:**
-- `offset_from_bottom == 0` → пользователь на дне (live tail) → автоскролл
-- `offset_from_bottom > 0` → пользователь прокрутил вверх → freeze autoscroll
-- `max_offset_from_bottom` → сколько строк истории доступно
+**Semantics:**
+- `offset_from_bottom == 0` → user at the bottom (live tail) → auto-scroll
+- `offset_from_bottom > 0` → user scrolled up → freeze autoscroll
+- `max_offset_from_bottom` → how many lines of history are available
 
-**Что это даёт:**
-- Можно детектировать, когда пользователь на дне (live tail mode) vs читает историю
-- `max_offset_from_bottom` можно использовать для UI «X строк доступно, загружено Y»
+**What this gives us:**
+- We can detect when the user is at the bottom (live tail mode) vs reading history
+- `max_offset_from_bottom` can be used for a "X lines available, Y loaded" UI
 
-**Мы не используем:** scroll metrics полностью игнорируются (relay их не форвардит клиенту).
+**What we don't use:** scroll metrics are completely ignored (the relay doesn't forward them to the client).
 
 ---
 
-## 3. Предлагаемая архитектура
+## 3. Proposed architecture
 
 ### 3.1 High-level goals
 
-1. **Снизить latency:** server-side cache → без CLI spawn на каждый запрос
-2. **Инкрементальность:** client-side delta updates → меньше parse/render
+1. **Reduce latency:** server-side cache → no CLI spawn per request
+2. **Incrementality:** client-side delta updates → less parse/render
 3. **Pagination:** load more history → scroll to top → fetch older lines
-4. **Reliability:** cache invalidation по событиям, fallback на fresh read при miss
+4. **Reliability:** event-based cache invalidation, fallback to fresh read on miss
 
-### 3.2 Архитектура: three-tier caching
+### 3.2 Architecture: three-tier caching
 
 ```
 ┌────────────────────────────────────────────────┐
@@ -394,11 +394,11 @@ func computeDelta(oldText, newText string) Delta {
 }
 ```
 
-**Tradeoff:** Delta computation — строковое сравнение (дорого для 500 строк). **Альтернатива:** herdr не даёт истинного delta API, поэтому:
-- **Простой вариант:** всегда возвращать `mode: full` (без delta), но кэшировать на сервере по revision
-- **Сложный вариант:** relay держит sliding window последних N строк, при append детектирует по suffix match
+**Tradeoff:** delta computation — string comparison (expensive for 500 lines). **Alternative:** herdr doesn't provide a true delta API, so:
+- **Simple option:** always return `mode: full` (no delta), but cache on the server by revision
+- **Complex option:** the relay keeps a sliding window of the last N lines, detecting append via suffix match
 
-**Recommendation:** Начать с **простого варианта** (no delta, только cache by revision). Delta — фаза 2.
+**Recommendation:** start with the **simple option** (no delta, only cache by revision). Delta — phase 2.
 
 ---
 
@@ -406,7 +406,7 @@ func computeDelta(oldText, newText string) Delta {
 
 ### Phase 1: Server-side cache (low-hanging fruit)
 
-**Goal:** Eliminate subprocess spawn overhead для повторных запросов того же revision.
+**Goal:** eliminate subprocess spawn overhead for repeated requests of the same revision.
 
 **Changes:**
 1. **New:** `internal/service/output_cache.go`
@@ -472,28 +472,28 @@ func computeDelta(oldText, newText string) Delta {
    ```
 
 **Benefits:**
-- Запросы с тем же revision → cached response (no CLI spawn)
-- При `pane.updated` событии cache инвалидируется → следующий запрос читает fresh
+- Requests with the same revision → cached response (no CLI spawn)
+- On a `pane.updated` event the cache is invalidated → the next request reads fresh
 - Latency: 30ms → 1-2ms (cache hit)
 
 **Limitations:**
-- Всё ещё читаем full tail (500 строк) при cache miss
-- Клиент всё ещё делает full replace (no incremental)
+- We still read the full tail (500 lines) on cache miss
+- The client still does a full replace (no incremental)
 
 **Risks:**
-- Cache invalidation race: событие `pane.updated(rev=10)` пришло, relay инвалидировал cache, но herdr ещё не записал новый output → клиент читает stale
-- **Mitigation:** TTL 60s (cache expire даже без событий), fallback на cached при ошибке CLI
+- Cache invalidation race: the `pane.updated(rev=10)` event arrived, the relay invalidated the cache, but herdr hasn't written the new output yet → the client reads stale data
+- **Mitigation:** TTL 60s (cache expires even without events), fallback to cached on CLI error
 
 **Tests:**
 - Unit: `output_cache_test.go` — Get/Set/Invalidate/TTL
-- Integration: `agent_service_test.go` — два запроса подряд (второй из cache)
-- End-to-end: измерить latency (должно быть <5ms при cache hit)
+- Integration: `agent_service_test.go` — two requests in a row (second from cache)
+- End-to-end: measure latency (should be <5ms on cache hit)
 
 ---
 
 ### Phase 2: Client-side revision-based caching
 
-**Goal:** Client skips re-parsing if revision unchanged.
+**Goal:** client skips re-parsing if revision unchanged.
 
 **Changes:**
 1. **Modify:** `client/lib/repositories/agent_repository.dart`
@@ -548,34 +548,34 @@ func computeDelta(oldText, newText string) Delta {
    ```
 
 **Benefits:**
-- При `pane.output_changed(rev=10)` → client checks cache → if rev==10: skip request entirely
+- On `pane.output_changed(rev=10)` → client checks cache → if rev==10: skip request entirely
 - Latency: 0ms (no network round-trip)
 
 **Limitations:**
-- Всё ещё full text replace при revision change (no incremental render)
+- Still full text replace on revision change (no incremental render)
 
 **Tests:**
-- Unit: `agent_repository_test.dart` — два getOutput с тем же revision (второй из cache)
-- Widget: `agent_page_test.dart` — output_changed событие с тем же revision → setState не вызывается
+- Unit: `agent_repository_test.dart` — two getOutput calls with the same revision (second from cache)
+- Widget: `agent_page_test.dart` — `output_changed` event with the same revision → setState is not called
 
 ---
 
 ### Phase 3: Incremental client-side updates (optional, complex)
 
-**Goal:** Append-only updates → no full reparse.
+**Goal:** append-only updates → no full reparse.
 
 **Approach:**
-1. Client держит `List<ParsedLine>` вместо `String _output`
-2. При `mode: appended` → парсим только новые строки, append к списку
-3. AnsiTerminal принимает `List<InlineSpan>` вместо `String text`
+1. The client keeps a `List<ParsedLine>` instead of `String _output`
+2. On `mode: appended` → parse only the new lines, append to the list
+3. AnsiTerminal accepts `List<InlineSpan>` instead of `String text`
 
-**Challenge:** AnsiTerminal сейчас парсит весь текст в `parse()` (строка 203-247 `ansi_terminal.dart`). Incremental parsing требует:
-- State machine для ANSI (current color/bold/italic) на границе старого/нового текста
-- Сохранять parsed spans, не только text
+**Challenge:** AnsiTerminal currently parses the whole text in `parse()` (line 203-247 `ansi_terminal.dart`). Incremental parsing requires:
+- A state machine for ANSI (current color/bold/italic) at the boundary between old/new text
+- Storing parsed spans, not just the text
 
-**Complexity:** Высокая. **Recommendation:** Отложить до Phase 4+.
+**Complexity:** high. **Recommendation:** defer until Phase 4+.
 
-**Alternative:** Memoization уже работает (строка 62 `ansi_terminal.dart`) — если текст не изменился, reparse не происходит. При append-only updates текст изменился, но **prefix идентичен** → можно кэшировать parsed spans по prefix hash и переиспользовать.
+**Alternative:** memoization already works (line 62 `ansi_terminal.dart`) — if the text hasn't changed, no reparse happens. On append-only updates the text changed, but the **prefix is identical** → we can cache parsed spans by prefix hash and reuse them.
 
 **Simpler approach (Phase 3a):**
 ```dart
@@ -605,15 +605,15 @@ class AnsiTerminal {
 }
 ```
 
-**Problem:** ANSI state bleeding: suffix parse needs to inherit color/bold/italic from end of prefix. Solution: `AnsiTerminalParser` constructor takes `initialState: AnsiState`.
+**Problem:** ANSI state bleeding: suffix parse needs to inherit color/bold/italic from the end of the prefix. Solution: the `AnsiTerminalParser` constructor takes `initialState: AnsiState`.
 
-**Effort:** Medium (1-2 days). **Benefit:** 10-30ms saved per append (on 500-line tail).
+**Effort:** medium (1-2 days). **Benefit:** 10-30ms saved per append (on a 500-line tail).
 
 ---
 
 ### Phase 4: Pagination / load more history
 
-**Goal:** User can scroll to top → load previous 500 lines.
+**Goal:** the user can scroll to top → load the previous 500 lines.
 
 **UX:**
 ```
@@ -632,19 +632,19 @@ class AnsiTerminal {
 - Example: `offset: 500, lines: 500` → lines 500-1000 from bottom
 
 **Implementation:**
-1. **Relay:** Already supports this (herdr CLI accepts `--lines` but NOT `--offset` — **check docs**)
-   - **Correction:** herdr CLI `agent read` does NOT have `--offset` flag (проверено в docs/10-herdr-api.md §4.1)
-   - herdr socket API: `pane.read` params имеют `source`, но NOT offset
-   - **Workaround:** request more lines (`lines: 1000`), client skips first 500 (inefficient)
+1. **Relay:** already supports this (herdr CLI accepts `--lines` but NOT `--offset` — **check docs**)
+   - **Correction:** the herdr CLI `agent read` does NOT have an `--offset` flag (checked in docs/10-herdr-api.md §4.1)
+   - herdr socket API: `pane.read` params have `source`, but NOT offset
+   - **Workaround:** request more lines (`lines: 1000`), the client skips the first 500 (inefficient)
    
-2. **Alternative:** herdr `source: visible` возвращает viewport (24 строки), но это не то
-3. **herdr limitation:** нет API для «read lines [N..M]» — только tail (`source: recent`)
+2. **Alternative:** herdr `source: visible` returns the viewport (24 lines), but that's not what we need
+3. **herdr limitation:** no API for "read lines [N..M]" — only tail (`source: recent`)
 
-**Verdict:** Pagination требует upstream support в herdr API (offset param). Без этого можно:
-- Увеличить `lines` hardcoded (например, 1000 вместо 500) → больше истории, но больше latency
-- UI «load more» → запросить 1000 строк, показать 1000 вместо 500 (crudely works)
+**Verdict:** pagination requires upstream support in the herdr API (offset param). Without it we can:
+- Increase the hardcoded `lines` (e.g., 1000 instead of 500) → more history, but more latency
+- "load more" UI → request 1000 lines, show 1000 instead of 500 (crudely works)
 
-**Phase 4 recommendation:** Wait for herdr API extension или implement workaround с большим `lines`.
+**Phase 4 recommendation:** wait for a herdr API extension or implement a workaround with a larger `lines`.
 
 ---
 
@@ -679,15 +679,15 @@ class AnsiTerminal {
 
 ### 6.1 Cache invalidation race
 **Scenario:** 
-1. herdr writes to PTY → revision bump (internal)
+1. herdr writes to the PTY → revision bump (internal)
 2. `pane.updated(rev=10)` event sent → relay receives → invalidates cache
-3. Client requests `agent.output` **before herdr finished writing**
-4. CLI returns stale output (rev=9 text, but labeled rev=10)
+3. The client requests `agent.output` **before herdr finished writing**
+4. The CLI returns stale output (rev=9 text, but labeled rev=10)
 
 **Mitigation:**
-- herdr guarantees: `pane.updated` sent **after** revision bump complete
-- If race happens: client's next `output_changed` event will have rev=11 → cache miss → fresh read
-- **No data loss**, только временный stale read (1 update cycle = 500ms)
+- herdr guarantees: `pane.updated` is sent **after** the revision bump completes
+- If the race happens: the client's next `output_changed` event will have rev=11 → cache miss → fresh read
+- **No data loss**, only a temporary stale read (1 update cycle = 500ms)
 
 ### 6.2 Client offline / reconnect
 **Scenario:**
@@ -695,71 +695,71 @@ class AnsiTerminal {
 2. Disconnect → N updates happen → revision=15
 3. Reconnect → `pane.updated(rev=15)` event
 
-**Current behavior:** Client's `_wasDisconnected` flag triggers full refresh (строка 117 `home_page.dart`)
+**Current behavior:** the client's `_wasDisconnected` flag triggers a full refresh (line 117 `home_page.dart`)
 
-**With cache:** Cache invalidated on disconnect (clear all), fresh read on reconnect.
+**With cache:** cache invalidated on disconnect (clear all), fresh read on reconnect.
 
 ### 6.3 Multiple clients
-**Scenario:** Two clients (phone + web) viewing same agent.
+**Scenario:** two clients (phone + web) viewing the same agent.
 
-**Relay cache:** Shared across clients → second client benefits from first's fetch.
+**Relay cache:** shared across clients → the second client benefits from the first's fetch.
 
-**Client cache:** Independent → both clients maintain separate revision state (OK).
+**Client cache:** independent → both clients maintain separate revision state (OK).
 
 ### 6.4 herdr restart
-**Scenario:** herdr daemon restarts → revision counters reset.
+**Scenario:** the herdr daemon restarts → revision counters reset.
 
-**Impact:** Relay cache holds stale paneIDs → first request after restart gets wrong output.
+**Impact:** relay cache holds stale paneIDs → the first request after a restart gets wrong output.
 
-**Mitigation:** TTL 60s → cache expires. Also: relay could detect herdr restart (socket disconnect event) → clear all cache.
+**Mitigation:** TTL 60s → cache expires. Also: the relay could detect the herdr restart (socket disconnect event) → clear the entire cache.
 
 ---
 
-## 7. Метрики для измерения улучшения
+## 7. Metrics for measuring improvement
 
 ### Before (baseline):
 - **Latency per output request:** 30-50ms (subprocess spawn + herdr read)
-- **Requests per minute (active agent):** ~20 (при 500ms debounce, 2 events/sec)
+- **Requests per minute (active agent):** ~20 (with 500ms debounce, 2 events/sec)
 - **Total overhead:** 20 × 50ms = **1000ms/min CPU**
 - **Client parse time (500 lines):** 20-50ms
 
 ### After Phase 1 (server cache):
 - **Latency (cache hit):** 2-5ms
-- **Cache hit rate:** ~80% (при активном агенте, события часто, но revision меняется реже)
+- **Cache hit rate:** ~80% (with an active agent, events are frequent, but the revision changes less often)
 - **Total overhead:** 4 × 50ms + 16 × 5ms = **280ms/min CPU** (72% reduction)
 
 ### After Phase 2 (client cache):
 - **Latency (revision unchanged):** 0ms (no request)
-- **Requests per minute:** ~5 (только при revision change)
+- **Requests per minute:** ~5 (only on revision change)
 - **Total overhead:** 5 × 5ms = **25ms/min CPU** (97% reduction)
 
 ### After Phase 3a (incremental parse):
-- **Client parse time (append-only):** 2-5ms (только новые строки)
-- **Total render latency:** 5ms request + 5ms parse = **10ms** (было 50ms + 20ms = 70ms)
+- **Client parse time (append-only):** 2-5ms (only new lines)
+- **Total render latency:** 5ms request + 5ms parse = **10ms** (was 50ms + 20ms = 70ms)
 
 ---
 
 ## 8. Open questions for discussion
 
-1. **Delta computation complexity:** Is string comparison for 500 lines acceptable? (~1ms on server, but scales O(N²) worst case)
-   - **Alternative:** Rely on revision only, no delta (Phase 1+2 без Phase 3)
+1. **Delta computation complexity:** is string comparison for 500 lines acceptable? (~1ms on server, but scales O(N²) worst case)
+   - **Alternative:** rely on revision only, no delta (Phase 1+2 without Phase 3)
 
-2. **Pagination without herdr offset API:** Should we request 1000+ lines upfront, or wait for herdr upstream support?
+2. **Pagination without herdr offset API:** should we request 1000+ lines upfront, or wait for herdr upstream support?
    - **Proposal:** Phase 1-2 first, pagination later (low priority)
 
-3. **Client cache eviction policy:** Keep last N panes (LRU), or all panes with TTL?
-   - **Proposal:** Keep all (memory is cheap on client), clear on disconnect
+3. **Client cache eviction policy:** keep the last N panes (LRU), or all panes with TTL?
+   - **Proposal:** keep all (memory is cheap on the client), clear on disconnect
 
-4. **Server cache TTL:** 60s reasonable? Too short (more CLI spawns) vs too long (stale data risk)
+4. **Server cache TTL:** is 60s reasonable? Too short (more CLI spawns) vs too long (stale data risk)
    - **Proposal:** 60s, with event-based invalidation (optimal)
 
-5. **Error fallback strategy:** When CLI fails, serve stale cache or return error?
-   - **Current:** Return error
-   - **Proposal:** Return stale cache with `stale: true` flag, show warning in UI
+5. **Error fallback strategy:** when the CLI fails, serve a stale cache or return an error?
+   - **Current:** return error
+   - **Proposal:** return stale cache with a `stale: true` flag, show a warning in the UI
 
 ---
 
-## Приложение A: Code locations reference
+## Appendix A: Code locations reference
 
 | Component | File | Lines |
 |---|---|---|
@@ -773,7 +773,7 @@ class AnsiTerminal {
 
 ---
 
-## Приложение B: Protocol spec (для реализации)
+## Appendix B: Protocol spec (for implementation)
 
 ### Existing: `agent.output` (unchanged)
 ```typescript
@@ -825,4 +825,4 @@ class AnsiTerminal {
 
 ---
 
-**Конец документа.** Ready for review and discussion.
+**End of document.** Ready for review and discussion.

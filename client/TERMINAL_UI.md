@@ -16,9 +16,9 @@ When the agent is in the `blocked` status, the output is analyzed to find respon
 Recognizes inline options in parentheses or separated by a slash:
 
 ```
-Do you want to proceed? (y/n)          → кнопки: Y, N
-Would you like to continue? [yes/no]   → кнопки: Yes, No
-Please accept/reject this change       → кнопки: Accept, Reject
+Do you want to proceed? (y/n)          → buttons: Y, N
+Would you like to continue? [yes/no]   → buttons: Yes, No
+Please accept/reject this change       → buttons: Accept, Reject
 ```
 
 **Patterns:**
@@ -31,10 +31,10 @@ Please accept/reject this change       → кнопки: Accept, Reject
 If the last lines contain a question with key phrases:
 
 ```
-Would you like to...?    → кнопки: Yes, No
-Do you want to...?       → кнопки: Yes, No
-Should I...?             → кнопки: Yes, No
-Can I...?                → кнопки: Yes, No
+Would you like to...?    → buttons: Yes, No
+Do you want to...?       → buttons: Yes, No
+Should I...?             → buttons: Yes, No
+Can I...?                → buttons: Yes, No
 ```
 
 ### Strategy 3: Numbered options
@@ -43,9 +43,9 @@ Recognizes lists with numbers:
 
 ```
 Please choose:
-1. Create new file       → кнопка: "Create new file" (отправляет "1")
-2. Update existing       → кнопка: "Update existing" (отправляет "2")
-3. Skip this step        → кнопка: "Skip this step" (отправляет "3")
+1. Create new file       → button: "Create new file" (sends "1")
+2. Update existing       → button: "Update existing" (sends "2")
+3. Skip this step        → button: "Skip this step" (sends "3")
 ```
 
 **Patterns:**
@@ -141,11 +141,11 @@ void _parseSuggestedActions(String output) {
   _suggestedActions = [];
   if (_agent.status != 'blocked') return;
 
-  // 1. Найти последнюю непустую строку
-  // 2. Попробовать распарсить inline опции (y/n)
-  // 3. Попробовать найти вопрос с yes/no
-  // 4. Попробовать найти нумерованный список
-  // Если ничего не найдено - не показывать кнопки
+  // 1. Find the last non-empty line
+  // 2. Try to parse inline options (y/n)
+  // 3. Try to find a yes/no question
+  // 4. Try to find a numbered list
+  // If nothing is found - don't show buttons
 }
 ```
 
@@ -194,8 +194,8 @@ Two tests cover the main scenarios:
 2. **Numbered list:** `1. Option` → button with the option's text, sends the number
 
 ```dart
-testWidgets('предложенные действия появляются когда агент blocked с yes/no', ...);
-testWidgets('предложенные действия парсят нумерованные варианты', ...);
+testWidgets('suggested actions appear when agent is blocked with yes/no', ...);
+testWidgets('suggested actions parse numbered options', ...);
 ```
 
 ## What was removed

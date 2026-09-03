@@ -28,7 +28,7 @@ herdr agent read <target> --lines 200 --format text
 // send keys
 herdr agent send-keys <target> Esc
 // send a prompt
-herdr agent prompt <target> "продолжай"
+herdr agent prompt <target> "continue"
 ```
 
 Call it via `$HERDR_BIN_PATH ?? "herdr"`, as the plugin documentation

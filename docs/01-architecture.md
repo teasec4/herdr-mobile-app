@@ -18,7 +18,7 @@ Key facts (verified locally):
   `pane.agent_status_changed` (see [02](02-herdr-integration.md)).
 - The socket itself supports **output events** (`events.subscribe`), which the
   plugin hook mechanism does not — this is what the live terminal is built on
-  (Б-lite, see [03-relay](03-relay.md)).
+  (B-lite, see [03-relay](03-relay.md)).
 
 Conclusion: **herdr already knows how to do everything needed for remote
 control**. Our job is a thin translator between the herdr socket and the phone.

@@ -32,7 +32,7 @@ phone ──wss://gw/ws?token=T&role=phone──┐
                                         ├─► registry(token, phone<->relay)
 relay ──wss://gw/ws?token=T&role=relay──┘      │
                                                ▼
-                                    форвард кадров в обе стороны
+                                    forward frames in both directions
 ```
 
 - Roles: `relay` (one per token), `phone` (as many as needed).
@@ -48,15 +48,15 @@ relay ──wss://gw/ws?token=T&role=relay──┘      │
 Structure in the repo:
 
 ```text
-cmd/gateway/           # Go-бинарь
+cmd/gateway/           # Go binary
 deploy/
   Dockerfile          # multi-stage: build (golang:1.26) -> scratch/distroless
-  docker-compose.yml  # гейтвей + caddy (TLS)
-  Caddyfile           # gw.<domain> -> gateway:8376, авто-LetsEncrypt
+  docker-compose.yml  # gateway + caddy (TLS)
+  Caddyfile           # gw.<domain> -> gateway:8376, auto-LetsEncrypt
 ```
 
 ```bash
-docker compose up -d   # на VPS
+docker compose up -d   # on VPS
 ```
 
 Example `docker-compose.yml` (v1, no surprises):
@@ -67,7 +67,7 @@ services:
     build: { context: .., dockerfile: deploy/Dockerfile }
     restart: unless-stopped
     environment:
-      - GATEWAY_TOKEN=сгенерировать-при-деплое
+      - GATEWAY_TOKEN=generate-at-deploy
     expose: ["8376"]
   caddy:
     image: caddy:2

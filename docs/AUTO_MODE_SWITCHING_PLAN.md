@@ -28,7 +28,7 @@ When the user leaves home:
 Future<void> _connect(String link) async {
   final config = PairConfig.fromLink(link);
   
-  // Проверить сколько endpoints сохранено
+  // Check how many endpoints are saved
   if (config.endpoints.length == 1 && config.mode == 'lan') {
     _showLANOnlyWarning();
   }
@@ -135,22 +135,22 @@ class WebSocketTransport {
       } catch (e) {
         _triedModes.add(_config.mode);
         
-        // Попробовать следующий доступный endpoint
+        // Try the next available endpoint
         final nextMode = _findNextMode();
         if (nextMode != null) {
           _notifyModeSwitching(nextMode);
           _config = _config.connectVia(nextMode, _config.endpointFor(nextMode)!);
-          continue; // Retry с новым режимом
+          continue; // Retry with a new mode
         }
         
-        // Все режимы перепробованы → обычный reconnect
+        // All modes tried → normal reconnect
         throw ConnectionException('All endpoints unreachable');
       }
     }
   }
   
   String? _findNextMode() {
-    // Приоритет: tailscale > lan > funnel
+    // Priority: tailscale > lan > funnel
     const priority = ['tailscale', 'lan', 'funnel', 'gateway'];
     
     for (final mode in priority) {
@@ -195,7 +195,7 @@ class ConnectionFallbackManager {
     _config = config;
     _failedModes.clear();
     
-    // Слушаем статус транспорта
+    // Listen to transport status
     transport.status.addListener(_onStatusChanged);
   }
   
@@ -212,7 +212,7 @@ class ConnectionFallbackManager {
   void _scheduleRetry() {
     _fallbackTimer?.cancel();
     
-    // Попробовать другой режим через 5 секунд
+    // Try another mode in 5 seconds
     _fallbackTimer = Timer(Duration(seconds: 5), () {
       final nextMode = _findNextAvailableMode();
       if (nextMode != null) {
@@ -222,7 +222,7 @@ class ConnectionFallbackManager {
   }
   
   String? _findNextAvailableMode() {
-    // Приоритет переключения
+    // Switch priority
     const priority = ['tailscale', 'lan', 'funnel', 'gateway'];
     
     for (final mode in priority) {
@@ -243,11 +243,11 @@ class ConnectionFallbackManager {
     final oldMode = _config.mode;
     _config = _config.connectVia(mode, endpoint);
     
-    // Сохранить новый активный режим
+    // Save the new active mode
     await configStore.saveProfile(_config);
     await configStore.setActive(_config.profileKey);
     
-    // Уведомить UI
+    // Notify UI
     onModeChanged(oldMode, mode);
     
     print('Auto-switched from $oldMode to $mode');
@@ -270,7 +270,7 @@ class _HerdRelayAppState extends State<HerdRelayApp> {
     await teardownRelayServices();
     setupRelayServices(config, clientFactory: widget.clientFactory);
     
-    // Запустить fallback manager
+    // Start the fallback manager
     _fallbackManager?.dispose();
     _fallbackManager = ConnectionFallbackManager(
       transport: getIt<Transport>(),
@@ -286,7 +286,7 @@ class _HerdRelayAppState extends State<HerdRelayApp> {
   }
   
   void _onAutoModeSwitch(String oldMode, String newMode) {
-    // Показать toast/snackbar
+    // Show toast/snackbar
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('Switched from $oldMode to $newMode automatically'),
@@ -335,7 +335,7 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    // Слушать события от fallback manager (через EventBus или Stream)
+    // Listen to events from the fallback manager (via EventBus or Stream)
   }
   
   @override
@@ -445,7 +445,7 @@ class _ManualModeDialogState extends State<ManualModeDialog> {
       final host = _hostController.text.trim();
       final port = int.tryParse(_portController.text) ?? 8375;
       
-      // Попробовать подключиться
+      // Try to connect
       final socket = await Socket.connect(host, port, timeout: Duration(seconds: 3));
       socket.destroy();
       
@@ -554,25 +554,25 @@ Future<void> _connect(String link) async {
   try {
     final config = PairConfig.fromLink(link);
     
-    // Если mode не указан (universal QR) — fetch все режимы
+    // If mode is not specified (universal QR) — fetch all modes
     if (!link.contains('mode=')) {
       final modes = await _fetchAllModes(config);
       
-      // Показать выбор режима
+      // Show mode selection
       final selectedMode = await _showModeSelectionDialog(modes);
       if (selectedMode == null) {
         setState(() => _busy = false);
         return;
       }
       
-      // Обогатить config всеми endpoints
+      // Enrich config with all endpoints
       final enrichedConfig = config.withEndpoints({
         for (final m in modes) m.mode: RelayEndpoint.fromUrl(m.url),
       }).connectVia(selectedMode.mode, RelayEndpoint.fromUrl(selectedMode.url));
       
       await widget.onPaired(enrichedConfig);
     } else {
-      // Обычный QR с конкретным режимом
+      // Regular QR with a specific mode
       await widget.onPaired(config);
     }
   } catch (e) {
@@ -587,7 +587,7 @@ Future<List<RelayModeInfo>> _fetchAllModes(PairConfig config) async {
       .replace(path: '/pair')
       .replace(queryParameters: {'token': config.token});
   final res = await http.get(uri).timeout(Duration(seconds: 5));
-  // Parse и вернуть список режимов
+  // Parse and return the list of modes
 }
 
 Future<RelayModeInfo?> _showModeSelectionDialog(List<RelayModeInfo> modes) async {
