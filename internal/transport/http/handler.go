@@ -239,9 +239,10 @@ func (h *Handler) HandleEventStream(w http.ResponseWriter, r *http.Request) {
 	const queueSize = 100
 	queue := make(chan []byte, queueSize)
 	done := make(chan struct{})
-	defer close(done)
+	writerDone := make(chan struct{})
 
 	go func() {
+		defer close(writerDone)
 		for {
 			select {
 			case data := <-queue:
@@ -253,6 +254,14 @@ func (h *Handler) HandleEventStream(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+	}()
+	// Wait for the writer goroutine to stop before returning: once the handler
+	// returns, the http server finishes the response and starts tearing down
+	// the underlying bufio.Writer, so a background Flush racing with that
+	// teardown trips the race detector (chunkWriter.close vs Flush).
+	defer func() {
+		close(done)
+		<-writerDone
 	}()
 
 	for {
