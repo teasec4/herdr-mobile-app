@@ -29,7 +29,7 @@ In herdr, open the pairing screen:
 herdr plugin action invoke show-pair-link --plugin herdrelay.events
 ```
 
-Or use the menu: **HerdRelay → Show phone link / QR**
+Or use the menu: **Herdr Mobile → Show phone link / QR**
 
 ### Step 3: Install Mobile App
 

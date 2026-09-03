@@ -1,8 +1,8 @@
-# HerdRelay
+# Herdr Mobile
 
 Remote control for [herdr](https://herdr.dev) AI agents from your phone.
 
-HerdRelay installs a small **relay** on your laptop (macOS or Linux), pairs with
+Herdr Mobile installs a small **relay** on your laptop (macOS or Linux), pairs with
 a **mobile app** by scanning a QR code, and lets you watch agent output, send
 prompts, and manage workspaces while you are away from the keyboard.
 
@@ -22,7 +22,7 @@ prompts, and manage workspaces while you are away from the keyboard.
 ## Table of contents
 
 - [Installation](#installation)
-- [Using HerdRelay](#using-herdrelay)
+- [Using Herdr Mobile](#using-herdrelay)
 - [Troubleshooting](#troubleshooting)
 - [Architecture](#architecture)
 - [Repository layout](#repository-layout)
@@ -93,7 +93,7 @@ port `8375` by default.)
 
 ---
 
-## Using HerdRelay
+## Using Herdr Mobile
 
 From first pairing to daily use — the whole flow, step by step.
 
@@ -108,7 +108,7 @@ one QR code. There are two ways to show it:
 herdr plugin action invoke show-pair-link --plugin herdrelay.events
 ```
 
-or use the menu: **HerdRelay → Show phone link / QR**.
+or use the menu: **Herdr Mobile → Show phone link / QR**.
 
 A herdr pane opens with the relay status and the QR code (printed as terminal
 half-blocks right in the pane). The pane closes by itself after a few seconds.
@@ -130,7 +130,7 @@ half-blocks right in the pane). The pane closes by itself after a few seconds.
 
 1. On your phone, open the
    [Releases](https://github.com/teasec4/herdr-mobile-app/releases) page.
-2. Under the newest release, tap the APK asset (e.g. `HerdRelay-v0.3.0.apk`) to
+2. Under the newest release, tap the APK asset (e.g. `Herdr Mobile-v0.3.0.apk`) to
    download it.
 3. Open the downloaded file. Android warns that the app is from an *unknown
    source* — expected, since this APK is not on Google Play. Allow the install

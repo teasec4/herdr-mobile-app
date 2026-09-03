@@ -1,5 +1,5 @@
 #!/bin/bash
-# relay-status.sh - HerdRelay diagnostics and management
+# relay-status.sh - Herdr Mobile diagnostics and management
 
 set -e
 

@@ -1,6 +1,6 @@
-# Contributing to HerdRelay
+# Contributing to Herdr Mobile
 
-Thank you for your interest in contributing to HerdRelay! This document provides guidelines and instructions for contributing.
+Thank you for your interest in contributing to Herdr Mobile! This document provides guidelines and instructions for contributing.
 
 ## Getting Started
 

@@ -1,6 +1,6 @@
 ---
 name: Feature request
-about: Suggest an idea for HerdRelay
+about: Suggest an idea for Herdr Mobile
 title: '[FEATURE] '
 labels: enhancement
 assignees: ''

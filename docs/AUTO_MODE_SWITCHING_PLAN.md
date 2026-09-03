@@ -263,7 +263,7 @@ class ConnectionFallbackManager {
 **Integration into main.dart:**
 
 ```dart
-class _HerdRelayAppState extends State<HerdRelayApp> {
+class _HerdrMobileAppState extends State<HerdrMobileApp> {
   ConnectionFallbackManager? _fallbackManager;
   
   Future<void> _setConfig(PairConfig config) async {

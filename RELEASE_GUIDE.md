@@ -2,7 +2,7 @@
 
 ## ✅ What's done
 
-The HerdRelay project is now fully ready for public release. Here's what has been set up:
+The Herdr Mobile project is now fully ready for public release. Here's what has been set up:
 
 ### 📄 Documentation
 
@@ -174,7 +174,7 @@ quick-start.sh              → Auto-install script
 ```
 Show HN: Control herdr AI agents from your phone
 
-Built HerdRelay — a mobile companion for herdr (terminal workspace manager 
+Built Herdr Mobile — a mobile companion for herdr (terminal workspace manager 
 for AI coding agents). Install plugin, scan QR, control agents from anywhere.
 
 • Real-time agent status & terminal output

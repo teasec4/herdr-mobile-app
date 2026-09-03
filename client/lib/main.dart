@@ -34,20 +34,20 @@ void main() async {
       systemNavigationBarIconBrightness: Brightness.light,
     ),
   );
-  runApp(const HerdRelayApp());
+  runApp(const HerdrMobileApp());
 }
 
-class HerdRelayApp extends StatefulWidget {
-  const HerdRelayApp({super.key, this.clientFactory});
+class HerdrMobileApp extends StatefulWidget {
+  const HerdrMobileApp({super.key, this.clientFactory});
 
   /// Relay client factory: [WsRelayClient] in production, a fake in tests.
   final RelayClient Function(PairConfig config)? clientFactory;
 
   @override
-  State<HerdRelayApp> createState() => _HerdRelayAppState();
+  State<HerdrMobileApp> createState() => _HerdrMobileAppState();
 }
 
-class _HerdRelayAppState extends State<HerdRelayApp> {
+class _HerdrMobileAppState extends State<HerdrMobileApp> {
   /// Root navigator so profile/add-device screens can be pushed on top of
   /// HomePage and popped from outside (e.g. in deep-link handlers).
   final GlobalKey<NavigatorState> _navKey = GlobalKey<NavigatorState>();
@@ -244,7 +244,7 @@ class _HerdRelayAppState extends State<HerdRelayApp> {
     // bootstrap finished.
     return MaterialApp(
       navigatorKey: _navKey,
-      title: 'HerdRelay',
+      title: 'Herdr Mobile',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(

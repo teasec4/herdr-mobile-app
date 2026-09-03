@@ -59,7 +59,7 @@ Fix D2 confirmed live: snapshot goes through `HERDR_SOCKET_PATH`.
 ### 1.3 What we do NOT rewrite (already good)
 
 - **The `RelayClient` interface** — already separated from the implementation and stable: `status`, `events`, `snapshot`, `output`, `keys`, `prompt`, `healthz`, `pauseReconnect`, `resumeReconnect`, `close`. The UI works through it. **We do not change the signatures** — otherwise pages and tests will break.
-- **Lifecycle** — `_HerdRelayAppState` in `client/lib/main.dart` already observes `AppLifecycleState` and calls `pauseReconnect`/`resumeReconnect`. Phase 4 = moving this logic into `ConnectionManager`, not building it from scratch.
+- **Lifecycle** — `_HerdrMobileAppState` in `client/lib/main.dart` already observes `AppLifecycleState` and calls `pauseReconnect`/`resumeReconnect`. Phase 4 = moving this logic into `ConnectionManager`, not building it from scratch.
 - **DI** — `setupRelayServices(config, {clientFactory})` in `client/lib/core/service_locator.dart` already supports injecting a fake (used in widget tests).
 - **`FakeRelayClient`** (`client/test/fakes/fake_relay_client.dart`) — a ready-made top-level fake.
 - **Offline cache** in `AgentRepository` (last_snapshot in SharedPreferences) — must not break when rebuilding the client.

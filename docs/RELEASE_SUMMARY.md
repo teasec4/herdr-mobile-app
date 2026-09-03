@@ -2,7 +2,7 @@
 
 ## ✅ What We've Set Up
 
-Your HerdRelay project is now ready for community release with the following structure:
+Your Herdr Mobile project is now ready for community release with the following structure:
 
 ### 📚 Documentation Files
 
@@ -177,7 +177,7 @@ See template in [docs/COMMUNITY_RELEASE.md](COMMUNITY_RELEASE.md#-launch-announc
 
 ### Reddit r/golang
 ```
-Just released HerdRelay v0.1.0 - Control herdr AI agents from your phone
+Just released Herdr Mobile v0.1.0 - Control herdr AI agents from your phone
 
 Built a Go-based relay that lets you monitor and control herdr (terminal 
 workspace manager for AI agents) from a Flutter mobile app.
@@ -196,7 +196,7 @@ Feedback welcome! First time building a mobile companion for a CLI tool.
 
 ### Twitter/X
 ```
-🚀 Launching HerdRelay v0.1.0!
+🚀 Launching Herdr Mobile v0.1.0!
 
 Control @herdr AI agents from your phone 📱
 

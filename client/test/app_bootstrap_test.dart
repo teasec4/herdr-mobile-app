@@ -58,7 +58,7 @@ void main() {
   testWidgets('свежая установка без сессии → сканер, спиннера нет',
       (tester) async {
     await setupTestDependencies(client, config); // пустые prefs
-    await tester.pumpWidget(HerdRelayApp(clientFactory: (_) => client));
+    await tester.pumpWidget(HerdrMobileApp(clientFactory: (_) => client));
     for (var i = 0; i < 5; i++) {
       await tester.pump(const Duration(milliseconds: 300));
     }
@@ -78,7 +78,7 @@ void main() {
     );
     // setupRelayServices создаёт NotificationService, которому нужен API.
     getIt.registerSingleton<NotificationApi>(FakeNotificationApi());
-    await tester.pumpWidget(HerdRelayApp(clientFactory: (_) => client));
+    await tester.pumpWidget(HerdrMobileApp(clientFactory: (_) => client));
     await tester.pumpAndSettle();
 
     expect(find.byType(CircularProgressIndicator), findsNothing);
@@ -88,7 +88,7 @@ void main() {
   testWidgets('ошибка при восстановлении сессии → спиннер снимается, сканер',
       (tester) async {
     await setupWithThrowingConfigStore();
-    await tester.pumpWidget(HerdRelayApp(clientFactory: (_) => client));
+    await tester.pumpWidget(HerdrMobileApp(clientFactory: (_) => client));
     await tester.pumpAndSettle();
 
     expect(find.byType(CircularProgressIndicator), findsNothing);

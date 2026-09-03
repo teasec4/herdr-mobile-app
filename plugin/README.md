@@ -1,4 +1,4 @@
-# HerdRelay plugin (`herdrelay.events`)
+# Herdr Mobile plugin (`herdrelay.events`)
 
 A [herdr](https://herdr.dev) plugin that connects herdr on your laptop to your
 phone through a separate Go process — the **relay** (`cmd/relay/`). The plugin
@@ -34,7 +34,7 @@ link. The relay generates the QR itself (`herdrelay pair --qr`, ANSI
 half-blocks straight into the terminal):
 
 ```
-herdr menu: "HerdRelay: show phone link / QR"
+herdr menu: "Herdr Mobile: show phone link / QR"
   └─> open-pane.sh setup
         └─> herdr plugin pane open --entrypoint setup --placement zoomed
               └─> setup-menu.sh

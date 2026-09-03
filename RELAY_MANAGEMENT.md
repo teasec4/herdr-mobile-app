@@ -1,4 +1,4 @@
-# HerdRelay: Management and Diagnostics
+# Herdr Mobile: Management and Diagnostics
 
 ## Quick Status Check
 

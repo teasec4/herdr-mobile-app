@@ -1,4 +1,4 @@
-# herdr-plugin.toml registers HerdRelay with herdr as a plugin.
+# herdr-plugin.toml registers Herdr Mobile with herdr as a plugin.
 #
 # Install/link:
 #   herdr plugin link ~/herdr-relay/plugin   # local dev
@@ -14,7 +14,7 @@
 # for the phone.
 
 id = "herdrelay.events"
-name = "HerdRelay"
+name = "Herdr Mobile"
 version = "0.3.0"
 description = "Remote control for Herdr: monitor and check agents from your phone over LAN/Tailscale"
 min_herdr_version = "0.8.0"
@@ -39,25 +39,25 @@ command = ["bash", "install.sh"]
 # "Show QR" — opens the setup pane with the pairing link/QR.
 [[actions]]
 id = "show-pair-link"
-title = "HerdRelay: show phone link / QR"
+title = "Herdr Mobile: show phone link / QR"
 command = ["bash", "open-pane.sh", "setup"]
 
 # "Configure mode" — switch lan / tailscale / funnel / gateway without rebuild.
 [[actions]]
 id = "configure-relay"
-title = "HerdRelay: configure mode (lan/tailscale/funnel/gateway)"
+title = "Herdr Mobile: configure mode (lan/tailscale/funnel/gateway)"
 command = ["bash", "open-pane.sh", "configure"]
 
 # Setup pane: relay status and the QR for the phone.
 [[panes]]
 id = "setup"
-title = "HerdRelay: Setup"
+title = "Herdr Mobile: Setup"
 placement = "zoomed"
 command = ["bash", "setup-menu.sh"]
 
 # Configure pane: interactive mode selection menu.
 [[panes]]
 id = "configure"
-title = "HerdRelay: Configure mode"
+title = "Herdr Mobile: Configure mode"
 placement = "zoomed"
 command = ["bash", "configure.sh"]

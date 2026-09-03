@@ -176,7 +176,7 @@ L4 checks (all passed):
 bash plugin/install.sh              # built bin/herdrelay, launchd, "relay is running on :8375"
 launchctl print gui/$(id -u)/com.herdrelay.relay   # state=running, pid, log paths
 herdr plugin link ~/herdr-relay/plugin
-herdr plugin list                   # herdrelay.events (HerdRelay) enabled [local:...]
+herdr plugin list                   # herdrelay.events (Herdr Mobile) enabled [local:...]
 herdr plugin action list --plugin herdrelay.events # show-pair-link
 # live events (not an emulation): change the agent status →
 #   herdr plugin log list --plugin herdrelay.events → status=succeeded, exit_code=0

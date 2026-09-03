@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# "HerdRelay: Setup" pane — relay status and the pairing link/QR for the phone.
+# "Herdr Mobile: Setup" pane — relay status and the pairing link/QR for the phone.
 #
 # When it runs: herdr executes the pane's command (from [[panes]]) when the
 # pane is opened — via the show-pair-link action (see open-pane.sh) or by hand
@@ -17,11 +17,11 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 BIN="$ROOT/bin/herdrelay"
 PORT="${HERDRELAY_PORT:-8375}"
 
-echo "== HerdRelay: status =="
+echo "== Herdr Mobile: status =="
 if curl -s -m 2 "http://127.0.0.1:${PORT}/healthz" >/dev/null; then
     echo "relay: running on :${PORT}"
     echo
-    echo "== Phone link / QR (scan in the HerdRelay app) =="
+    echo "== Phone link / QR (scan in the Herdr Mobile app) =="
     if [ -x "$BIN" ]; then
         "$BIN" pair --qr
     else

@@ -6,7 +6,7 @@ For an open-source project, requiring users to "spin up a VPS, configure a
 domain, TLS, and a gateway" is an insurmountable barrier. The goal is:
 
 1. Install the plugin on the laptop (`herdr plugin install ...`).
-2. Open the "HerdRelay: Setup" pane.
+2. Open the "Herdr Mobile: Setup" pane.
 3. Point the phone at the QR code.
 4. Done.
 
@@ -125,7 +125,7 @@ and `name`), config paths and the live state:
 ## Changing the mode
 
 Switch the mode without rebuilding the binary — the plugin action
-"HerdRelay: configure mode", or manually:
+"Herdr Mobile: configure mode", or manually:
 `bash plugin/configure.sh <mode> [gateway_url]` (`lan | tailscale | funnel | gateway`).
 The script rewrites the launchd config (`HERDRELAY_MODE`, for `gateway` —
 `HERDRELAY_GATEWAY_URL`) and restarts the service via launchctl; choosing
@@ -137,7 +137,7 @@ the existing profile.
 
 1. `herdr plugin install <owner>/<repo>/plugin` → `[[build]]` builds/downloads
    the relay, installs the launchd service, the relay creates the token.
-2. In herdr: "HerdRelay: Setup" pane → the QR is visible (the mode is chosen by
+2. In herdr: "Herdr Mobile: Setup" pane → the QR is visible (the mode is chosen by
    auto-detect, usually `lan`).
 3. Point the phone at it → the app opens and connects. Done.
 4. Left home → switch the mode to `tailscale` in the app/on the laptop (or

@@ -119,7 +119,7 @@ The implemented manifest (`plugin/herdr-plugin.toml`):
 
 ```toml
 id = "herdrelay.events"
-name = "HerdRelay"
+name = "Herdr Mobile"
 version = "0.1.0"
 description = "Remote control for Herdr: monitor and check agents from your phone over LAN/Tailscale"
 platforms = ["macos", "linux"]
@@ -134,12 +134,12 @@ command = ["bash", "install.sh"]
 # "Show QR" — opens the setup pane with the pairing link/QR
 [[actions]]
 id = "show-pair-link"
-title = "HerdRelay: show phone link / QR"
+title = "Herdr Mobile: show phone link / QR"
 command = ["bash", "open-pane.sh", "setup"]
 
 [[panes]]
 id = "setup"
-title = "HerdRelay: Setup"
+title = "Herdr Mobile: Setup"
 placement = "zoomed"
 command = ["bash", "setup-menu.sh"]
 ```

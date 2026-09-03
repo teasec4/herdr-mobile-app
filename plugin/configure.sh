@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# HerdRelay: switch the connection mode (lan / tailscale / funnel / gateway).
+# Herdr Mobile: switch the connection mode (lan / tailscale / funnel / gateway).
 #
 # Interactive menu, or non-interactively:
 #   bash plugin/configure.sh <mode> [gateway_url]
@@ -44,25 +44,25 @@ apply_mode() {
     case "$mode" in
         lan|tailscale|funnel|gateway) ;;
         *)
-            echo "HerdRelay: unknown mode '$mode' (lan|tailscale|funnel|gateway)" >&2
+            echo "Herdr Mobile: unknown mode '$mode' (lan|tailscale|funnel|gateway)" >&2
             return 1
             ;;
     esac
     if [[ "$mode" == "gateway" && -z "$gw" ]]; then
-        echo "HerdRelay: gateway mode requires a gateway URL (HERDRELAY_GATEWAY_URL)" >&2
+        echo "Herdr Mobile: gateway mode requires a gateway URL (HERDRELAY_GATEWAY_URL)" >&2
         return 1
     fi
     if [[ "$mode" == "funnel" ]]; then
         if command -v tailscale >/dev/null 2>&1; then
-            echo "HerdRelay: enabling tailscale funnel :8375..."
+            echo "Herdr Mobile: enabling tailscale funnel :8375..."
             tailscale funnel 8375 \
-                || echo "HerdRelay: failed to enable funnel — run it manually: tailscale funnel 8375" >&2
+                || echo "Herdr Mobile: failed to enable funnel — run it manually: tailscale funnel 8375" >&2
         else
-            echo "HerdRelay: tailscale not found in PATH — enable funnel manually: tailscale funnel 8375" >&2
+            echo "Herdr Mobile: tailscale not found in PATH — enable funnel manually: tailscale funnel 8375" >&2
         fi
     fi
     write_relay_plist "$mode" "$HERDR_BIN" "$gw"
-    echo "HerdRelay: mode changed to '$mode'."
+    echo "Herdr Mobile: mode changed to '$mode'."
     echo "Check: herdrelay status ; phone QR: herdrelay pair --qr"
 }
 
@@ -74,14 +74,14 @@ fi
 
 # Interactive menu requires a tty; otherwise hint at the arg form.
 if [[ ! -t 0 ]]; then
-    echo "HerdRelay: no interactive input — pass the mode as an argument:" >&2
+    echo "Herdr Mobile: no interactive input — pass the mode as an argument:" >&2
     echo "  bash plugin/configure.sh lan|tailscale|funnel|gateway [URL]" >&2
     exit 1
 fi
 
 CUR="$(current_mode)"; CUR="${CUR:-lan}"
 
-echo "HerdRelay: connection mode"
+echo "Herdr Mobile: connection mode"
 echo ""
 echo "Current mode: $CUR"
 echo ""
@@ -101,13 +101,13 @@ case "$choice" in
     4)
         read -rp "Gateway URL (HERDRELAY_GATEWAY_URL): " gwu
         if [[ -z "$gwu" ]]; then
-            echo "HerdRelay: a URL is required for gateway mode" >&2
+            echo "Herdr Mobile: a URL is required for gateway mode" >&2
             exit 1
         fi
         apply_mode "gateway" "$gwu"
         ;;
     *)
-        echo "HerdRelay: invalid choice ($choice)" >&2
+        echo "Herdr Mobile: invalid choice ($choice)" >&2
         exit 1
         ;;
 esac

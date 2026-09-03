@@ -9,7 +9,7 @@
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in HerdRelay, please report it responsibly:
+If you discover a security vulnerability in Herdr Mobile, please report it responsibly:
 
 ### Preferred Method: GitHub Security Advisories
 
@@ -46,7 +46,7 @@ If you prefer, you can email security concerns to the maintainer. Please include
 
 ### Token Security
 
-HerdRelay uses cryptographically secure tokens for authentication:
+Herdr Mobile uses cryptographically secure tokens for authentication:
 - Tokens are generated using Go's `crypto/rand`
 - Tokens are stored locally at `~/.config/herdr/herdrelay.token`
 - Never share your token or QR code publicly
@@ -82,16 +82,16 @@ HerdRelay uses cryptographically secure tokens for authentication:
 ## Scope
 
 This security policy applies to:
-- HerdRelay relay server (Go)
-- HerdRelay mobile app (Flutter)
-- HerdRelay herdr plugin
+- Herdr Mobile relay server (Go)
+- Herdr Mobile mobile app (Flutter)
+- Herdr Mobile herdr plugin
 
 For security issues in herdr itself, please report to the [herdr project](https://herdr.dev).
 
 ## Acknowledgments
 
-We appreciate responsible disclosure and will acknowledge security researchers who help improve HerdRelay's security (with their permission).
+We appreciate responsible disclosure and will acknowledge security researchers who help improve Herdr Mobile's security (with their permission).
 
 ---
 
-Thank you for helping keep HerdRelay secure!
+Thank you for helping keep Herdr Mobile secure!

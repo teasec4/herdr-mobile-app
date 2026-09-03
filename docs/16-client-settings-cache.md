@@ -395,7 +395,7 @@ GestureDetector(
       SnackBar(content: Text('Debug mode: ${!current ? "ON" : "OFF"}')),
     );
   },
-  child: Text('HerdRelay'),
+  child: Text('Herdr Mobile'),
 )
 
 // In settings: show debug options only if enabled

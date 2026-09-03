@@ -1,11 +1,11 @@
 {
-    "name": "HerdRelay",
-    "short_name": "HerdRelay",
+    "name": "Herdr Mobile",
+    "short_name": "Herdr Mobile",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "HerdRelay mobile client — control herdr AI agents from your phone",
+    "description": "Herdr Mobile client — control herdr AI agents from your phone",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

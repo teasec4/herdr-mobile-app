@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# HerdRelay plugin [[build]] step.
+# Herdr Mobile plugin [[build]] step.
 #
 # What it does: builds the Go relay from the repo root into the plugin's bin/
 # and installs a launchd autostart service (macOS). The relay is a separate
@@ -35,20 +35,20 @@ GW="${HERDRELAY_GATEWAY_URL:-}"
 # so resolve its absolute path here and hand it to the relay via env.
 HERDR_BIN="${HERDR_BIN:-$(command -v herdr || true)}"
 if [ -z "$HERDR_BIN" ]; then
-    echo "HerdRelay: warning: herdr not found in PATH — the relay will still run," >&2
-    echo "HerdRelay: but herdr-socket integration (event subscription) will be unavailable." >&2
-    echo "HerdRelay: install herdr, then re-run install.sh to enable it." >&2
+    echo "Herdr Mobile: warning: herdr not found in PATH — the relay will still run," >&2
+    echo "Herdr Mobile: but herdr-socket integration (event subscription) will be unavailable." >&2
+    echo "Herdr Mobile: install herdr, then re-run install.sh to enable it." >&2
 fi
 
 source "$ROOT/relay-lib.sh"
 
-echo "HerdRelay: building relay binary..."
+echo "Herdr Mobile: building relay binary..."
 ( cd "$REPO_ROOT" && go build -o "$BIN_DIR/herdrelay" ./cmd/relay )
 
-echo "HerdRelay: installing launchd service (mode=$MODE)..."
+echo "Herdr Mobile: installing launchd service (mode=$MODE)..."
 write_relay_plist "$MODE" "$HERDR_BIN" "$GW"
 
-echo "HerdRelay: service installed. Checking relay..."
+echo "Herdr Mobile: service installed. Checking relay..."
 up=0
 for _ in $(seq 1 10); do
     if curl -s -m 2 "http://127.0.0.1:${PORT}/healthz" >/dev/null 2>&1; then
@@ -61,10 +61,10 @@ for _ in $(seq 1 10); do
     sleep 1
 done
 if [ "$up" -ne 1 ]; then
-    echo "HerdRelay: relay did not come up on :${PORT} within ~10s" >&2
-    echo "HerdRelay: check $LOG_DIR/relay.err.log for errors." >&2
-    echo "HerdRelay: re-run 'bash plugin/install.sh', or start the service with:" >&2
-    echo "HerdRelay:   launchctl kickstart -k gui/$(id -u)/com.herdrelay.relay" >&2
+    echo "Herdr Mobile: relay did not come up on :${PORT} within ~10s" >&2
+    echo "Herdr Mobile: check $LOG_DIR/relay.err.log for errors." >&2
+    echo "Herdr Mobile: re-run 'bash plugin/install.sh', or start the service with:" >&2
+    echo "Herdr Mobile:   launchctl kickstart -k gui/$(id -u)/com.herdrelay.relay" >&2
     exit 1
 fi
-echo "HerdRelay: relay is running on :${PORT}"
+echo "Herdr Mobile: relay is running on :${PORT}"

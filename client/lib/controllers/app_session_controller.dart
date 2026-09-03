@@ -11,7 +11,7 @@ import '../services/relay_client.dart';
 /// Root app session: which pair config is active and the lifecycle of the
 /// relay services backing it.
 ///
-/// Owns the orchestration that used to live in [_HerdRelayAppState]:
+/// Owns the orchestration that used to live in [_HerdrMobileAppState]:
 ///   - [setConfig] runs the full teardown→setup cycle exactly once, serialized
 ///     (a config arriving while a cycle is in flight is queued and applied
 ///     right after — last one wins), so two set-ups never interleave on the

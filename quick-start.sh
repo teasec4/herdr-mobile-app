@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Quick start script for HerdRelay installation and setup
+# Quick start script for Herdr Mobile installation and setup
 set -euo pipefail
 
 REPO_URL="https://github.com/teasec4/herdr-mobile-app"
@@ -10,7 +10,7 @@ RED='\033[0;31m'
 NC='\033[0m' # No Color
 
 echo -e "${BLUE}╔══════════════════════════════════════════════════════╗${NC}"
-echo -e "${BLUE}║            HerdRelay Quick Start                     ║${NC}"
+echo -e "${BLUE}║            Herdr Mobile Quick Start                ║${NC}"
 echo -e "${BLUE}║     Control herdr from your phone                    ║${NC}"
 echo -e "${BLUE}╚══════════════════════════════════════════════════════╝${NC}"
 echo ""

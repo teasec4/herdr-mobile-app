@@ -1,6 +1,6 @@
 # Community Release Guide
 
-This document outlines best practices for releasing HerdRelay to the community.
+This document outlines best practices for releasing Herdr Mobile to the community.
 
 ## 📦 What Makes a Good Open Source Release?
 
@@ -80,11 +80,11 @@ This document outlines best practices for releasing HerdRelay to the community.
 ```markdown
 # Show HN: Control herdr AI agents from your phone
 
-Hi HN! I built HerdRelay — a mobile companion for herdr (a terminal workspace manager for AI coding agents).
+Hi HN! I built Herdr Mobile — a mobile companion for herdr (a terminal workspace manager for AI coding agents).
 
 **The problem**: When running long AI agent tasks, I wanted to check progress without being tied to my laptop.
 
-**The solution**: HerdRelay connects your phone to your laptop via a lightweight Go relay. Install a herdr plugin, scan a QR code, and you're connected.
+**The solution**: Herdr Mobile connects your phone to your laptop via a lightweight Go relay. Install a herdr plugin, scan a QR code, and you're connected.
 
 **Key features**:
 - Real-time agent status and terminal output

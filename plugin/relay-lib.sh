@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared helpers for HerdRelay plugin scripts (install.sh, configure.sh).
+# Shared helpers for Herdr Mobile plugin scripts (install.sh, configure.sh).
 # Source this file — it is not meant to be executed directly:
 #   source "$(dirname "$0")/relay-lib.sh"
 #
@@ -84,6 +84,6 @@ EOF
         launchctl kickstart -k "$target" >/dev/null 2>&1 || \
             launchctl start com.herdrelay.relay >/dev/null 2>&1 || true
     else
-        echo "HerdRelay: launchctl not found — plist written, service reload skipped"
+        echo "Herdr Mobile: launchctl not found — plist written, service reload skipped"
     fi
 }

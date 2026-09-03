@@ -179,7 +179,7 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('HerdRelay'),
+        title: const Text('Herdr Mobile'),
         actions: [
           // Status-dependent cluster re-renders only when the connection
           // status changes (no whole-page setState on every event).
