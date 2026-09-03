@@ -1,84 +1,86 @@
-# 06 — План работ, фазы, открытые вопросы
+# 06 — Work Plan, Phases, Open Questions
 
-## Фазы
+## Phases
 
-### Фаза 0 — ресерч и проектирование (закрыта)
+### Phase 0 — Research and Design (closed)
 
-- [x] Изучен herdr 0.8.0: socket API (`herdr api schema`, protocol 19),
-      JSON-RPC-вывод CLI, события плагинов.
-- [x] Разобран механизм плагинов (манифест, install/link, `HERDR_BIN_PATH`).
-- [x] Референсы: `0cv/herdr-mobile-relay` (транспорты, gateway, событие),
-      `persiyanov/herdr-reviewr` (манифест), moshi (SSH-подход).
-- [x] Доки 01–08 написаны (черновик, правим вместе).
+- [x] Studied herdr 0.8.0: socket API (`herdr api schema`, protocol 19),
+      JSON-RPC CLI output, plugin events.
+- [x] Broke down the plugin mechanism (manifest, install/link, `HERDR_BIN_PATH`).
+- [x] References: `0cv/herdr-mobile-relay` (transports, gateway, event),
+      `persiyanov/herdr-reviewr` (manifest), moshi (SSH approach).
+- [x] Docs 01–08 written (draft, refining together).
 
-### Фаза 1 — MVP «рабочее и простое» — ✅ закрыт (LAN; B1 не проверен)
+### Phase 1 — MVP "working and simple" — ✅ closed (LAN; B1 not verified)
 
-1. [x] **Релей (Go, `cmd/relay`)**: режимы `lan`/`tailscale`/`funnel`/`gateway`;
-   читает `herdr api snapshot`, отдаёт `GET /api/snapshot`,
-   `POST agents/<id>/keys|prompt`, WS-канал, auth-токен, `GET /pair`
-   (доступные режимы + готовые URL).
-2. [x] **Онбординг «скан-и-работает»**: релей генерирует токен, wizard-пейн
-   плагина печатает QR (`herdrelay://pair?...`, автодетект режима A→B1→B2),
-   приложение сканирует и подключается.
-3. [x] **Flutter-приложение** (`client/`): onboarding-скан QR / вставка ссылки,
-   список агентов, детали-терминал (текст), ввод промпта/клавиш.
-4. [x] **Плагин herdr**: `herdr-plugin.toml` (build + событие + экшн «показать
-   QR»), запуск релея через launchd.
-5. [~] **Сквозной тест**: телефон дома по LAN (режим A) — пройден живьём
-   (статусы, вывод, промпт). Через tailnet с улицы (B1) — **не проверен**.
-6. [ ] **Гейтвей (Go, `cmd/gateway`) + Docker-деплой** — режим C. В MVP не входит.
+1. [x] **Relay (Go, `cmd/relay`)**: `lan`/`tailscale`/`funnel`/`gateway` modes;
+   reads `herdr api snapshot`, serves `GET /api/snapshot`,
+   `POST agents/<id>/keys|prompt`, WS channel, auth token, `GET /pair`
+   (available modes + ready URLs).
+2. [x] **"Scan-and-works" onboarding**: the relay generates a token, the plugin's
+   wizard pane prints a QR (`herdrelay://pair?...`, auto-detect of mode A→B1→B2),
+   the app scans and connects.
+3. [x] **Flutter app** (`client/`): onboarding QR scan / link paste,
+   agent list, details-terminal (text), prompt/keys input.
+4. [x] **herdr plugin**: `herdr-plugin.toml` (build + event + "show QR"
+   action), relay launched via launchd.
+5. [~] **End-to-end test**: phone at home over LAN (mode A) — passed live
+   (statuses, output, prompt). Via tailnet from outside (B1) — **not verified**.
+6. [ ] **Gateway (Go, `cmd/gateway`) + Docker deployment** — mode C. Not part of
+   the MVP.
 
-Критерий готовности MVP: с телефона (дома по LAN или через tailnet с улицы)
-видно статусы агентов и можно писать в терминал (`send-keys`/`prompt`).
-**Достигнут по LAN (живьё, с телефона); tailnet (B1) ещё предстоит проверить.**
+MVP readiness criterion: from the phone (at home over LAN or via tailnet from
+outside) you can see agent statuses and write to the terminal
+(`send-keys`/`prompt`).
+**Reached over LAN (live, from the phone); tailnet (B1) still needs to be verified.**
 
-### Фаза 2 — удобство
+### Phase 2 — Convenience
 
-- [x] Событие `pane.agent_status_changed` → мгновенные обновления (без поллинга).
-- [x] **Б-lite: живой вывод терминала** — релей держит сокет-подписку herdr
-  (`events.subscribe` на `pane.updated` + `pane.scroll_changed`), форвардит
-  клиентам как `pane.output_changed`; клиент ре-читает вывод с debounce. Не
-  PTY-стрим, но «почти live» (см. [03-relay](03-relay.md) и
-  [01-architecture](01-architecture.md)).
-- [~] ANSI-цвета и тёмная тема — сделано своим SGR-парсером
-  (`client/lib/widgets/ansi_terminal.dart`); `flutter_xterm` и настоящий
-  скроллбэк — впереди.
-- [x] Локальные нотификации при blocked (v1: только в фоне,
-  `NotificationService`, тап → открытие агента; см. 05 — Flutter).
-- [ ] `tailscale funnel` (B2) как опция для телефонов без Tailscale.
-- [ ] Автопереключение/подсказка режима по доступности сети.
+- [x] `pane.agent_status_changed` event → instant updates (no polling).
+- [x] **B-lite: live terminal output** — the relay keeps a herdr socket
+  subscription (`events.subscribe` on `pane.updated` + `pane.scroll_changed`),
+  forwards to clients as `pane.output_changed`; the client re-reads output with
+  debounce. Not a PTY stream, but "almost live" (see
+  [03-relay](03-relay.md) and [01-architecture](01-architecture.md)).
+- [~] ANSI colors and dark theme — done with a custom SGR parser
+  (`client/lib/widgets/ansi_terminal.dart`); `flutter_xterm` and true
+  scrollback — ahead.
+- [x] Local notifications when blocked (v1: background only,
+  `NotificationService`, tap → opens agent; see 05 — Flutter).
+- [ ] `tailscale funnel` (B2) as an option for phones without Tailscale.
+- [ ] Auto-switching / mode hint based on network availability.
 
-### Фаза 3 — харденинг (по желанию)
+### Phase 3 — Hardening (optional)
 
-- Сквозное E2E-шифрование телефон↔релей (гейтвей становится по-настоящему
-  слепым), ротация токенов.
-- Настоящий push через FCM/APNs (гейтвей → push при blocked).
-- Несколько машин/воркспейсов, история, ответы на структурированные вопросы
-  агентов (approve-флоу Codex/Claude Code).
-- Прямой JSON-RPC релея в сокет herdr вместо subprocess: события уже идут так
-  (сокет-подписка), остались запросы.
+- End-to-end encryption phone↔relay (the gateway becomes truly blind), token
+  rotation.
+- Real push via FCM/APNs (gateway → push when blocked).
+- Multiple machines/workspaces, history, answers to agents' structured questions
+  (Codex/Claude Code approve-flow).
+- Relay's direct JSON-RPC into the herdr socket instead of subprocess: events
+  already go this way (socket subscription), requests remain.
 
-## Открытые вопросы (Решения, ADR-lite)
+## Open Questions (Decisions, ADR-lite)
 
-| # | вопрос | варианты | рекомендация |
+| # | question | options | recommendation |
 | --- | --- | --- | --- |
-| 1 | Транспорт по умолчанию | LAN / Tailscale (B1+B2) / Gateway (C) | ✅ закрыто: MVP = A + B1 (LAN работает живьём; B1 не проверен) |
-| 2 | Запуск релея | launchd-сервис / `[[startup]]` плагина | ✅ закрыто: launchd-сервис |
-| 3 | Связь релея с herdr | subprocess CLI / прямой JSON-RPC | гибрид: запросы — subprocess (v1), события — уже через сокет-RPC (подписка) |
-| 4 | Регион VPS | Япония / ближе к дому | ближе к домашней сети (латентность терминала) |
-| 5 | E2E-шифрование | сразу / фаза 3 | фаза 3 (v1 — TLS + доверенный свой VPS) |
-| 6 | Терминал на телефоне | текст + стрип ANSI / `flutter_xterm` | v1 = свой SGR-парсер (`ansi_terminal.dart`, тёмная тема, softWrap); v2 xterm |
-| 7 | Push | локальные / FCM | v1 локальные (пока не реализовано), v3 FCM |
-| 8 | Монорепо | да / раздельные репо | монорепо: `cmd/{relay,gateway}`, `client/`, `plugin/` |
-| 9 | B2 (Tailscale Funnel) | доступен на тарифе / нет | проверить при реализации; B2 не блокирует MVP (A+B1 хватает) |
+| 1 | Default transport | LAN / Tailscale (B1+B2) / Gateway (C) | ✅ closed: MVP = A + B1 (LAN works live; B1 not verified) |
+| 2 | Relay launch | launchd service / plugin `[[startup]]` | ✅ closed: launchd service |
+| 3 | Relay–herdr link | subprocess CLI / direct JSON-RPC | hybrid: requests — subprocess (v1), events — already via socket-RPC (subscription) |
+| 4 | VPS region | Japan / closer to home | closer to home network (terminal latency) |
+| 5 | E2E encryption | now / phase 3 | phase 3 (v1 — TLS + trusted private VPS) |
+| 6 | Phone terminal | text + ANSI strip / `flutter_xterm` | v1 = custom SGR parser (`ansi_terminal.dart`, dark theme, softWrap); v2 xterm |
+| 7 | Push | local / FCM | v1 local (not yet implemented), v3 FCM |
+| 8 | Monorepo | yes / separate repos | monorepo: `cmd/{relay,gateway}`, `client/`, `plugin/` |
+| 9 | B2 (Tailscale Funnel) | available on plan / no | verify during implementation; B2 does not block MVP (A+B1 is enough) |
 
-## Что сознательно не в скоупе
+## Deliberately Out of Scope
 
-- Полноценные транспорты 0cv (WebRTC P2P, Cloudflare-туннель, community
-  gateway) — нам хватает LAN/Tailscale, гейтвей опционален.
-- SSH как транспорт — не используем: нужны структурированные статусы +
-  терминал через WS с токеном, а не PTY-доступ к машине (см.
+- Full 0cv transports (WebRTC P2P, Cloudflare tunnel, community gateway) —
+  LAN/Tailscale is enough for us, the gateway is optional.
+- SSH as a transport — not used: we need structured statuses + a terminal over
+  WS with a token, not PTY access to the machine (see
   [01-architecture](01-architecture.md)).
-- Мультиюзерность, публичный маркетплейс, веб-версия (PWA) — это не про
-  личный инструмент.
-- Смена проблем ноута: релей не будит спящий ноут.
+- Multi-user support, a public marketplace, web version (PWA) — not what a
+  personal tool is about.
+- Laptop sleep issue: the relay does not wake a sleeping laptop.

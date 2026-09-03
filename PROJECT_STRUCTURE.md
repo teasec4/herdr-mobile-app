@@ -1,36 +1,36 @@
-# 📦 Структура проекта после подготовки к релизу
+# 📦 Project structure after release preparation
 
 ```
 herdr_relay/
-├── 📄 README.md                    ← Главная страница (обновлён)
-├── 📄 INSTALL.md                   ← Подробная инструкция установки
-├── 📄 CONTRIBUTING.md              ← Гайд для контрибьюторов
-├── 📄 LICENSE                      ← MIT лицензия
-├── 📄 CHANGELOG.md                 ← История изменений
-├── 📄 RELEASE_CHECKLIST.md         ← Чеклист перед релизом
-├── 📄 RELEASE_GUIDE.md             ← ⭐ НАЧНИ ОТСЮДА
+├── 📄 README.md                    ← Main page (updated)
+├── 📄 INSTALL.md                   ← Detailed installation instructions
+├── 📄 CONTRIBUTING.md              ← Contributor guide
+├── 📄 LICENSE                      ← MIT license
+├── 📄 CHANGELOG.md                 ← Change history
+├── 📄 RELEASE_CHECKLIST.md         ← Pre-release checklist
+├── 📄 RELEASE_GUIDE.md             ← ⭐ START HERE
 │
-├── 🔧 quick-start.sh               ← Скрипт быстрой установки
-├── 🔧 relay-status.sh              ← Проверка статуса relay
+├── 🔧 quick-start.sh               ← Quick install script
+├── 🔧 relay-status.sh              ← Check relay status
 │
 ├── .github/
 │   ├── workflows/
-│   │   ├── ci.yml                  ← Автотесты (Go + Flutter)
-│   │   └── release.yml             ← Автосборка релизов
+│   │   ├── ci.yml                  ← Automated tests (Go + Flutter)
+│   │   └── release.yml             ← Automated release builds
 │   └── ISSUE_TEMPLATE/
-│       ├── bug_report.md           ← Шаблон для багов
-│       └── feature_request.md      ← Шаблон для фич
+│       ├── bug_report.md           ← Bug report template
+│       └── feature_request.md      ← Feature request template
 │
 ├── docs/
-│   ├── COMMUNITY_RELEASE.md        ← Стратегия релиза + шаблоны постов
-│   ├── RELEASE_SUMMARY.md          ← Полная сводка изменений
-│   ├── 01-architecture.md          ← Архитектура
-│   ├── 02-herdr-integration.md     ← Интеграция с herdr
-│   ├── 07-onboarding.md            ← QR-паiring
-│   └── ... (остальные доки)
+│   ├── COMMUNITY_RELEASE.md        ← Release strategy + post templates
+│   ├── RELEASE_SUMMARY.md          ← Full change summary
+│   ├── 01-architecture.md          ← Architecture
+│   ├── 02-herdr-integration.md     ← herdr integration
+│   ├── 07-onboarding.md            ← QR pairing
+│   └── ... (remaining docs)
 │
-├── cmd/relay/                      ← Go relay сервер
-├── internal/                       ← Go бизнес-логика
+├── cmd/relay/                      ← Go relay server
+├── internal/                       ← Go business logic
 ├── plugin/                         ← herdr plugin
 │   ├── herdr-plugin.toml
 │   ├── install.sh
@@ -44,111 +44,111 @@ herdr_relay/
 └── go.mod
 ```
 
-## ✅ Что готово для релиза
+## ✅ What is ready for release
 
-### 1. Документация пользователей
-- ✅ **README.md** — привлекательная главная страница с Quick Start
-- ✅ **INSTALL.md** — детальная инструкция по установке всех режимов
-- ✅ **CONTRIBUTING.md** — как контрибьютить в проект
+### 1. User documentation
+- ✅ **README.md** — an inviting main page with a Quick Start
+- ✅ **INSTALL.md** — detailed installation instructions for all modes
+- ✅ **CONTRIBUTING.md** — how to contribute to the project
 
-### 2. Автоматизация
-- ✅ **quick-start.sh** — одна команда для установки
-- ✅ **CI/CD** — автотесты и сборка релизов через GitHub Actions
-- ✅ **Issue templates** — структурированные bug reports и feature requests
+### 2. Automation
+- ✅ **quick-start.sh** — one command to install
+- ✅ **CI/CD** — automated tests and release builds via GitHub Actions
+- ✅ **Issue templates** — structured bug reports and feature requests
 
-### 3. Гайды для тебя
-- ✅ **RELEASE_GUIDE.md** — краткая сводка по релизу
-- ✅ **RELEASE_CHECKLIST.md** — что проверить перед публикацией
-- ✅ **docs/COMMUNITY_RELEASE.md** — стратегия анонса с шаблонами
+### 3. Guides for you
+- ✅ **RELEASE_GUIDE.md** — a quick release summary
+- ✅ **RELEASE_CHECKLIST.md** — what to check before publishing
+- ✅ **docs/COMMUNITY_RELEASE.md** — announcement strategy with templates
 
-### 4. Лицензия и правила
-- ✅ **LICENSE** — MIT (максимально свободная)
-- ✅ Чёткая структура для open source
+### 4. License and rules
+- ✅ **LICENSE** — MIT (maximally permissive)
+- ✅ A clear structure for open source
 
-## 🎯 Что делать дальше (по приоритету)
+## 🎯 What to do next (by priority)
 
-### Высокий приоритет (перед релизом)
+### High priority (before release)
 
-1. **Визуальные материалы** 📸
+1. **Visual materials** 📸
    ```bash
    mkdir -p docs/images
-   # Добавь:
-   # - QR-код в терминале (скриншот)
-   # - Главный экран приложения
-   # - Demo GIF (30-60 сек)
+   # Add:
+   # - QR code in the terminal (screenshot)
+   # - Main app screen
+   # - Demo GIF (30-60 sec)
    ```
 
-2. **Тестирование**
-   - Попроси друга протестировать на чистой машине
-   - Или используй VM
-   - Убедись что всё работает без твоей помощи
+2. **Testing**
+   - Ask a friend to test on a clean machine
+   - Or use a VM
+   - Make sure everything works without your help
 
-3. **Создать первый релиз**
+3. **Create the first release**
    ```bash
    git tag -a v0.1.0 -m "Initial public release"
    git push origin v0.1.0
-   # GitHub Actions соберёт всё автоматически
+   # GitHub Actions will build everything automatically
    ```
 
-### Средний приоритет (после релиза)
+### Medium priority (after release)
 
-- Demo видео на YouTube
-- Homebrew formula для macOS
+- Demo video on YouTube
+- Homebrew formula for macOS
 - iOS TestFlight
 - Code coverage badges
 
-### Низкий приоритет (когда будет время)
+### Low priority (when you have time)
 
 - Landing page
-- Swag для контрибьюторов
+- Swag for contributors
 - Integration tests
 
-## 📣 Стратегия анонса
+## 📣 Announcement strategy
 
-**Неделя 1**: Мягкий запуск (5-10 людей из herdr community)
-**Неделя 2-3**: Community preview (herdr Discord/Slack)
-**Неделя 4**: Публичный запуск (HN, Reddit, Twitter)
+**Week 1**: Soft launch (5-10 people from the herdr community)
+**Week 2-3**: Community preview (herdr Discord/Slack)
+**Week 4**: Public launch (HN, Reddit, Twitter)
 
-Шаблоны постов есть в `docs/COMMUNITY_RELEASE.md`
+Post templates are in `docs/COMMUNITY_RELEASE.md`
 
-## 🎁 Бонусные файлы
+## 🎁 Bonus files
 
-Все созданные файлы спроектированы для лучших практик open source:
+All created files are designed following open source best practices:
 
-- **Понятная структура** — новички быстро разберутся
-- **Автоматизация** — меньше ручной работы
-- **Welcoming tone** — дружелюбно к контрибьюторам
-- **Professional** — выглядит как серьёзный проект
+- **Clear structure** — newcomers will quickly find their way
+- **Automation** — less manual work
+- **Welcoming tone** — friendly to contributors
+- **Professional** — looks like a serious project
 
 ## ⚡ Quick Commands
 
 ```bash
-# Проверить статус проекта
+# Check project status
 go test ./...
 cd client && flutter test
 
-# Собрать релиз локально
+# Build release locally
 go build -o relay ./cmd/relay
 cd client && flutter build apk --release
 
-# Установить плагин для тестирования
+# Install the plugin for testing
 herdr plugin link "$PWD/plugin"
 bash plugin/install.sh
 
-# Показать QR
+# Show QR
 herdr plugin action invoke show-pair-link --plugin herdrelay.events
 ```
 
-## 📊 Метрики успеха (1-я неделя)
+## 📊 Success metrics (week 1)
 
 - 🌟 50+ GitHub stars
 - 📦 100+ downloads
-- 💬 5+ позитивных отзывов
-- 🐛 0 критических багов
-- 🤝 2+ заинтересованных контрибьютора
+- 💬 5+ positive reviews
+- 🐛 0 critical bugs
+- 🤝 2+ interested contributors
 
 ---
 
-**Готов к релизу! 🚀**
+**Ready for release! 🚀**
 
-Начни с **RELEASE_GUIDE.md** — там вся информация кратко и по делу.
+Start with **RELEASE_GUIDE.md** — all the info there is brief and to the point.

@@ -1,30 +1,31 @@
-# 04 — Гейтвей (Go, Docker, VPS)
+# 04 — Gateway (Go, Docker, VPS)
 
-> **Режим C — опциональный.** Для личного сценария и для OSS-онбординга
-> «скан QR — работает» гейтвей не нужен: достаточно режимов A (LAN) и B1
-> (Tailscale, см. [01-architecture](01-architecture.md) и
-> [07-onboarding](07-onboarding.md)). Гейтвей имеет смысл, когда нужен доступ
-> **вообще без Tailscale** (гостевой телефон, FCM-пуш из облака) и есть свой
-> VPS.
+> **Mode C — optional.** For the personal scenario and for the OSS onboarding
+> "scan QR — it works" flow, the gateway is not needed: modes A (LAN) and B1
+> (Tailscale, see [01-architecture](01-architecture.md) and
+> [07-onboarding](07-onboarding.md)) are enough. The gateway makes sense when
+> you need access **without Tailscale at all** (guest phone, FCM push from the
+> cloud) and you have your own VPS.
 
-Гейтвей — это «слепой» релей между телефоном и ноутом. Оба конца звонят
-**исходящими** соединениями, поэтому на ноуте не нужно ни одного открытого
-портов, а за любым NAT/файрволом всё работает. Гейтвей не хранит состояние:
-держит открытые WS-каналы и переправляет кадры между парами.
+The gateway is a "blind" relay between the phone and the laptop. Both ends make
+**outbound** connections, so the laptop needs no open ports at all, and
+everything works behind any NAT/firewall. The gateway stores no state: it keeps
+the WS channels open and forwards frames between the pairs.
 
-Вдохновение: `cmd/herdr-gateway` + `Dockerfile.gateway` из
-`0cv/herdr-mobile-relay` (модель «blind gateway»). Наш вариант — без WebRTC и
-ICE, простой постоянный пересыльщик: трафик терминала крошечный, P2P не нужен.
+Inspiration: `cmd/herdr-gateway` + `Dockerfile.gateway` from
+`0cv/herdr-mobile-relay` (the "blind gateway" model). Our variant — no WebRTC
+or ICE, a simple persistent forwarder: terminal traffic is tiny, P2P is not
+needed.
 
-## Роль и что он НЕ делает
+## Role and what it does NOT do
 
-- Не хранит данные (stateless, можно обновлять без потерь).
-- Не шифрует/дешифрует содержимое на v1 — кадры идут поверх TLS, гейтвей
-  доверенный (свой VPS). Сквозное E2E — фаза 3 (см. roadmap).
-- Не занимается push-уведомлениями в v1 (FCM/APNs — фаза 3).
-- Ограничивает: один токен = одна пара «релей ↔ телефоны».
+- Does not store data (stateless, can be updated without loss).
+- Does not encrypt/decrypt content on v1 — frames travel over TLS, the gateway
+  is trusted (your own VPS). End-to-end E2E — phase 3 (see roadmap).
+- Does not handle push notifications on v1 (FCM/APNs — phase 3).
+- Constrains: one token = one "relay ↔ phones" pair.
 
-## Механика
+## Mechanics
 
 ```
 phone ──wss://gw/ws?token=T&role=phone──┐
@@ -34,16 +35,17 @@ relay ──wss://gw/ws?token=T&role=relay──┘      │
                                     форвард кадров в обе стороны
 ```
 
-- Роли: `relay` (один на токен), `phone` (сколько угодно).
-- При коннекте релея гейтвей регистрирует канал под токеном; телефоны с тем же
-  токеном линкуются к нему.
-- Кадры пересылаются as-is. Heartbeat с обеих сторон, таймаут мёртвых каналов.
-- Повторного коннекта: если релей отвалился, гейтвей держит телефонные каналы
-  короткое окно и шлёт `{"type":"event","event":"relay_gone"}`.
+- Roles: `relay` (one per token), `phone` (as many as needed).
+- On relay connect, the gateway registers a channel under the token; phones
+  with the same token link to it.
+- Frames are forwarded as-is. Heartbeat from both sides, timeout for dead
+  channels.
+- Reconnect: if the relay drops off, the gateway keeps the phone channels open
+  for a short window and sends `{"type":"event","event":"relay_gone"}`.
 
-## Docker-деплой на VPS
+## Docker deployment on a VPS
 
-Структура в репо:
+Structure in the repo:
 
 ```text
 cmd/gateway/           # Go-бинарь
@@ -57,7 +59,7 @@ deploy/
 docker compose up -d   # на VPS
 ```
 
-Пример `docker-compose.yml` (v1, без сюрпризов):
+Example `docker-compose.yml` (v1, no surprises):
 
 ```yaml
 services:
@@ -78,18 +80,19 @@ volumes:
   caddy_data:
 ```
 
-- TLS: автоматический сертификат Let’s Encrypt через Caddy (домен → IP VPS).
-  На v1 достаточно; мтls/никто — фаза 3.
-- Токен гейтвея кладём в env при деплое, в репо не коммитим.
-- Регион: выбирать ближе к домашней сети (см. Решение 1 в
-  [architecture](01-architecture.md)). Если ноут часто в одном городе — VPS
-  там же. JPY-регион актуален, если там дом/пользователь живёт.
+- TLS: automatic Let’s Encrypt certificate via Caddy (domain → VPS IP).
+  Enough for v1; mTLS/nobody — phase 3.
+- The gateway token goes into env at deploy time; we do not commit it to the
+  repo.
+- Region: choose closer to the home network (see Decision 1 in
+  [architecture](01-architecture.md)). If the laptop is often in one city — put
+  the VPS there. The JPY region matters if home/the user lives there.
 
-## Проверка
+## Verification
 
 ```bash
 curl https://gw.example.com/healthz   # -> {"ok":true}
 ```
 
-Интеграционный тест без herdr: мини-клиент `cmd/fake-herdr` (как у 0cv)
-или два curl/ws-скрипта, гоняющие кадры туда-обратно.
+Integration test without herdr: mini-client `cmd/fake-herdr` (as in 0cv)
+or two curl/ws scripts pushing frames back and forth.

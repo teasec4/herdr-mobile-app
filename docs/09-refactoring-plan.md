@@ -89,7 +89,7 @@ of the architectural migration.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ UI (pages/widgets) — works only with RelayClient           │
+│ UI (pages/widgets) — works only with RelayClient            │
 ├─────────────────────────────────────────────────────────────┤
 │ Client Layer    RelayClientImpl  — typed API, events,       │
 │                 RelayStatus mapping, delegates to protocol  │

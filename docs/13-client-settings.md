@@ -1,81 +1,81 @@
-# 13 — Настройки клиента: запоминание UI-состояния (анализ + решения)
+# 13 — Client settings: remembering UI state (analysis + decisions)
 
-Статус: **частично реализовано (30.08)** · Дата: 2026-08-30
-Основание: аудит «что не запоминается между запусками/открытиями». Каждый пункт сверен с кодом
-(файл:строка) на момент написания.
+Status: **partially implemented (30.08)** · Date: 2026-08-30
+Rationale: an audit of "what is not remembered between launches/openings". Each item is verified against the code
+(file:line) at the time of writing.
 
-## 0. Уже кэшируется
+## 0. Already cached
 
-| Что | Механизм | Где |
+| What | Mechanism | Where |
 |---|---|---|
-| Вывод терминала | in-memory, revision-based (кэш вывода с `knownRevision`; revision-guard на месте) | `agent_repository.dart`, `agent_page.dart` |
-| Снапшоты агентов | persistent offline fallback (`last_snapshot` + `:ts`) | `agent_repository.dart` → `AppSettings` |
-| Профили пар | multi-device (`pair_profiles`/`active_profile`) | `config_store.dart` |
-| История команд | per-agent, 100 max | `command_history_service.dart` |
-| Endpoints режимов | per-profile (`PairConfig.endpoints`: mode → host:port) | `pair_config.dart`, `mode_picker_sheet.dart` |
+| Terminal output | in-memory, revision-based (output cache with `knownRevision`; revision-guard in place) | `agent_repository.dart`, `agent_page.dart` |
+| Agent snapshots | persistent offline fallback (`last_snapshot` + `:ts`) | `agent_repository.dart` → `AppSettings` |
+| Pair profiles | multi-device (`pair_profiles`/`active_profile`) | `config_store.dart` |
+| Command history | per-agent, 100 max | `command_history_service.dart` |
+| Mode endpoints | per-profile (`PairConfig.endpoints`: mode → host:port) | `pair_config.dart`, `mode_picker_sheet.dart` |
 
-## 0.1 Реализовано (30.08)
+## 0.1 Implemented (30.08)
 
-- **AppSettings** (`services/app_settings.dart`) — типизированный key-centralized слой над
-  SharedPreferences: `homeTabIndex`, `terminalFontSize` (9–20, кнопки A−/A+ на AgentPage),
-  `autoScrollFollow`, `notificationsEnabled` (тумблер «Blocked agent alerts» в меню ⋮ →
-  Notifications…, ключ `settings_notifications_enabled`, default true), кэш снапшота агентов.
-  HomePage восстанавливает таб, AgentPage — размер шрифта и автоскролл.
-- **Режим = endpoint** (`PairConfig.endpoints`): профиль помнит адреса всех режимов релея;
-  переключение — `connectVia` (адреса других режимов сохраняются); каждый успешный `/pair`
-  дописывает адреса (`withEndpoints`); офлайн-переключение из сохранённых endpoints + ручной
-  ввод с хостом, следующим за режимом. Детали: [05 — Flutter](05-flutter-app.md) → бейдж режима.
+- **AppSettings** (`services/app_settings.dart`) — typed, key-centralized layer over
+  SharedPreferences: `homeTabIndex`, `terminalFontSize` (9–20, A−/A+ buttons on AgentPage),
+  `autoScrollFollow`, `notificationsEnabled` ("Blocked agent alerts" toggle in the ⋮ menu →
+  Notifications…, key `settings_notifications_enabled`, default true), agent snapshot cache.
+  HomePage restores the tab, AgentPage — font size and auto-scroll.
+- **Mode = endpoint** (`PairConfig.endpoints`): the profile remembers addresses of all relay modes;
+  switching — `connectVia` (addresses of other modes are preserved); every successful `/pair`
+  appends addresses (`withEndpoints`); offline switching from saved endpoints + manual
+  input with the host following the mode. Details: [05 — Flutter](05-flutter-app.md) → mode badge.
 
-## 1. Проблемы (сверено с кодом)
+## 1. Problems (verified against the code)
 
-| # | Проблема | Подтверждение | Оценка |
+| # | Problem | Evidence | Estimate |
 |---|---|---|---|
-| 1 | **Home tab** всегда «Spaces» при запуске | `home_page.dart:65` `_tabIndex = 0`; `_visitedTabs = {0}` не переживает рестарт | 30 мин |
-| 2 | **Font size терминала** жёстко 12px, нет контроля | `ansi_terminal.dart:41` `fontSize: 12` в `defaultStyle`; `agent_page.dart:264` строит `AnsiTerminal` без стиля | 2 ч |
-| 3 | **Auto-scroll** сбрасывается при каждом открытии | `agent_page.dart:43` `_stickToBottom = true`; `_onScroll` не сохраняет | 1 ч |
-| 4 | **Transport mode** не выбирается и не запоминается | `service_locator.dart:57` `transportMode = 'ws'`; main.dart его не передаёт; UI-выбора нет (`HttpTransport` реализован, недостижим) | 1 день |
-| 5 | **История теста соединения** не хранится | `connection_page.dart` `_checkConnection` — один `_checkResult`, без истории | 1 день |
+| 1 | **Home tab** always "Spaces" on launch | `home_page.dart:65` `_tabIndex = 0`; `_visitedTabs = {0}` does not survive restart | 30 min |
+| 2 | **Terminal font size** hardcoded to 12px, no control | `ansi_terminal.dart:41` `fontSize: 12` in `defaultStyle`; `agent_page.dart:264` builds `AnsiTerminal` without a style | 2 h |
+| 3 | **Auto-scroll** resets on every open | `agent_page.dart:43` `_stickToBottom = true`; `_onScroll` does not save | 1 h |
+| 4 | **Transport mode** is not selectable or remembered | `service_locator.dart:57` `transportMode = 'ws'`; main.dart does not pass it; no UI selector (`HttpTransport` implemented, unreachable) | 1 day |
+| 5 | **Connection test history** is not stored | `connection_page.dart` `_checkConnection` — a single `_checkResult`, no history | 1 day |
 
-## 2. Решения
+## 2. Decisions
 
-### Общие настройки приложения (пункты 1–3) — новый сервис `AppSettings`
+### General app settings (items 1–3) — a new `AppSettings` service
 
-`client/lib/services/app_settings.dart`, get_it-синглтон, оборачивает уже загруженный
-`SharedPreferences` (после `getInstance()` prefs кэшируются в памяти → геттеры синхронные).
-Регистрация в `setupDependencies()` (prefs там уже awaited) — HomePage читает значение синхронно в
-`initState`, без «мигания» не того таба.
+`client/lib/services/app_settings.dart`, get_it singleton, wraps the already-loaded
+`SharedPreferences` (after `getInstance()` prefs are cached in memory → getters are synchronous).
+Registered in `setupDependencies()` (prefs are already awaited there) — HomePage reads the value synchronously in
+`initState`, without "flashing" the wrong tab.
 
 - `homeTabIndex` — int, default 0.
-- `terminalFontSize` — double, default 12, диапазон ~9–20.
+- `terminalFontSize` — double, default 12, range ~9–20.
 - `autoScrollFollow` — bool, default true.
 
 1. **Home tab**: `initState` → `_tabIndex = settings.homeTabIndex`, `_visitedTabs = {tab}`;
    `onDestinationSelected` → `settings.setHomeTabIndex(i)`.
 2. **Font size**: `AgentPage._buildOutput` → `AnsiTerminal(style: AnsiTerminal.defaultStyle.copyWith(fontSize: …))`;
-   в AppBar AgentPage — кнопки A−/A+ (или слайдер-поповер по паттерну ModePickerSheet);
-   мемоизация AnsiTerminal ключуется по стилю — репарс при смене размера корректен.
-3. **Auto-scroll**: `_stickToBottom` инициализируется из настроек; `_onScroll` при переключении
-   сохраняет (fire-and-forget).
+   in the AgentPage AppBar — A−/A+ buttons (or a slider popover following the ModePickerSheet pattern);
+   AnsiTerminal memoization keyed by style — reparse on size change is correct.
+3. **Auto-scroll**: `_stickToBottom` initialized from settings; `_onScroll` saves on toggle
+   (fire-and-forget).
 
-### Per-profile (пункты 4–5)
+### Per-profile (items 4–5)
 
-4. **Transport mode**: поле `transportMode` в `PairConfig` (default `'ws'`, в `fromJson`/`toJson`);
-   переключатель WS/HTTP на ConnectionPage; `main.dart._setConfig` →
-   `setupRelayServices(config, transportMode: config.transportMode)`; смена = обновить PairConfig +
-   существующий путь `onSwitch` (teardown+setup уже там).
-5. **Test history**: `ConnectionTestHistoryService` по образцу `CommandHistoryService`
-   (ключ `connection_test_history_<profileKey>`, максимум 20, JSON `{ts, ok, result}`);
-   на ConnectionPage — список последних проверок под карточкой статуса.
+4. **Transport mode**: `transportMode` field in `PairConfig` (default `'ws'`, in `fromJson`/`toJson`);
+   WS/HTTP toggle on ConnectionPage; `main.dart._setConfig` →
+   `setupRelayServices(config, transportMode: config.transportMode)`; changing = update PairConfig +
+   existing `onSwitch` path (teardown+setup already there).
+5. **Test history**: `ConnectionTestHistoryService` modeled after `CommandHistoryService`
+   (key `connection_test_history_<profileKey>`, max 20, JSON `{ts, ok, result}`);
+   on ConnectionPage — a list of recent checks under the status card.
 
-## 3. Координация
+## 3. Coordination
 
-Параллельная сессия правит `agent_page.dart` + `agent_repository.dart` (кэш вывода `knownRevision`).
-Пересечения реализации: пункты 2–3 (agent_page.dart). Пункты 1, 4, 5 — их файлы параллельная
-сессия не трогает. Перед правкой agent_page — перечитать файл.
+A parallel session is editing `agent_page.dart` + `agent_repository.dart` (output cache `knownRevision`).
+Implementation overlaps: items 2–3 (agent_page.dart). Items 1, 4, 5 — their files are not touched by the parallel
+session. Before editing agent_page — re-read the file.
 
-## 4. Порядок реализации
+## 4. Implementation order
 
-- **Батч A** (1–3): `AppSettings` + Home tab + font size + auto-scroll — один коммит, быстрые победы.
-- **Батч B** (4–5): `PairConfig.transportMode` + переключатель + история тестов — второй коммит.
-- Тесты: `app_settings_test.dart`, widget-тесты (таб восстанавливается, font-size применяется,
-  auto-scroll сохраняется, история тестов пишется/читается).
+- **Batch A** (1–3): `AppSettings` + Home tab + font size + auto-scroll — one commit, quick wins.
+- **Batch B** (4–5): `PairConfig.transportMode` + toggle + test history — second commit.
+- Tests: `app_settings_test.dart`, widget tests (tab is restored, font-size applied,
+  auto-scroll saved, test history written/read).
