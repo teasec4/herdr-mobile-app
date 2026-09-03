@@ -5,6 +5,27 @@ All notable changes to HerdRelay project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Settings page** (`client/lib/pages/settings_page.dart`): pairing profiles and
+  app preferences in one place; replaces the notification-settings page.
+- **Mode icons** (`client/lib/widgets/mode_icons.dart`) for LAN / Tailscale /
+  Funnel / Gateway.
+- **`docs/screenshots/`** — placeholder folder for README screenshots with a
+  naming guide.
+- App bootstrap test (`client/test/app_bootstrap_test.dart`).
+
+### Changed
+- **WS auth by header**: `WebSocketTransport` now takes the token as a parameter
+  and sends it as an `Authorization` header on every (re)connect instead of
+  embedding it in the URL; `PairConfig` no longer puts the token into `wsUri`.
+  Channel factories are now 2-arg (`url`, `headers`) for IO and web.
+- **README rewritten**: detailed install guide, step-by-step usage, connection
+  modes, troubleshooting; architecture moved below; screenshots placeholders.
+- Relay `pair`/`status` commands and plugin scripts/docs brought in line with the
+  token-in-header change.
+
 ## [0.3.0] - 2026-08-30
 
 ### Added (terminal stream dedup, docs/14-terminal-stream-implementation-plan.md)

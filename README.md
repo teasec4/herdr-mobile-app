@@ -126,10 +126,24 @@ half-blocks right in the pane). The pane closes by itself after a few seconds.
 
 ### Step 2 — Install the app on your phone
 
-- **Android:** download the APK from the
-  [Releases](https://github.com/teasec4/herdr-mobile-app/releases) page and
-  install it. Allow camera permission when the app asks.
-- **iOS:** coming soon (TestFlight / App Store).
+**Android — download & install:**
+
+1. On your phone, open the
+   [Releases](https://github.com/teasec4/herdr-mobile-app/releases) page.
+2. Under the newest release, tap the APK asset (e.g. `HerdRelay-v0.3.0.apk`) to
+   download it.
+3. Open the downloaded file. Android warns that the app is from an *unknown
+   source* — expected, since this APK is not on Google Play. Allow the install
+   (Settings → allow "Install unknown apps" for your browser, or tap
+   **Install anyway**).
+4. When the app asks for camera permission, grant it — it is needed for
+   scanning the pairing QR code.
+
+> The APK is signed with a development key and is not on Google Play, which is
+> why Android shows the unknown-source warning. That is normal for a sideloaded
+> app.
+
+**iOS:** coming soon (TestFlight / App Store).
 
 ### Step 3 — Scan the QR and connect
 
