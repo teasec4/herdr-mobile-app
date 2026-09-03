@@ -1,98 +1,98 @@
-# 10 — Полный справочник herdr API (для разработчиков)
+# 10 — Complete herdr API reference (for developers)
 
-> Назначение документа: единый справочник по API **herdr** для разработчиков нашего релея —
-> что herdr даёт, что мы можем от него получать, что ему передавать, как это соединяется и работает.
-> Это «документ-справка»: обращаемся к нему по мере необходимости, не держим в голове.
+> Document purpose: a single reference on the **herdr** API for developers of our relay —
+> what herdr provides, what we can get from it, what we pass to it, and how it all connects and works.
+> This is a "reference document": consult it as needed, don't keep it in your head.
 >
-> Проверено живьём против **herdr 0.8.0** (channel `stable`, protocol 19, schema_version 1).
-> Всё, что отмечено «проверено живьём», воспроизводилось на реальном бинаре через
-> `herdr api snapshot` / raw-socket-соединение. Остальное — снято со схемы `herdr api schema --json`.
+> Verified live against **herdr 0.8.0** (channel `stable`, protocol 19, schema_version 1).
+> Everything marked "verified live" was reproduced on the real binary via
+> `herdr api snapshot` / a raw-socket connection. The rest was captured from the schema via `herdr api schema --json`.
 
 ---
 
-## 1. Что такое herdr и зачем это нам
+## 1. What herdr is and why we need it
 
-**herdr** — терминальный мультиплексор + агент-рантайм для AI-агентов (аналог screen/tmux,
-но с «машиной состояний» для агентов). Состоит из двух частей:
+**herdr** is a terminal multiplexer + agent runtime for AI agents (a screen/tmux analogue,
+but with a "state machine" for agents). It consists of two parts:
 
-- **server** — демон, держит workspace/tab/pane (терминалы), процессы агентов, подписки;
-- **client** — CLI/TUI (`herdr`), подключается к серверу.
+- **server** — a daemon that holds workspace/tab/pane (terminals), agent processes, subscriptions;
+- **client** — CLI/TUI (`herdr`) that connects to the server.
 
-Мы (релей herdr_relay) — **внешний потребитель**: не плагин и не агент, а отдельный процесс,
-который подключается к серверу herdr как клиент и оркестрирует агентов в его панелях.
-Вся интеграция происходит по одному Unix-сокету (см. раздел 3).
+We (the herdr_relay relay) are an **external consumer**: neither a plugin nor an agent, but a separate process
+that connects to the herdr server as a client and orchestrates agents inside its panes.
+All integration happens over a single Unix socket (see section 3).
 
-Архитектурно (см. `docs/01-architecture.md`) наш релей:
+Architecturally (see `docs/01-architecture.md`) our relay:
 
-- запускает herdr и агентов в его панелях;
-- получает живой статус агентов по socket-подпискам;
-- управляет агентами: читает вывод, шлёт клавиши/подсказки, ждёт ответа;
-- навешивает поверх мета-уровень: слоты/сессии/свой HTTP API (свой протокол поверх herdr).
+- starts herdr and agents inside its panes;
+- receives live agent status via socket subscriptions;
+- manages agents: reads output, sends keys/prompts, waits for a response;
+- layers a meta-level on top: slots/sessions/its own HTTP API (its own protocol over herdr).
 
-Официальные источники: репозиторий `herdrdev/herdr`, доки `herdr.dev/docs/…` (socket-api,
+Official sources: the `herdrdev/herdr` repository, docs at `herdr.dev/docs/…` (socket-api,
 cli-reference, plugins, agents, session-state, concepts, how-to-work), `herdr --skill`.
 
 ---
 
-## 2. Три слоя доступа к herdr (и четвёртый — плагины)
+## 2. Three layers of access to herdr (and a fourth — plugins)
 
-| Слой | Что это | Когда используем | Статус у нас |
+| Layer | What it is | When we use it | Our status |
 |---|---|---|---|
-| **1. Agent skill** | Файлы-подсказки (`herdr --skill`), которые herdr инжектит в контекст агентов и объясняют, как работать с herdr | Агентам внутри панелей | Источник знаний, наш код не использует |
-| **2. CLI-обёртки** | Библиотека `herdr-lib.sh` + команды `herdr api …` / `herdr agent …` | Простые одноразовые операции (snapshot, read, send-keys, prompt) | **Основной путь** для действий (см. раздел 8) |
-| **3. Raw socket (JSON-RPC/NDJSON)** | Прямое соединение с Unix-сокетом сервера, запрос/ответ + поток событий | Длинные/живые вещи: подписки на события, ожидания | **Основной путь** для событий (socket_event_repository) |
-| **4. Плагины** | Манифест + хуки/экшены, выполняемые сервером при событиях | Альтернатива/дополнение; у нас есть плагин-обёртка | Используем частично (см. раздел 7) |
+| **1. Agent skill** | Prompt files (`herdr --skill`) that herdr injects into agent context and that explain how to work with herdr | For agents inside panes | Source of knowledge; our code does not use it |
+| **2. CLI wrappers** | The `herdr-lib.sh` library + `herdr api …` / `herdr agent …` commands | Simple one-shot operations (snapshot, read, send-keys, prompt) | **Primary path** for actions (see section 8) |
+| **3. Raw socket (JSON-RPC/NDJSON)** | Direct connection to the server's Unix socket, request/response + event stream | Long-lived/live things: event subscriptions, waiting | **Primary path** for events (socket_event_repository) |
+| **4. Plugins** | Manifest + hooks/actions executed by the server on events | Alternative/addition; we have a plugin wrapper | Used partially (see section 7) |
 
-**Правило выбора:** одноразовое действие → CLI-обёртка (просто и дешево).
-Долгоживущий поток/событие/ожидание → raw socket. Сложная логика на стороне herdr
-(хуки на события, экшены из UI) → плагин.
+**Selection rule:** one-shot action → CLI wrapper (simple and cheap).
+Long-lived stream/event/wait → raw socket. Complex logic on the herdr side
+(event hooks, UI actions) → plugin.
 
 ---
 
-## 3. Транспорт и протокол
+## 3. Transport and protocol
 
-### 3.1 Сокеты
+### 3.1 Sockets
 
-- **Дефолт:** `~/.config/herdr/herdr.sock`
+- **Default:** `~/.config/herdr/herdr.sock`
 - **Named session:** `~/.config/herdr/sessions/<name>/herdr.sock`
 
-**Порядок разрешения сокета** (приоритет сверху вниз):
+**Socket resolution order** (priority top to bottom):
 
-1. флаг CLI `--session <name>`;
-2. env `HERDR_SOCKET_PATH` (путь к сокету напрямую);
+1. CLI flag `--session <name>`;
+2. env `HERDR_SOCKET_PATH` (direct path to the socket);
 3. env `HERDR_SESSION=<name>`;
-4. дефолт `~/.config/herdr/herdr.sock`.
+4. default `~/.config/herdr/herdr.sock`.
 
-> ⚠ **Проверено живьём:** наша реализация (`cli_repository.go`) передаёт subprocess'у
-> `HERDR_SOCKET=…`, но CLI **игнорирует эту переменную** и молча использует дефолтный сокет.
-> Влияет только `HERDR_SOCKET_PATH`. Это потенциальный баг релея для named session
-> (см. раздел 9, «грабли» №10).
+> ⚠ **Verified live:** our implementation (`cli_repository.go`) passes
+> `HERDR_SOCKET=…` to the subprocess, but the CLI **ignores this variable** and silently uses the default socket.
+> Only `HERDR_SOCKET_PATH` has an effect. This is a potential relay bug for named sessions
+> (see section 9, rake #10).
 
-Windows: вместо Unix-сокета — named pipe. У нас macOS/Linux, дальше по Unix.
+Windows: named pipe instead of a Unix socket. We're on macOS/Linux, so Unix from here on.
 
-### 3.2 Формат сообщений
+### 3.2 Message format
 
-Поверх сокета — **newline-delimited JSON** (NDJSON): каждый кадр — одна JSON-строка,
-разделитель `\n`. Клиент читает сокет построчно.
+On top of the socket is **newline-delimited JSON** (NDJSON): each frame is one JSON line,
+separator `\n`. The client reads the socket line by line.
 
-**Запрос** (обязательные поля: `id` — строка, `method`, `params`):
+**Request** (required fields: `id` — string, `method`, `params`):
 
 ```json
 {"id":"req_1","method":"ping","params":{}}
 ```
 
-- `id` **обязателен и является строкой** (в request base schema: `required:["id"]`,
+- `id` **is required and must be a string** (in the request base schema: `required:["id"]`,
   `id.type=string`).
-- Поля `jsonrpc` в схеме **нет вообще**. Наш клиент шлёт `"jsonrpc":"2.0"` — лишнее поле,
-  сервер его игнорирует, безвредно. Новый код может не слать.
+- There is **no `jsonrpc` field in the schema at all**. Our client sends `"jsonrpc":"2.0"` — an extra field,
+  the server ignores it, harmless. New code may omit it.
 
-**Ответ успеха** — `result` дискриминируется полем `type` (всего 57 вариантов, см. 4.2):
+**Success response** — `result` is discriminated by the `type` field (57 variants in total, see 4.2):
 
 ```json
 {"id":"req_1","result":{"type":"pong"}}
 ```
 
-**Ответ ошибки** (поля `code`, `message`):
+**Error response** (fields `code`, `message`):
 
 ```json
 {
@@ -101,25 +101,25 @@ Windows: вместо Unix-сокета — named pipe. У нас macOS/Linux, �
 }
 ```
 
-Типичные коды ошибок: `not_found`, `invalid_params`, `server_not_running`,
-`agent_blocked` (см. грабли №11), `timeout`.
+Typical error codes: `not_found`, `invalid_params`, `server_not_running`,
+`agent_blocked` (see rake #11), `timeout`.
 
-**Событие-нотификация** (без `id`):
+**Event notification** (no `id`):
 
 ```json
 {"event":"pane_updated","data":{"pane":{...}}}
 ```
 
-### 3.3 Версионирование и стабильность
+### 3.3 Versioning and stability
 
-- **protocol: 19**, **schema_version: 1** (0.8.0). Поле `protocol` присутствует в
-  `SessionSnapshot` и используется при live-handoff.
-- Неизвестные поля в ответах **игнорировать** (схема расширяется аддитивно).
-- Схему можно экспортировать: `herdr api schema` (краткая справка), `herdr api schema --json`
-  (полный JSON), `herdr api schema --output PATH`.
-- Статус соединения: `herdr status` / метод `ping`.
+- **protocol: 19**, **schema_version: 1** (0.8.0). The `protocol` field is present in
+  `SessionSnapshot` and is used during live-handoff.
+- Unknown fields in responses **must be ignored** (the schema grows additively).
+- The schema can be exported: `herdr api schema` (brief summary), `herdr api schema --json`
+  (full JSON), `herdr api schema --output PATH`.
+- Connection status: `herdr status` / the `ping` method.
 
-Пример экспорта схемы (для регенерации этого справочника, раздел 10):
+Example of schema export (for regenerating this reference, section 10):
 
 ```bash
 herdr api schema --json --output /tmp/herdr-schema.json
@@ -127,158 +127,158 @@ herdr api schema --json --output /tmp/herdr-schema.json
 
 ---
 
-## 4. RPC-методы (реестр — 90 методов)
+## 4. RPC methods (registry — 90 methods)
 
-Все методы — запрос/ответ за одним `id`; `params` — объект (пустой `{}` для
-`EmptyParams`; поля, помеченные `*` в схеме, обязательны).
+All methods are request/response under a single `id`; `params` is an object (empty `{}` for
+`EmptyParams`; fields marked `*` in the schema are required).
 
-### 4.1 Таблица методов по группам
+### 4.1 Method table by group
 
-**Server / общее**
+**Server / general**
 
-| Метод | Параметры (тип) | Назначение |
+| Method | Params (type) | Purpose |
 |---|---|---|
-| `ping` | `PingParams` | Проверка живости/контракта |
-| `server.stop` | `EmptyParams` | Остановить сервер |
-| `server.live_handoff` | `expected_protocol?, expected_version?, import_exe?` | Передача живого состояния между процессами сервера |
-| `server.reload_config` | `EmptyParams` | Перезагрузить конфиг |
-| `server.agent_manifests` | `EmptyParams` | Список манифестов агентов |
-| `server.reload_agent_manifests` | `EmptyParams` | Перечитать манифесты агентов |
+| `ping` | `PingParams` | Liveness/contract check |
+| `server.stop` | `EmptyParams` | Stop the server |
+| `server.live_handoff` | `expected_protocol?, expected_version?, import_exe?` | Hand over live state between server processes |
+| `server.reload_config` | `EmptyParams` | Reload config |
+| `server.agent_manifests` | `EmptyParams` | List agent manifests |
+| `server.reload_agent_manifests` | `EmptyParams` | Re-read agent manifests |
 
-**Уведомления / клиент**
+**Notifications / client**
 
-| Метод | Параметры (тип) | Назначение |
+| Method | Params (type) | Purpose |
 |---|---|---|
-| `notification.show` | `title*`, `body?`, `position?` (enum top-left/top-right/bottom-left/bottom-right), `sound?` (none/done/request) | Системное уведомление (тост) на клиенте |
-| `client.window_title.set` | `title*` | Заголовок окна клиента |
-| `client.window_title.clear` | `EmptyParams` | Сбросить заголовок окна |
+| `notification.show` | `title*`, `body?`, `position?` (enum top-left/top-right/bottom-left/bottom-right), `sound?` (none/done/request) | System notification (toast) on the client |
+| `client.window_title.set` | `title*` | Client window title |
+| `client.window_title.clear` | `EmptyParams` | Clear the window title |
 
-**Сессия**
+**Session**
 
-| Метод | Параметры (тип) | Назначение |
+| Method | Params (type) | Purpose |
 |---|---|---|
-| `session.snapshot` | `EmptyParams` | Полный снапшот состояния (bootstrap, см. 6.1) |
+| `session.snapshot` | `EmptyParams` | Full state snapshot (bootstrap, see 6.1) |
 
-**Workspace** (в нашем релее ≈ «слот»/сессия агента)
+**Workspace** (in our relay ≈ "slot"/agent session)
 
-| Метод | Параметры (тип) | Назначение |
+| Method | Params (type) | Purpose |
 |---|---|---|
-| `workspace.create` | `cwd?, env?, focus?, label?` | Создать workspace |
-| `workspace.list` | `EmptyParams` | Перечислить |
-| `workspace.get` | `workspace_id*` | Получить по id |
-| `workspace.focus` | `workspace_id*` | Сфокусировать |
-| `workspace.rename` | — | Переименовать |
-| `workspace.move` | — | Переместить в списке |
-| `workspace.move_block` | — | Переместить блок workspace |
-| `workspace.report_metadata` | `workspace_id*`, `source*`, `tokens*` (+map), `ttl_ms`, `seq` | Отчёт агента о метаданных (токены) |
-| `workspace.close` | `workspace_id*` | Закрыть |
+| `workspace.create` | `cwd?, env?, focus?, label?` | Create a workspace |
+| `workspace.list` | `EmptyParams` | List |
+| `workspace.get` | `workspace_id*` | Get by id |
+| `workspace.focus` | `workspace_id*` | Focus |
+| `workspace.rename` | — | Rename |
+| `workspace.move` | — | Move in the list |
+| `workspace.move_block` | — | Move a workspace block |
+| `workspace.report_metadata` | `workspace_id*`, `source*`, `tokens*` (+map), `ttl_ms`, `seq` | Agent metadata report (tokens) |
+| `workspace.close` | `workspace_id*` | Close |
 
-**Worktree** (git-worktree интеграция)
+**Worktree** (git-worktree integration)
 
-| Метод | Параметры (тип) | Назначение |
+| Method | Params (type) | Purpose |
 |---|---|---|
-| `worktree.list` | `cwd?, workspace_id?` | Список worktree |
-| `worktree.create` | `base?, branch?, cwd?, focus?, label?, path?, workspace_id?` | Создать worktree + workspace |
-| `worktree.open` | `branch?, cwd?, focus?, label?, path?, workspace_id?` | Открыть существующий в workspace |
-| `worktree.remove` | `workspace_id*`, `force?` | Удалить worktree (+workspace) |
+| `worktree.list` | `cwd?, workspace_id?` | List worktrees |
+| `worktree.create` | `base?, branch?, cwd?, focus?, label?, path?, workspace_id?` | Create worktree + workspace |
+| `worktree.open` | `branch?, cwd?, focus?, label?, path?, workspace_id?` | Open an existing one in a workspace |
+| `worktree.remove` | `workspace_id*`, `force?` | Remove worktree (+workspace) |
 
 **Tab**
 
-| Метод | Параметры (тип) | Назначение |
+| Method | Params (type) | Purpose |
 |---|---|---|
-| `tab.create` | `cwd?, env?, focus?, label?, workspace_id?` | Создать tab в workspace |
-| `tab.list` | `workspace_id?` | Список |
-| `tab.get` | `TabTarget` | По id |
-| `tab.focus` | `TabTarget` | Сфокусировать |
-| `tab.rename` | — | Переименовать |
-| `tab.move` | — | Переместить |
-| `tab.close` | `TabTarget` | Закрыть |
+| `tab.create` | `cwd?, env?, focus?, label?, workspace_id?` | Create a tab in a workspace |
+| `tab.list` | `workspace_id?` | List |
+| `tab.get` | `TabTarget` | By id |
+| `tab.focus` | `TabTarget` | Focus |
+| `tab.rename` | — | Rename |
+| `tab.move` | — | Move |
+| `tab.close` | `TabTarget` | Close |
 
-**Agent** (в нашем релее — целевой объект: агенты живут в pane)
+**Agent** (in our relay — the target object: agents live in a pane)
 
-| Метод | Параметры (тип) | Назначение |
+| Method | Params (type) | Purpose |
 |---|---|---|
-| `agent.list` | `EmptyParams` | Список агентов |
-| `agent.get` | `target*` | Инфо по агенту |
-| `agent.read` | `target*`, `source*`, `lines?, format?, strip_ansi?` | Прочитать вывод агента |
-| `agent.explain` | `target*` | Объяснить состояние агента |
-| `agent.send_keys` | `target*`, `keys*`:[string] | Отправить нажатия клавиш |
-| `agent.rename` | `target*`, `name?` | Переименовать |
-| `agent.view.set` | `source*`, `label?, filter?, sort?` | Настроить «вид» агента (список в UI) |
-| `agent.view.clear` | `source?` | Сбросить вид |
-| `agent.focus` | `target*` | Сфокусировать |
-| `agent.start` | `name*`, `kind*`, `pane_id*`, `args?`, `timeout_ms?` | Запустить агента в pane |
-| `agent.prompt` | `target*`, `text*`, `wait?` | Отправить промпт (с опциональным ожиданием статуса) |
-| `agent.wait` | `target*`, `until?:[AgentStatus]`, `timeout_ms?` | Дождаться статуса |
+| `agent.list` | `EmptyParams` | List agents |
+| `agent.get` | `target*` | Agent info |
+| `agent.read` | `target*`, `source*`, `lines?, format?, strip_ansi?` | Read agent output |
+| `agent.explain` | `target*` | Explain agent state |
+| `agent.send_keys` | `target*`, `keys*`:[string] | Send key presses |
+| `agent.rename` | `target*`, `name?` | Rename |
+| `agent.view.set` | `source*`, `label?, filter?, sort?` | Configure the agent "view" (list in the UI) |
+| `agent.view.clear` | `source?` | Reset the view |
+| `agent.focus` | `target*` | Focus |
+| `agent.start` | `name*`, `kind*`, `pane_id*`, `args?`, `timeout_ms?` | Start an agent in a pane |
+| `agent.prompt` | `target*`, `text*`, `wait?` | Send a prompt (with optional status waiting) |
+| `agent.wait` | `target*`, `until?:[AgentStatus]`, `timeout_ms?` | Wait for a status |
 
-**Pane** (терминальная панель; в нашем релее pane — «раннер»)
+**Pane** (terminal panel; in our relay a pane is a "runner")
 
-| Метод | Параметры (тип) | Назначение |
+| Method | Params (type) | Purpose |
 |---|---|---|
-| `pane.split` | `cwd?, direction*` (right/down), `env?, focus?, ratio?, target_pane_id?, workspace_id?` | Разделить pane |
-| `pane.swap` | `direction?, pane_id?, source_pane_id?, target_pane_id?` | Поменять местами |
-| `pane.move` | `pane_id*`, `destination*` (tab/new_tab/new_workspace), `focus?` | Переместить pane |
-| `pane.zoom` | `mode?` (toggle/on/off), `pane_id?` | Зум панели |
-| `pane.layout` | `pane_id?` | Текущий layout pane |
-| `pane.process_info` | `pane_id?` | Инфо о процессе в pane |
-| `pane.neighbor` | `direction*` (left/right/up/down), `pane_id?` | Соседний pane |
-| `pane.edges` | `pane_id?` | Границы pane |
-| `pane.focus_direction` | `direction*`, `pane_id?` | Фокус в направлении |
-| `pane.resize` | `direction*`, `amount?:float`, `pane_id?` | Изменить размер |
-| `pane.list` | `workspace_id?` | Список panes |
-| `pane.current` | `caller_pane_id?` | Текущий (сфокусированный) pane |
-| `pane.get` | `pane_id*` | Инфо по pane |
-| `pane.focus` | `pane_id*` | Сфокусировать |
-| `pane.rename` | `pane_id*`, `label?` | Переименовать |
-| `pane.send_text` | `pane_id*`, `text*` | Вставить текст как input, не Enter |
-| `pane.send_keys` | `pane_id*`, `keys*`:[string] | Нажатия клавиш |
-| `pane.send_input` | `pane_id*`, `text` (строка!), `keys?` | Комбинированный input |
-| `pane.read` | `pane_id*`, `source*`, `lines?, format?, strip_ansi?` | Прочитать вывод (основа `agent.read`) |
-| `pane.graphics.set` | `pane_id*`, `format*` (png/rgb/rgba), `image_width*`, `image_height*`, `data_base64*`, `placement?` | Показать картинку в терминале (kitty/OSC) |
-| `pane.graphics.clear` | `pane_id*` | Убрать картинку |
-| `pane.graphics.info` | `pane_id*` | Инфо о graphics |
-| `pane.report_agent` | `pane_id*`, `source*`, `agent*`, `state*` (idle/working/blocked/unknown), `message?, agent_session_id?, agent_session_path?, seq?` | Агент сообщает о своём состоянии |
-| `pane.report_agent_session` | `pane_id*`, `source*`, `agent*`, `agent_session_id?, agent_session_path?, session_start_source?, seq?` | Сообщить о сессии агента |
-| `pane.report_metadata` | `pane_id*`, `source*`, `agent?, display_agent?, title?, state_labels?(+string), tokens?(+string), clear_*, applies_to_source?, ttl_ms? (1..86400000), seq?` | Метаданные pane (токены, статус-лейблы) |
-| `pane.clear_agent_authority` | `pane_id*`, `source?, seq?` | Снять привязку агента |
-| `pane.release_agent` | `pane_id*`, `source*`, `agent*`, `seq?` | Открепить агента |
-| `pane.close` | `pane_id*` | Закрыть pane |
-| `pane.wait_for_output` | `pane_id*`, `match*` (OutputMatch: substring/regex), `source*, lines?, strip_ansi?, timeout_ms?` | **Блокирующее ожидание** совпадения в выводе |
+| `pane.split` | `cwd?, direction*` (right/down), `env?, focus?, ratio?, target_pane_id?, workspace_id?` | Split a pane |
+| `pane.swap` | `direction?, pane_id?, source_pane_id?, target_pane_id?` | Swap |
+| `pane.move` | `pane_id*`, `destination*` (tab/new_tab/new_workspace), `focus?` | Move a pane |
+| `pane.zoom` | `mode?` (toggle/on/off), `pane_id?` | Pane zoom |
+| `pane.layout` | `pane_id?` | Current pane layout |
+| `pane.process_info` | `pane_id?` | Info about the process in the pane |
+| `pane.neighbor` | `direction*` (left/right/up/down), `pane_id?` | Neighboring pane |
+| `pane.edges` | `pane_id?` | Pane edges |
+| `pane.focus_direction` | `direction*`, `pane_id?` | Focus in a direction |
+| `pane.resize` | `direction*`, `amount?:float`, `pane_id?` | Resize |
+| `pane.list` | `workspace_id?` | List panes |
+| `pane.current` | `caller_pane_id?` | Current (focused) pane |
+| `pane.get` | `pane_id*` | Pane info |
+| `pane.focus` | `pane_id*` | Focus |
+| `pane.rename` | `pane_id*`, `label?` | Rename |
+| `pane.send_text` | `pane_id*`, `text*` | Insert text as input, no Enter |
+| `pane.send_keys` | `pane_id*`, `keys*`:[string] | Key presses |
+| `pane.send_input` | `pane_id*`, `text` (string!), `keys?` | Combined input |
+| `pane.read` | `pane_id*`, `source*`, `lines?, format?, strip_ansi?` | Read output (basis of `agent.read`) |
+| `pane.graphics.set` | `pane_id*`, `format*` (png/rgb/rgba), `image_width*`, `image_height*`, `data_base64*`, `placement?` | Show an image in the terminal (kitty/OSC) |
+| `pane.graphics.clear` | `pane_id*` | Remove the image |
+| `pane.graphics.info` | `pane_id*` | Graphics info |
+| `pane.report_agent` | `pane_id*`, `source*`, `agent*`, `state*` (idle/working/blocked/unknown), `message?, agent_session_id?, agent_session_path?, seq?` | Agent reports its state |
+| `pane.report_agent_session` | `pane_id*`, `source*`, `agent*`, `agent_session_id?, agent_session_path?, session_start_source?, seq?` | Report an agent session |
+| `pane.report_metadata` | `pane_id*`, `source*`, `agent?, display_agent?, title?, state_labels?(+string), tokens?(+string), clear_*, applies_to_source?, ttl_ms? (1..86400000), seq?` | Pane metadata (tokens, status labels) |
+| `pane.clear_agent_authority` | `pane_id*`, `source?, seq?` | Clear agent binding |
+| `pane.release_agent` | `pane_id*`, `source*`, `agent*`, `seq?` | Detach an agent |
+| `pane.close` | `pane_id*` | Close the pane |
+| `pane.wait_for_output` | `pane_id*`, `match*` (OutputMatch: substring/regex), `source*, lines?, strip_ansi?, timeout_ms?` | **Blocking wait** for a match in the output |
 
 **Popup / Layout**
 
-| Метод | Параметры (тип) | Назначение |
+| Method | Params (type) | Purpose |
 |---|---|---|
-| `popup.close` | `EmptyParams` | Закрыть всплывающий popup |
-| `layout.export` | `pane_id?, tab_id?` | Экспорт layout (дерево) |
-| `layout.apply` | `root*` (LayoutNode), `workspace_id?, tab_id?, tab_label?, focus?` | Применить layout (дерево pane/split) |
-| `layout.set_split_ratio` | `tab_id?, pane_id?, path*:[bool], ratio*` | Установить пропорцию сплита по пути в дереве |
+| `popup.close` | `EmptyParams` | Close the popup |
+| `layout.export` | `pane_id?, tab_id?` | Export layout (tree) |
+| `layout.apply` | `root*` (LayoutNode), `workspace_id?, tab_id?, tab_label?, focus?` | Apply layout (pane/split tree) |
+| `layout.set_split_ratio` | `tab_id?, pane_id?, path*:[bool], ratio*` | Set split ratio by path in the tree |
 
 **Events**
 
-| Метод | Параметры (тип) | Назначение |
+| Method | Params (type) | Purpose |
 |---|---|---|
-| `events.subscribe` | `subscriptions*`:[Subscription] | Подписка на поток событий (см. 5) |
-| `events.wait` | `match_event*` (EventMatch), `timeout_ms?` | Одноразовое блокирующее ожидание события |
+| `events.subscribe` | `subscriptions*`:[Subscription] | Subscribe to the event stream (see 5) |
+| `events.wait` | `match_event*` (EventMatch), `timeout_ms?` | One-shot blocking event wait |
 
-**Интеграции / Плагины**
+**Integrations / Plugins**
 
-| Метод | Параметры (тип) | Назначение |
+| Method | Params (type) | Purpose |
 |---|---|---|
-| `integration.install` | `target*` (enum: pi,omp,claude,codex,copilot,devin,droid,**kimi**,opencode,kilo,hermes,qodercli,cursor,mastracode,antigravity_cli,grok) | Установить интеграцию для CLI-агента |
-| `integration.uninstall` | `target*` (тот же enum) | Удалить интеграцию |
-| `plugin.link` | `path*`, `enabled?, source?` | Подключить плагин |
-| `plugin.list` | `plugin_id?` | Список плагинов |
-| `plugin.unlink` | — | Отключить плагин |
-| `plugin.enable` / `plugin.disable` | `plugin_id*` | Вкл/выкл плагин |
-| `plugin.action.list` | `plugin_id?` | Список экшенов |
-| `plugin.action.invoke` | `action_id*`, `plugin_id?, context?` (PluginInvocationContext) | Вызвать экшен плагина |
-| `plugin.log.list` | `plugin_id?, limit?` | Логи плагина |
-| `plugin.pane.open` | `plugin_id*`, `entrypoint*`, `placement?` (overlay/popup/split/tab/zoomed), `target_pane_id?, workspace_id?, cwd?, env?, focus?, direction?, width?/height?` | Открыть панель-UI плагина |
-| `plugin.pane.focus` | `pane_id*` | Сфокусировать панель плагина |
-| `plugin.pane.close` | `pane_id*` | Закрыть панель плагина |
+| `integration.install` | `target*` (enum: pi,omp,claude,codex,copilot,devin,droid,**kimi**,opencode,kilo,hermes,qodercli,cursor,mastracode,antigravity_cli,grok) | Install an integration for a CLI agent |
+| `integration.uninstall` | `target*` (same enum) | Remove an integration |
+| `plugin.link` | `path*`, `enabled?, source?` | Link a plugin |
+| `plugin.list` | `plugin_id?` | List plugins |
+| `plugin.unlink` | — | Unlink a plugin |
+| `plugin.enable` / `plugin.disable` | `plugin_id*` | Enable/disable a plugin |
+| `plugin.action.list` | `plugin_id?` | List actions |
+| `plugin.action.invoke` | `action_id*`, `plugin_id?, context?` (PluginInvocationContext) | Invoke a plugin action |
+| `plugin.log.list` | `plugin_id?, limit?` | Plugin logs |
+| `plugin.pane.open` | `plugin_id*`, `entrypoint*`, `placement?` (overlay/popup/split/tab/zoomed), `target_pane_id?, workspace_id?, cwd?, env?, focus?, direction?, width?/height?` | Open a plugin UI pane |
+| `plugin.pane.focus` | `pane_id*` | Focus a plugin pane |
+| `plugin.pane.close` | `pane_id*` | Close a plugin pane |
 
-### 4.2 Возможные значения `result.type` (57 kind'ов)
+### 4.2 Possible `result.type` values (57 kinds)
 
 `pong`, `session_snapshot`, `workspace_info`, `workspace_created`, `workspace_list`,
 `worktree_list`, `worktree_created`, `worktree_opened`, `worktree_removed`, `tab_info`,
@@ -294,26 +294,26 @@ herdr api schema --json --output /tmp/herdr-schema.json
 `plugin_log_list`, `plugin_pane_opened`, `plugin_pane_focused`, `plugin_pane_closed`,
 `config_reload`, `ok`.
 
-Безрезультатные/простые методы (send_keys, send_text, move, focus, resize, close и т.п.)
-возвращают `{"type":"ok"}`; профильные методы — свой kind (например `pane.read` →
+Resultless/simple methods (send_keys, send_text, move, focus, resize, close, etc.)
+return `{"type":"ok"}`; specialized methods return their own kind (e.g. `pane.read` →
 `pane_read`, `events.wait` → `wait_matched`, `pane.wait_for_output` → `output_matched`,
 `events.subscribe` → `subscription_started`, `session.snapshot` → `session_snapshot`).
 
 ---
 
-## 5. События
+## 5. Events
 
-### 5.1 Два механизма
+### 5.1 Two mechanisms
 
-| Механизм | Запрос | Поведение |
+| Mechanism | Request | Behavior |
 |---|---|---|
-| **Потоковая подписка** | `events.subscribe` с `subscriptions:[…]` | Сервер шлёт нотификации всё время, пока соединение живо |
-| **Одноразовое ожидание** | `events.wait` (EventMatch) | Блокирует запрос до совпадения или `timeout_ms`; удобно для коротких «дождаться статуса» |
-| **Ожидание вывода** | `pane.wait_for_output` (match: substring/regex) | Специализированное ожидание совпадения в выводе pane; не требует подписки вообще |
+| **Streaming subscription** | `events.subscribe` with `subscriptions:[…]` | The server sends notifications the whole time the connection is alive |
+| **One-shot wait** | `events.wait` (EventMatch) | Blocks the request until a match or `timeout_ms`; handy for short "wait for status" |
+| **Output wait** | `pane.wait_for_output` (match: substring/regex) | Specialized wait for a match in pane output; needs no subscription at all |
 
-### 5.2 Типы подписок (`Subscription`, 25 вариантов)
+### 5.2 Subscription types (`Subscription`, 25 variants)
 
-Без дополнительных полей (22):
+Without extra fields (22):
 
 `workspace.created`, `workspace.updated`, `workspace.metadata_updated`,
 `workspace.renamed`, `workspace.moved`, `workspace.reordered`, `workspace.closed`,
@@ -322,29 +322,29 @@ herdr api schema --json --output /tmp/herdr-schema.json
 `pane.closed`, `pane.updated`, `pane.focused`, `pane.moved`, `pane.exited`,
 `pane.agent_detected`, `layout.updated`.
 
-С полями (3, scoped на pane):
+With fields (3, scoped to a pane):
 
-| Подписка | Поля | Что приходит |
+| Subscription | Fields | What arrives |
 |---|---|---|
-| `pane.output_matched` | `pane_id*`, `match*` (OutputMatch), `source*`, `lines?, strip_ansi?` | Совпадение в выводе pane |
-| `pane.agent_status_changed` | `pane_id*`, `agent_status?:AgentStatus\|null` | Смена статуса агента в pane |
-| `pane.scroll_changed` | `pane_id*` | Скролл/вывод pane изменился |
+| `pane.output_matched` | `pane_id*`, `match*` (OutputMatch), `source*`, `lines?, strip_ansi?` | A match in pane output |
+| `pane.agent_status_changed` | `pane_id*`, `agent_status?:AgentStatus\|null` | Agent status change in a pane |
+| `pane.scroll_changed` | `pane_id*` | Pane scroll/output changed |
 
-Обратите внимание: **в подписках (`events.subscribe`) имена событий пишутся с точками**
-(`pane.updated`), а **в нотификациях на проводе** lifecycle-события приходят с подчёркиванием
-(`pane_updated`), см. 5.3. Три «scoped» подписки на проводе тоже приходят с точкой
+Note: **in subscriptions (`events.subscribe`) event names are written with dots**
+(`pane.updated`), while **on the wire in notifications** lifecycle events arrive with underscores
+(`pane_updated`), see 5.3. The three "scoped" subscriptions also arrive on the wire with dots
 (`pane.scroll_changed`).
 
-### 5.3 Формат нотификаций на проводе
+### 5.3 Notification format on the wire
 
-**Lifecycle-событие** (проверено живьём; схема `EventEnvelope` = `{data, event}`,
-`EventKind` — enum с подчёркиваниями):
+**Lifecycle event** (verified live; schema `EventEnvelope` = `{data, event}`,
+`EventKind` — an enum with underscores):
 
 ```json
 {"event":"pane_updated","data":{"pane":{...PaneInfo}}}
 ```
 
-**Scoped-подписка** (схема `SubscriptionEventKind`, точки):
+**Scoped subscription** (schema `SubscriptionEventKind`, dots):
 
 ```json
 {"event":"pane.scroll_changed","data":{"pane_id":"p01","scroll":{"offset_from_bottom":0,"max_offset_from_bottom":100,"viewport_rows":24},"workspace_id":"w01"}}
@@ -358,10 +358,10 @@ herdr api schema --json --output /tmp/herdr-schema.json
 {"event":"pane.output_matched","data":{"pane_id":"p01","matched_line":"...","read":{...PaneReadResult}}}
 ```
 
-> ⚠ На приёме надо нормализовывать оба написания имён событий (`pane.updated` ⇄ `pane_updated`):
-> на разных версиях/каналах возможны оба. Наш обработчик принимает оба, см. грабли №4.
+> ⚠ On receive, both spellings of event names must be normalized (`pane.updated` ⇄ `pane_updated`):
+> both are possible on different versions/channels. Our handler accepts both, see rake #4.
 
-### 5.4 Полный список EventKind (26, enum из схемы)
+### 5.4 Full EventKind list (26, enum from the schema)
 
 `workspace_created`, `workspace_updated`, `workspace_metadata_updated`, `workspace_closed`,
 `workspace_renamed`, `workspace_moved`, `workspace_reordered`, `workspace_focused`,
@@ -370,32 +370,32 @@ herdr api schema --json --output /tmp/herdr-schema.json
 `pane_focused`, `pane_moved`, `pane_output_changed`, `pane_exited`, `pane_agent_detected`,
 `pane_agent_status_changed`, `layout_updated`.
 
-**Semantics ключевых для нашего релея:**
+**Semantics of the ones key for our relay:**
 
-- `pane_updated` — состояние pane изменилось (в `data.pane` полный `PaneInfo`); эмитится
-  и для уже существующих panes в момент подписки (используем для «первого снапшота» панели).
-- `pane_output_changed` — изменился вывод/ревизия pane (удобно ждать через `events.wait`
-  с `min_revision`).
-- `pane_agent_status_changed` — смена `agent_status` (в es6 формате приходит и из хуков,
-  см. раздел 7 и грабли №1).
-- `pane_exited` — процесс в панели завершился.
-- `pane_moved` — pane переехал между workspace/tab (id pane **меняется** при
-  cross-workspace move — грабли №7).
+- `pane_updated` — pane state changed (full `PaneInfo` in `data.pane`); it is emitted
+  also for already-existing panes at the moment of subscription (we use it for the "first snapshot" of a pane).
+- `pane_output_changed` — pane output/revision changed (handy to wait for via `events.wait`
+  with `min_revision`).
+- `pane_agent_status_changed` — `agent_status` change (also arrives in es6 format from hooks,
+  see section 7 and rake #1).
+- `pane_exited` — the process in the pane has finished.
+- `pane_moved` — a pane moved between workspace/tab (the pane id **changes** on a
+  cross-workspace move — rake #7).
 
 ### 5.5 SubscriptionEventKind (3)
 
-`pane.output_matched`, `pane.agent_status_changed`, `pane.scroll_changed` — те же, что
-scoped-подписки в 5.2; это нотификации, которые сервер шлёт в ответ на такие подписки.
+`pane.output_matched`, `pane.agent_status_changed`, `pane.scroll_changed` — the same as the
+scoped subscriptions in 5.2; these are the notifications the server sends in response to such subscriptions.
 
 ---
 
-## 6. Данные и состояния
+## 6. Data and states
 
-### 6.1 `SessionSnapshot` — bootstrap-снапшот
+### 6.1 `SessionSnapshot` — bootstrap snapshot
 
-Возвращает `session.snapshot`; CLI-обёртка `herdr api snapshot` печатает JSON напрямую
-(наш релей парсит `{"result":{"snapshot":...}}`). Это **не подписка** — после переподключения
-снапшот нужно перечитывать заново.
+Returned by `session.snapshot`; the CLI wrapper `herdr api snapshot` prints the JSON directly
+(our relay parses `{"result":{"snapshot":...}}`). This is **not a subscription** — after a reconnect
+the snapshot must be re-read from scratch.
 
 ```json
 {
@@ -412,7 +412,7 @@ scoped-подписки в 5.2; это нотификации, которые с
 }
 ```
 
-`focused_*` — nullable (может быть `null`, если ничего не сфокусировано).
+`focused_*` is nullable (can be `null` if nothing is focused).
 
 **Structure:**
 
@@ -423,43 +423,43 @@ scoped-подписки в 5.2; это нотификации, которые с
 - **TabInfo:** `tab_id*`, `workspace_id*`, `label*`, `number*`, `pane_count*`, `focused*`,
   `agent_status*`.
 - **PaneInfo:** `pane_id*`, `terminal_id*`, `workspace_id*`, `tab_id*`, `focused*`,
-  `revision*` (int; растёт при изменении вывода), `agent_status*`,
+  `revision*` (int; grows as output changes), `agent_status*`,
   `agent?:string|null`, `display_agent?`, `agent_session?:AgentSessionInfo|null`
   (`source*`, `agent*`, `kind*` (id|path), `value*`), `label?`, `cwd?`, `foreground_cwd?`,
   `title?`, `terminal_title?`, `terminal_title_stripped?`,
   `scroll?:PaneScrollInfo|null`, `tokens?(+string)`, `state_labels?(+string)`.
-- **AgentInfo:** = PaneInfo без `label`, плюс `name?`, `interactive_ready`,
+- **AgentInfo:** = PaneInfo without `label`, plus `name?`, `interactive_ready`,
   `launch_pending`, `screen_detection_skipped`, `state_change_seq`.
 - **PaneLayoutSnapshot:** `workspace_id*`, `tab_id*`, `zoomed*`, `focused_pane_id*`,
   `area*` (Rect x/y/width/height), `panes*:[{pane_id, focused, rect}]`,
   `splits*:[{id, direction (right|down), ratio, rect}]`.
-- **LayoutDescription** (`layout.export`): дерево
+- **LayoutDescription** (`layout.export`): tree
   `root: LayoutNode` = oneOf `{type:"pane", pane_id?, label?, cwd?, command?[string], env?}`
   | `{type:"split", direction(right|down), ratio, first, second}`.
 
-### 6.2 `AgentStatus` — семантика статусов
+### 6.2 `AgentStatus` — status semantics
 
 `enum: idle, working, blocked, done, unknown`.
 
-| Статус | Значение |
+| Status | Meaning |
 |---|---|
-| `idle` | Агент готов; «ready» — после того как его таб показан в UI |
-| `working` | Агент активно работает |
-| `blocked` | Агент ждёт пользователя: approval/вопрос/диалог в UI |
-| `done` | Агент закончил подписку/фоновую работу; приходит как «idle» после того, как результат увидят |
-| `unknown` | Не классифицирован |
+| `idle` | Agent is ready; "ready" — after its tab is shown in the UI |
+| `working` | Agent is actively working |
+| `blocked` | Agent is waiting for the user: approval/question/dialog in the UI |
+| `done` | Agent finished a subscription/background work; comes in as "idle" after the result is seen |
+| `unknown` | Not classified |
 
-Нюанс для ожиданий (`agent.wait` / `agent.prompt` с `wait`): `until:[AgentStatus]` —
-массив статусов, которых ждём; `timeout_ms` ограничивает ожидание.
+Nuance for waits (`agent.wait` / `agent.prompt` with `wait`): `until:[AgentStatus]` —
+an array of statuses to wait for; `timeout_ms` bounds the wait.
 
-### 6.3 Чтение вывода
+### 6.3 Reading output
 
-**`source`** (ReadSource): `visible` (что на экране), `recent` (последние строки),
+**`source`** (ReadSource): `visible` (what's on screen), `recent` (recent lines),
 `recent_unwrapped`, `detection`.
 
-**`format`** (ReadFormat): `text` (экранирование убрано, дефолт), `ansi` (raw/с ANSI).
+**`format`** (ReadFormat): `text` (escaping removed, default), `ansi` (raw/with ANSI).
 
-**`strip_ansi`**: дополнительно убрать ANSI-последовательности из `text`.
+**`strip_ansi`**: additionally strip ANSI sequences from `text`.
 
 **`PaneReadResult`:**
 
@@ -471,159 +471,159 @@ scoped-подписки в 5.2; это нотификации, которые с
 }
 ```
 
-**Scroll-метрики** (`PaneScrollInfo`): `offset_from_bottom*`, `max_offset_from_bottom*`,
-`viewport_rows*`; `offset_from_bottom == 0` — вывод у дна (агент в конце вывода).
+**Scroll metrics** (`PaneScrollInfo`): `offset_from_bottom*`, `max_offset_from_bottom*`,
+`viewport_rows*`; `offset_from_bottom == 0` — output is at the bottom (agent at the end of the output).
 
-**Разрешение target** (`agent.*`): target — это имя агента **или** `pane_id`; имя агента
-не уникально (один агент может вести несколько панелей) — для точности таргетиться по
-`pane_id` (грабли №6).
+**Target resolution** (`agent.*`): target is an agent name **or** a `pane_id`; the agent name
+is not unique (one agent can run several panes) — for precision, target by
+`pane_id` (rake #6).
 
 ---
 
-## 7. Плагины
+## 7. Plugins
 
-Плагин — директория с `herdr-plugin.toml` (манифест) + скрипты-хуки. Сервер herdr
-исполняет их при событиях; наш `plugin/` — обёртка поверх протокола для хуков релея
-(см. `plugin/README.md`, `plugin/herdr-plugin.toml`).
+A plugin is a directory with `herdr-plugin.toml` (manifest) + hook scripts. The herdr server
+executes them on events; our `plugin/` is a wrapper over the protocol for relay hooks
+(see `plugin/README.md`, `plugin/herdr-plugin.toml`).
 
-### 7.1 Манифест
+### 7.1 Manifest
 
-Обязательные поля: `id` (ASCII: буквы/цифры/`.`/`:`/`_`/`-`), `name`, `version`,
-`min_herdr_version`. Без `min_herdr_version` или с слишком новой — линковка отклоняется.
+Required fields: `id` (ASCII: letters/digits/`.`/`:`/`_`/`-`), `name`, `version`,
+`min_herdr_version`. Without `min_herdr_version`, or with too new a one — linking is rejected.
 
-Опционально: `description`, `platforms = ["linux","macos","windows"]`.
+Optional: `description`, `platforms = ["linux","macos","windows"]`.
 
-Секции: `[[build]]`, `[[startup]]`, `[[actions]] {id, title, contexts, command}`,
-`[[events]] {on, command}` (on проверяется при линковке: неизвестное имя → warning,
-см. грабли №1), `[[panes]] {id, title, placement, command}`,
+Sections: `[[build]]`, `[[startup]]`, `[[actions]] {id, title, contexts, command}`,
+`[[events]] {on, command}` (on is checked at link time: unknown name → warning,
+see rake #1), `[[panes]] {id, title, placement, command}`,
 `[[link_handlers]] {id, title, pattern, action}`.
 
-Action id квалифицируется как `<plugin_id>.<action_id>`.
+Action id is qualified as `<plugin_id>.<action_id>`.
 
-**Placement панелей:** `overlay` (дефолт; zoomed-оверлей, после закрытия возвращает фокус),
-`popup` (singleton, **без** pane_id, не получает события), `split`/`tab`/`zoomed` —
-обычные panes.
+**Pane placement:** `overlay` (default; zoomed overlay, returns focus after closing),
+`popup` (singleton, **no** pane_id, doesn't receive events), `split`/`tab`/`zoomed` —
+regular panes.
 
-### 7.2 Переменные окружения (env), которые herdr инжектит в команды
+### 7.2 Environment variables (env) that herdr injects into commands
 
-**Всем runtime-командам:**
+**Into all runtime commands:**
 
-| Переменная | Назначение |
+| Variable | Purpose |
 |---|---|
-| `HERDR_SOCKET_PATH` | Путь к сокету (для API) |
-| `HERDR_BIN_PATH` | Путь к бинарю herdr |
-| `HERDR_ENV=1` | Маркер: запущено внутри herdr |
-| `HERDR_PLUGIN_ID` | id плагина |
-| `HERDR_PLUGIN_ROOT` | Корень плагина |
-| `HERDR_PLUGIN_CONFIG_DIR` | Конфигурационная директория |
-| `HERDR_PLUGIN_STATE_DIR` | Директория состояния плагина |
-| `HERDR_PLUGIN_CONTEXT_JSON` | JSON-контекст вызова (инвоукции) |
-| `HERDR_WORKSPACE_ID`, `HERDR_TAB_ID`, `HERDR_PANE_ID` | Доступны, если применимо (контекстный таргет) |
+| `HERDR_SOCKET_PATH` | Path to the socket (for the API) |
+| `HERDR_BIN_PATH` | Path to the herdr binary |
+| `HERDR_ENV=1` | Marker: running inside herdr |
+| `HERDR_PLUGIN_ID` | Plugin id |
+| `HERDR_PLUGIN_ROOT` | Plugin root |
+| `HERDR_PLUGIN_CONFIG_DIR` | Config directory |
+| `HERDR_PLUGIN_STATE_DIR` | Plugin state directory |
+| `HERDR_PLUGIN_CONTEXT_JSON` | JSON call context (of the invocation) |
+| `HERDR_WORKSPACE_ID`, `HERDR_TAB_ID`, `HERDR_PANE_ID` | Available when applicable (contextual target) |
 
-**Дополнительно по типу команды:**
+**Additionally, by command type:**
 
-| Команда | Доп. переменные |
+| Command | Extra variables |
 |---|---|
 | Action | `HERDR_PLUGIN_ACTION_ID` |
-| Startup-хук | `HERDR_PLUGIN_EVENT` (у startup = `"startup"`) |
-| Event-хук | + `HERDR_PLUGIN_EVENT` (имя события), `HERDR_PLUGIN_EVENT_JSON` — JSON переданного события, у нас формат `{"data":{...}}` |
-| Pane-команда | `HERDR_PLUGIN_ENTRYPOINT_ID` |
-| Link handler | `HERDR_PLUGIN_CLICKED_URL`, `HERDR_PLUGIN_LINK_HANDLER_ID` (в `CONTEXT_JSON` `invocation_source="link_click"`) |
+| Startup hook | `HERDR_PLUGIN_EVENT` (for startup = `"startup"`) |
+| Event hook | + `HERDR_PLUGIN_EVENT` (event name), `HERDR_PLUGIN_EVENT_JSON` — JSON of the passed event, in our format `{"data":{...}}` |
+| Pane command | `HERDR_PLUGIN_ENTRYPOINT_ID` |
+| Link handler | `HERDR_PLUGIN_CLICKED_URL`, `HERDR_PLUGIN_LINK_HANDLER_ID` (in `CONTEXT_JSON` `invocation_source="link_click"`) |
 
-Кроме того, манифест-панели инжектят в pane-процессы: `HERDR_SOCKET_PATH`, `HERDR_ENV=1`,
-`HERDR_WORKSPACE_ID`, `HERDR_TAB_ID`, `HERDR_PANE_ID` (при конфликте авторитетны значения
-от манифеста).
+Additionally, manifest panes inject into pane processes: `HERDR_SOCKET_PATH`, `HERDR_ENV=1`,
+`HERDR_WORKSPACE_ID`, `HERDR_TAB_ID`, `HERDR_PANE_ID` (on conflict, manifest values
+take precedence).
 
 ---
 
-## 8. Как наш релей использует herdr (карта «фича → механизм»)
+## 8. How our relay uses herdr (feature → mechanism map)
 
-| Фича релея | Механизм herdr | Где в коде |
+| Relay feature | herdr mechanism | Where in code |
 |---|---|---|
-| Стартовый снапшот сессии | `herdr api snapshot` → `{"result":{"snapshot":…}}` | `internal/infrastructure/herdr/cli_repository.go` → `Snapshot()` |
-| Чтение вывода агента | `agent read <target> --lines N --format <text\|ansi>` | там же → `ReadOutput(target, lines, format)` |
-| Отправка клавиш | `agent send-keys <target> <key...>` | там же → `SendKeys(target, keys)` |
-| Отправка промпта | `agent prompt <target> <text>` | там же → `SendPrompt(target, text)` |
-| Живой статус/вывод агентов | socket: `events.subscribe` (`pane.updated` глобально + per-pane `pane.scroll_changed`, `pane.agent_status_changed`) → нотификации | `internal/infrastructure/herdr/socket_event_repository.go` |
-| Ремап в наш протокол | `pane.scroll_changed` → клиентское событие `pane.output_changed` (c revision из `pane.updated`, строго растущим) | там же, emit с таймаутом 5s |
+| Startup session snapshot | `herdr api snapshot` → `{"result":{"snapshot":…}}` | `internal/infrastructure/herdr/cli_repository.go` → `Snapshot()` |
+| Reading agent output | `agent read <target> --lines N --format <text\|ansi>` | same file → `ReadOutput(target, lines, format)` |
+| Sending keys | `agent send-keys <target> <key...>` | same file → `SendKeys(target, keys)` |
+| Sending a prompt | `agent prompt <target> <text>` | same file → `SendPrompt(target, text)` |
+| Live agent status/output | socket: `events.subscribe` (`pane.updated` globally + per-pane `pane.scroll_changed`, `pane.agent_status_changed`) → notifications | `internal/infrastructure/herdr/socket_event_repository.go` |
+| Remap into our protocol | `pane.scroll_changed` → client event `pane.output_changed` (with revision from `pane.updated`, strictly increasing) | same file, emit with 5s timeout |
 
-Про подключение и цикл жизни socket-репозитория (проверено живьём, 0.8.0):
+About connecting and the socket repository lifecycle (verified live, 0.8.0):
 
-1. `net.Dial("unix", <socket>)`; reconnect с backoff 2s → ×2 → max 30s.
-2. Один `events.subscribe` с полным набором подписок; **повторный `events.subscribe`
-   на живом соединении роняет его** (сервер закрывает), подписки кумулятивны —
-   поэтому: один subscribe + reconnect при необходимости.
-3. При `pane_updated`/`pane.updated`: достать `pane_id` (data бывает плоская
-   `{"pane_id":…}` или вложенная `{"pane":{…}}`), нормализовать имя события,
-   новый pane → запомнить и переподключиться (получить актуальный набор pane).
-4. Кадры с пустым `event` (response `subscription_started`, keepalive) — пропускать.
-
----
-
-## 9. Грабли (проверенные нюансы 0.8.0)
-
-1. **Хуки/плагин не дают событий вывода** (`pane.updated`, `pane.output_changed`,
-   `pane.scroll_changed` линковщик отвергает как unknown event для `[[events]]`).
-   Живой вывод — только через socket-подписку.
-2. **`id` запроса — строка.** Числовой id может не пройти валидацию схемы.
-3. **Пропускать служебные кадры** без `event` (ответы на subscribe, keepalive).
-4. **Второй `events.subscribe` на живом соединении роняет его** → один subscribe
-   на соединение, полный набор, reconnect при смене набора panes. Подписки кумулятивны.
-5. **`pane.scroll_changed` не несёт `revision`** → дебаунс на клиенте, если нужен
-   «последний» вывод.
-6. **Имя агента не уникально** → таргетиться по `pane_id`.
-7. **`pane_id` меняется при cross-workspace move** (событие `pane.moved`); herdr не
-   эмитит фейковых close/create — подписываться на `pane.moved` и обновлять маппинг.
-8. **`pane.updated` не эмитится при spinner-only изменениях заголовка**, когда
-   `terminal_title_stripped` не меняется; следить за `revision`/состоянием панели целиком.
-9. **Doc/schema drift:** в socket-api доке есть `pane.graphics.stream` и `pane.input.set` —
-   в схеме 0.8.0 их **нет** (только `pane.graphics.set/clear/info` и `pane.send_input`).
-   Сверяться со схемой, а не с докой.
-10. **`HERDR_SOCKET` игнорируется CLI; работает только `HERDR_SOCKET_PATH`**
-    (проверено живьём, `HERDR_SOCKET=/nonexistent/foo.sock herdr api snapshot` вернул
-    снапшот с дефолтного сокета; с `HERDR_SOCKET_PATH` → `server_not_running`).
-    Исправлено: `cli_repository.go` шлёт `HERDR_SOCKET_PATH`, named-session работает.
-11. **`agent.prompt` с `wait` при уже заблокированном агенте** возвращает
-    `agent_blocked`, не отправляя ввод. Проверять статус перед промптом или обрабатывать
-    ошибку.
-12. Output-события (`pane.updated`/`pane.scroll_changed`) наблюдались при живом клиенте;
-    гарантия эмиссии без подключённого клиента **не проверялась** — не полагаться без теста.
-13. **Подписка на мёртвый `pane_id` → JSON-RPC error `pane_not_found` и закрытие
-    соединения.** Происходит, когда пэйн/таб закрыт, а id остался в подписках (в т.ч.
-    из-за №7). Раньше relay игнорировал error-кадр, видел «чистый EOF» и переподключался
-    с тем же мёртвым id — вечный reconnect-цикл раз в секунду и неконтролируемый рост
-    `relay.err.log`. Теперь error-кадр разбирается, мёртвый pane удаляется из набора
-    подписок, и соединение перезапускается без него (см. `socket_event_repository.go`).
+1. `net.Dial("unix", <socket>)`; reconnect with backoff 2s → ×2 → max 30s.
+2. One `events.subscribe` with the full set of subscriptions; **a repeated `events.subscribe`
+   on a live connection drops it** (the server closes it), subscriptions are cumulative —
+   hence: one subscribe + reconnect when needed.
+3. On `pane_updated`/`pane.updated`: extract `pane_id` (data can be flat
+   `{"pane_id":…}` or nested `{"pane":{…}}`), normalize the event name,
+   a new pane → remember it and reconnect (to get the current set of panes).
+4. Frames with an empty `event` (response `subscription_started`, keepalive) — skip.
 
 ---
 
-## 10. Версии, регенерация справочника, ссылки
+## 9. Rakes (verified 0.8.0 gotchas)
 
-**Проверенная конфигурация:** herdr **0.8.0** (channel `stable`), **protocol 19**,
-**schema_version 1** (бинарь `relay`/системный `herdr`).
+1. **Hooks/plugin don't deliver output events** (`pane.updated`, `pane.output_changed`,
+   `pane.scroll_changed` are rejected by the linker as unknown events for `[[events]]`).
+   Live output — only via socket subscription.
+2. **Request `id` is a string.** A numeric id may fail schema validation.
+3. **Skip service frames** without `event` (subscribe responses, keepalive).
+4. **A second `events.subscribe` on a live connection drops it** → one subscribe
+   per connection, full set, reconnect when the pane set changes. Subscriptions are cumulative.
+5. **`pane.scroll_changed` carries no `revision`** → debounce on the client if you need
+   the "latest" output.
+6. **Agent names are not unique** → target by `pane_id`.
+7. **`pane_id` changes on a cross-workspace move** (event `pane.moved`); herdr doesn't
+   emit fake close/create — subscribe to `pane.moved` and update the mapping.
+8. **`pane.updated` is not emitted on spinner-only title changes** when
+   `terminal_title_stripped` doesn't change; watch `revision`/pane state as a whole.
+9. **Doc/schema drift:** the socket-api docs have `pane.graphics.stream` and `pane.input.set` —
+   in the 0.8.0 schema they **don't exist** (only `pane.graphics.set/clear/info` and `pane.send_input`).
+   Trust the schema, not the docs.
+10. **`HERDR_SOCKET` is ignored by the CLI; only `HERDR_SOCKET_PATH` works**
+    (verified live, `HERDR_SOCKET=/nonexistent/foo.sock herdr api snapshot` returned
+    a snapshot from the default socket; with `HERDR_SOCKET_PATH` → `server_not_running`).
+    Fixed: `cli_repository.go` sends `HERDR_SOCKET_PATH`, named sessions work.
+11. **`agent.prompt` with `wait` on an already-blocked agent** returns
+    `agent_blocked` without sending input. Check the status before prompting, or handle
+    the error.
+12. Output events (`pane.updated`/`pane.scroll_changed`) were observed with a live client;
+    the guarantee of emission without a connected client **was not verified** — don't rely on it without a test.
+13. **Subscribing to a dead `pane_id` → JSON-RPC error `pane_not_found` and the connection
+    closes.** This happens when a pane/tab is closed but the id remains in the subscriptions (also
+    due to #7). Previously the relay ignored the error frame, saw "clean EOF" and reconnected
+    with the same dead id — an endless reconnect loop once a second and uncontrolled growth of
+    `relay.err.log`. Now the error frame is parsed, the dead pane is removed from the subscription
+    set, and the connection restarts without it (see `socket_event_repository.go`).
 
-Схема живёт внутри бинаря и регенерируется одной командой:
+---
+
+## 10. Versions, reference regeneration, links
+
+**Verified configuration:** herdr **0.8.0** (channel `stable`), **protocol 19**,
+**schema_version 1** (the `relay` binary / system `herdr`).
+
+The schema lives inside the binary and is regenerated with a single command:
 
 ```bash
-herdr api schema --json --output /tmp/herdr-schema.json   # полная схема
-herdr api schema                                          # краткая справка по API
-herdr status                                              # протокол/версия/сокет
-herdr --skill                                             # инструкции для агентов
+herdr api schema --json --output /tmp/herdr-schema.json   # full schema
+herdr api schema                                          # brief API summary
+herdr status                                              # protocol/version/socket
+herdr --skill                                             # instructions for agents
 ```
 
-Структура экспортированного JSON (`/tmp/herdr-schema.json`):
+Structure of the exported JSON (`/tmp/herdr-schema.json`):
 
-- верх: `{title:"Herdr API", protocol:19, schema_version:1,
+- top: `{title:"Herdr API", protocol:19, schema_version:1,
   schemas:{error_response, event, request, subscription_event, success_response}}`;
-- `$defs`: request (~105 типов — параметры), success_response (~67 — ответы/данные),
+- `$defs`: request (~105 types — params), success_response (~67 — responses/data),
   event (16), subscription_event (10), error_response (1).
 
-**Ссылки:**
+**Links:**
 
-- https://herdr.dev/docs/socket-api/ — JSON-RPC поверх сокета (внимание: drift, см. №9)
-- https://herdr.dev/docs/cli-reference/ — CLI-команды
-- https://herdr.dev/docs/plugins/ — манифест, хуки, env
-- https://herdr.dev/docs/agents/ — агенты и их lifecycle/статусы
-- https://herdr.dev/docs/session-state/ — снапшоты/состояние сессии
+- https://herdr.dev/docs/socket-api/ — JSON-RPC over the socket (caution: drift, see #9)
+- https://herdr.dev/docs/cli-reference/ — CLI commands
+- https://herdr.dev/docs/plugins/ — manifest, hooks, env
+- https://herdr.dev/docs/agents/ — agents and their lifecycle/statuses
+- https://herdr.dev/docs/session-state/ — snapshots/session state
 - https://herdr.dev/docs/concepts/ , https://herdr.dev/docs/how-to-work/
-- Репозиторий: https://github.com/herdrdev/herdr
+- Repository: https://github.com/herdrdev/herdr

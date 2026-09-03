@@ -1,155 +1,160 @@
-# 01 — Архитектура
+# 01 — Architecture
 
-## Контекст: что уже есть у herdr
+## Context: what herdr already has
 
-Herdr 0.8.0 (установлен локально, `~/.local/bin/herdr`) — это не просто TUI.
-За ним работает headless-сервер, который слушает **unix-сокет**
-`~/.config/herdr/herdr.sock` (macOS) по JSON-RPC, protocol 19.
+Herdr 0.8.0 (installed locally, `~/.local/bin/herdr`) is not just a TUI.
+Behind it runs a headless server that listens on a **unix socket**
+`~/.config/herdr/herdr.sock` (macOS) over JSON-RPC, protocol 19.
 
-Ключевые факты (проверены локально):
+Key facts (verified locally):
 
-- CLI — тонкий JSON-RPC-клиент над сокетом: `herdr api snapshot`,
-  `herdr agent list` отдают готовый JSON `{"id":..., "result":{...}}`.
-- Управление агентами: `agent list/get/read/send-keys/prompt/attach/start/wait`.
-- Статусы агента: `idle / working / blocked / done / unknown`.
-- Машинный контракт: `herdr api schema` выгружает полную JSON-schema
-  (тот же файл в репо herdr: `docs/next/api/herdr-api.schema.json`).
-- События для пуш-уведомлений: плагин herdr умеет подписываться на
-  `pane.agent_status_changed` (см. [02](02-herdr-integration.md)).
-- Сам сокет умеет **события вывода** (`events.subscribe`), которыми не владеет
-  хуковый механизм плагинов — на этом построен живой терминал (Б-lite, см.
-  [03-relay](03-relay.md)).
+- The CLI is a thin JSON-RPC client over the socket: `herdr api snapshot`,
+  `herdr agent list` return ready-made JSON `{"id":..., "result":{...}}`.
+- Agent management: `agent list/get/read/send-keys/prompt/attach/start/wait`.
+- Agent statuses: `idle / working / blocked / done / unknown`.
+- Machine contract: `herdr api schema` dumps the full JSON schema
+  (the same file in the herdr repo: `docs/next/api/herdr-api.schema.json`).
+- Events for push notifications: the herdr plugin can subscribe to
+  `pane.agent_status_changed` (see [02](02-herdr-integration.md)).
+- The socket itself supports **output events** (`events.subscribe`), which the
+  plugin hook mechanism does not — this is what the live terminal is built on
+  (Б-lite, see [03-relay](03-relay.md)).
 
-Вывод: **всё, что нужно для удалённого управления, herdr уже умеет**.
-Наша задача — тонкий переводчик между herdr-сокетом и телефоном.
+Conclusion: **herdr already knows how to do everything needed for remote
+control**. Our job is a thin translator between the herdr socket and the phone.
 
-## Компоненты
+## Components
 
 ```
-   РЕЖИМ A — LAN: телефон в одной сети с ноутом, без Tailscale и VPS
+   MODE A — LAN: phone on the same network as the laptop, no Tailscale or VPS
    phone ──ws://192.168.x.x:8375──► cmd/relay ──JSON-RPC──► herdr.sock
 
-   РЕЖИМ B — Tailscale (ноут уже в tailnet)
+   MODE B — Tailscale (laptop already in a tailnet)
    B1 tailnet: phone ──ws://<machine>.ts.net:8375──► cmd/relay
-               (телефон тоже в tailnet; прямой порт по WireGuard)
+               (phone also in the tailnet; direct port over WireGuard)
    B2 funnel:  phone ──https://<machine>.ts.net──► tailscale funnel ──► cmd/relay
-               (телефону Tailscale НЕ нужен, адрес публичный на 443)
+               (phone does not need Tailscale, public address on 443)
 
-   РЕЖИМ C — Gateway на VPS (опция, для доступа вообще без Tailscale)
+   MODE C — Gateway on a VPS (option, for access without Tailscale at all)
    phone ──wss──► cmd/gateway (Docker + Caddy TLS) ◄──wss── cmd/relay ──► herdr.sock
-   оба конца (телефон и релей) — исходящие соединения, NAT не мешает
+   both ends (phone and relay) — outbound connections, NAT does not interfere
 ```
 
-- **Go-релей** — единственный процесс на ноуте, который умеет говорить с herdr
-  сокетом. Выставляет для телефона WS/HTTP API на выбранном интерфейсе (LAN /
-  tailnet) и/или сам ходит в гейтвей исходящим соединением (режим C).
-- **Гейтвей** — отдельный процесс (Go, Docker) на VPS, **опциональный** (режим
-  C). Оба конца (телефон и релей) подключаются к нему **исходящими**
-  соединениями, поэтому на ноуте не нужен открытый порт, NAT/файрволы не мешают.
-- **Flutter-приложение** — клиент: список агентов, терминал, ввод, статусы.
-- **Плагин herdr** — тонкая обёртка: регистрирует событие
-  `pane.agent_status_changed` (мгновенная рассылка blocked/finished), экшены
-  «показать QR/ссылку для пары», запуск релея. Живой вывод — **не хук**: хуки
-  herdr не умеют события вывода (`pane.updated` → unknown event), поэтому живой
-  вывод идёт через сокет-подписку самого релея (`pane.output_changed`).
+- **Go relay** — the only process on the laptop that can talk to the herdr
+  socket. It exposes a WS/HTTP API for the phone on the selected interface (LAN /
+  tailnet) and/or connects to the gateway itself via an outbound connection
+  (mode C).
+- **Gateway** — a separate process (Go, Docker) on a VPS, **optional** (mode
+  C). Both ends (phone and relay) connect to it via **outbound** connections,
+  so the laptop needs no open port, and NAT/firewalls are not an obstacle.
+- **Flutter app** — the client: agent list, terminal, input, statuses.
+- **herdr plugin** — a thin wrapper: registers the
+  `pane.agent_status_changed` event (instant broadcast of blocked/finished),
+  the "show pairing QR/link" actions, and starts the relay. Live output is
+  **not a hook**: herdr hooks cannot handle output events
+  (`pane.updated` → unknown event), so live output goes through the relay's own
+  socket subscription (`pane.output_changed`).
 
-## Транспорт: три режима — один QR
+## Transport: three modes — one QR
 
-Один и тот же релей, один и тот же протокол; меняется только адрес, который
-попадает в QR-ссылку пары (детали — [07 — Онбординг](07-onboarding.md)).
+The same relay, the same protocol; only the address that goes into the pairing
+QR link changes (details — [07 — Onboarding](07-onboarding.md)).
 
-| режим | адрес в QR | когда | инфраструктура |
+| mode | address in QR | when | infrastructure |
 | --- | --- | --- | --- |
-| **A. LAN** | `ws://<lan-ip>:8375` | телефон и ноут в одной Wi-Fi | нет |
-| **B1. Tailscale (tailnet)** | `ws://<machine>.<tailnet>.ts.net:8375` | телефон в той же tailnet (Tailscale на телефоне) | только Tailscale на ноуте |
-| **B2. Tailscale Funnel** | `https://<machine>.<tailnet>.ts.net` | телефону Tailscale не нужен; адрес публичный | `tailscale funnel 8375` |
-| **C. Gateway (VPS)** | `wss://gw.example.com/ws` | доступ вообще без Tailscale, из любой сети | VPS + Docker |
+| **A. LAN** | `ws://<lan-ip>:8375` | phone and laptop on the same Wi-Fi | none |
+| **B1. Tailscale (tailnet)** | `ws://<machine>.<tailnet>.ts.net:8375` | phone in the same tailnet (Tailscale on the phone) | Tailscale on the laptop only |
+| **B2. Tailscale Funnel** | `https://<machine>.<tailnet>.ts.net` | phone does not need Tailscale; public address | `tailscale funnel 8375` |
+| **C. Gateway (VPS)** | `wss://gw.example.com/ws` | access without Tailscale at all, from any network | VPS + Docker |
 
-- **A + B1 = MVP.** Покрывают личный сценарий «ушёл из дома»: телефон с
-  Tailscale, ноут с Tailscale — прямое WireGuard-соединение, ноль
-  инфраструктуры, низкая задержка. A проверен живьём; B1 — ещё нет.
-- **B2** — бонус на случай, когда на телефоне нет Tailscale (публичный HTTPS
-  на 443, токен обязателен).
-- **C** — опция для продвинутых: доступ без Tailscale вовсе, возможность
-  FCM-пуша из облака. В MVP не входит.
+- **A + B1 = MVP.** They cover the personal "left home" scenario: phone with
+  Tailscale, laptop with Tailscale — a direct WireGuard connection, zero
+  infrastructure, low latency. A is verified live; B1 is not yet.
+- **B2** — a bonus for cases where the phone has no Tailscale (public HTTPS
+  on 443, token required).
+- **C** — an option for advanced users: access without Tailscale entirely,
+  with the possibility of FCM push from the cloud. Not part of the MVP.
 
-**Решение 1 (пересмотрено):** раньше гейтвей был «основным» транспортом —
-теперь он **опция** (режим C). Основной путь: A дома, B1 с улицы. Регион VPS
-(если он понадобится) — ближе к домашней сети ноута, чтобы снизить латентность
-живого терминала.
+**Decision 1 (revised):** the gateway used to be the "primary" transport —
+now it is an **option** (mode C). The primary path: A at home, B1 from outside.
+The VPS region (if needed) — closer to the laptop's home network to reduce
+live-terminal latency.
 
-## Почему не SSH
+## Why not SSH
 
-Интуитивно «управлять терминалом с телефона» = SSH, но это другой инструмент
-под другую задачу:
+Intuitively, "controlling a terminal from a phone" = SSH, but it is a different
+tool for a different task:
 
-- SSH требует на ноуте работающего `sshd`, реальной учётки и ключа/пароля и
-  открытого порта (или проброса) — лишняя поверхность атаки и администрирование.
-- SSH даёт только живой PTY. Нам же нужны **структурированные** статусы
-  (blocked/working/done), список агентов, воркспейсы, срезы вывода — из SSH их
-  не получить, нужен слой поверх API herdr. Наш релей и есть этот слой.
-- Релей закрывает обе потребности одним WS-каналом с токеном из QR: живой
-  терминал (срезы output + `send-keys`/`prompt`) и структурированные данные.
-  Дешевле и безопаснее SSH: одна пара «токен ↔ ноут», без учёток, ключей и
-  открытых портов.
-- moshi использует SSH, потому что это универсальный способ открыть терминал
-  на произвольной машине. У нас терминал — не самоцель, цель — управление
-  агентами herdr. Если захочется ощущений настоящего PTY (Esc-секвенции,
-  полноэкранный TUI) — стримим `herdr agent attach`/PTY поверх того же WS,
-  это не SSH.
+- SSH requires a running `sshd` on the laptop, a real account and key/password,
+  and an open port (or forwarding) — extra attack surface and administration.
+- SSH gives only a live PTY. We need **structured** statuses
+  (blocked/working/done), an agent list, workspaces, and output slices — SSH
+  cannot provide these; a layer over the herdr API is needed. Our relay is that
+  layer.
+- The relay covers both needs over a single WS channel with a token from the
+  QR: a live terminal (output slices + `send-keys`/`prompt`) and structured
+  data. Cheaper and safer than SSH: one "token ↔ laptop" pair, without
+  accounts, keys, and open ports.
+- moshi uses SSH because it is a universal way to open a terminal on an
+  arbitrary machine. For us, the terminal is not an end in itself — the goal is
+  controlling herdr agents. If we want the feel of a real PTY (Esc sequences,
+  full-screen TUI) — we stream `herdr agent attach`/PTY over the same WS;
+  that is not SSH.
 
-## Протокол: JSON over WebSocket
+## Protocol: JSON over WebSocket
 
-Один постоянный WS-канал телефон↔релей (через гейтвей или напрямую). Кадры —
-JSON-конверт:
+One persistent WS channel phone↔relay (through the gateway or directly). Frames
+are a JSON envelope:
 
 ```jsonc
-// запрос от клиента
+// request from the client
 {"type":"request","id":1,"method":"agents.list","params":{}}
-// ответ релея
+// relay response
 {"type":"response","id":1,"ok":true,"result":{"agents":[...]}}
-// ошибка
+// error
 {"type":"response","id":1,"ok":false,"error":{"code":"...","message":"..."}}
-// событие от релея (пуш-подобное)
+// event from the relay (push-like)
 {"type":"event","event":"agent_status_changed","data":{...}}
 // heartbeat
 {"type":"ping"}
 ```
 
-Методы v1 (тонкий срез того, что есть у herdr):
+v1 methods (a thin slice of what herdr has):
 
-| method | что делает | под капотом |
+| method | what it does | under the hood |
 | --- | --- | --- |
-| `agents.snapshot` | весь список агентов + статусы + воркспейсы | `herdr api snapshot` |
-| `agent.output` | срез вывода терминала (текст/ansi, N строк) | `herdr agent read` |
-| `agent.keys` | послать клавиши (Esc, Ctrl-C, текст) | `herdr agent send-keys` |
-| `agent.prompt` | отправить промпт | `herdr agent prompt` |
+| `agents.snapshot` | the full agent list + statuses + workspaces | `herdr api snapshot` |
+| `agent.output` | a slice of terminal output (text/ansi, N lines) | `herdr agent read` |
+| `agent.keys` | send keys (Esc, Ctrl-C, text) | `herdr agent send-keys` |
+| `agent.prompt` | send a prompt | `herdr agent prompt` |
 | `ping` | keepalive | — |
 
-События (от релея): `agent_status_changed` (from/to), `agents.changed` (структура
-сменилась), `pane.output_changed` (живой вывод — data `{pane_id, workspace_id}`,
-клиент ре-читает `agent.output`). Поллинг снимка раз в 1–2 c остаётся как
-fallback, если событие не дошло.
+Events (from the relay): `agent_status_changed` (from/to), `agents.changed`
+(structure changed), `pane.output_changed` (live output — data
+`{pane_id, workspace_id}`, the client re-reads `agent.output`). Snapshot
+polling every 1–2 s remains as a fallback if an event does not arrive.
 
-## Поток данных «живого терминала»
+## "Live terminal" data flow
 
-- Релей держит сокет-подписку на herdr (`events.subscribe`:
-  `pane.updated` + `pane.scroll_changed`), см. [03-relay](03-relay.md). На
-  изменение скролла релей шлёт клиенту событие `pane.output_changed`; клиент
-  ре-читает `agent.output` (срез последних N строк) с debounce ~400 мс и
-  рендерит с автоскроллом. Это «лайв-похоже», но не суб-100мс PTY, как у moshi
-  через SSH.
-- Fallback: периодический переснапшот/ре-рид раз в 1–2 c, если событие не дошло.
-- Управление: `agent.keys` / `agent.prompt` отправляются мгновенно.
+- The relay keeps a socket subscription to herdr (`events.subscribe`:
+  `pane.updated` + `pane.scroll_changed`), see [03-relay](03-relay.md). On
+  scroll change, the relay sends the client the `pane.output_changed` event;
+  the client re-reads `agent.output` (the last N lines slice) with a ~400 ms
+  debounce and renders with auto-scroll. This is "live-like", but not a
+  sub-100ms PTY like moshi over SSH.
+- Fallback: a periodic re-snapshot/re-read every 1–2 s if an event does not
+  arrive.
+- Control: `agent.keys` / `agent.prompt` are sent instantly.
 
-## Безопасность (v1)
+## Security (v1)
 
-- Токен-авторизация на релее и (в режиме C) на гейтвее — секрет пары.
-- Ссылка пары (URL + токен) — секрет; QR показывается в пейне herdr только по
-  запросу, токен ротируется.
-- Релей слушает **только на нужном интерфейсе**: в A — на LAN-IP, в B1 — на
-  `tailscale0`, в B2/C — на `127.0.0.1` (наружу смотрит funnel/гейтвей).
-  Публичные режимы (B2, C) без токена недоступны.
-- TLS: B2 (funnel сам выдаёт HTTPS на 443) и C (телефон↔гейтвей и
-  релей↔гейтвей — WSS). В A/B1 трафик идёт внутри доверенной сети/WireGuard.
-  На v1 гейтвей доверенный (свой VPS), сквозное E2E-шифрование — фаза 3.
+- Token authorization on the relay and (in mode C) on the gateway — the
+  pairing secret.
+- The pairing link (URL + token) is a secret; the QR is shown in the herdr
+  pane only on request, and the token is rotated.
+- The relay listens **only on the required interface**: in A — on the LAN IP,
+  in B1 — on `tailscale0`, in B2/C — on `127.0.0.1` (the funnel/gateway faces
+  outward). Public modes (B2, C) are unavailable without a token.
+- TLS: B2 (the funnel itself provides HTTPS on 443) and C (phone↔gateway and
+  relay↔gateway — WSS). In A/B1 traffic goes within a trusted network/WireGuard.
+  In v1 the gateway is trusted (own VPS); end-to-end E2E encryption is phase 3.

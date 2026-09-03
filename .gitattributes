@@ -1,0 +1,56 @@
+# .gitattributes
+# Consistent line endings across platforms
+
+# Auto detect text files and normalize line endings to LF
+* text=auto eol=lf
+
+# Shell scripts must have LF line endings
+*.sh text eol=lf
+
+# Source code
+*.dart text
+*.go text
+*.js text
+*.ts text
+*.jsx text
+*.tsx text
+
+# Documentation
+*.md text
+*.txt text
+
+# Configuration files
+*.json text
+*.yaml text
+*.yml text
+*.toml text
+*.xml text
+*.plist text
+
+# Lockfiles
+go.sum text
+pubspec.lock text
+package-lock.json text
+yarn.lock text
+
+# Binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.tar binary
+*.apk binary
+*.ipa binary
+*.so binary
+*.dylib binary
+*.dll binary
+
+# Font files
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary

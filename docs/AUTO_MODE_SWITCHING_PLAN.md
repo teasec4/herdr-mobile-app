@@ -1,29 +1,29 @@
-# План: Автоматическое переключение режимов и улучшение UX
+# Plan: Automatic mode switching and UX improvements
 
-## Проблема
+## Problem
 
-Когда пользователь уходит из дома:
-- LAN недоступен → Disconnected
-- Пользователь не знает что делать
-- Нужно вручную переключиться на Tailscale
-- Если endpoints не сохранены → тупик
+When the user leaves home:
+- LAN unreachable → Disconnected
+- The user doesn't know what to do
+- Must manually switch to Tailscale
+- If endpoints aren't saved → dead end
 
-## Цель
+## Goal
 
-1. **Автоматическое переключение** на доступный режим
-2. **Подсказки** когда relay доступен только через LAN
-3. **Видимость manual mode** для ручного ввода
-4. **Graceful degradation** когда ничего не работает
+1. **Automatic switching** to an available mode
+2. **Hints** when the relay is reachable only via LAN
+3. **Manual mode visibility** for manual entry
+4. **Graceful degradation** when nothing works
 
 ---
 
-## Фаза 1: Подсказки при паринге (Quick Win)
+## Phase 1: Pairing hints (Quick Win)
 
-### 1.1. Детектор "только LAN" при первом паринге
+### 1.1. "LAN only" detector at first pairing
 
-**Где:** `pair_page.dart` после успешного паринга
+**Where:** `pair_page.dart` after successful pairing
 
-**Логика:**
+**Logic:**
 ```dart
 Future<void> _connect(String link) async {
   final config = PairConfig.fromLink(link);
@@ -37,7 +37,7 @@ Future<void> _connect(String link) async {
 }
 ```
 
-**UI: Bottom sheet с предупреждением**
+**UI: Warning bottom sheet**
 ```
 ⚠️ Limited connectivity detected
 
@@ -50,15 +50,15 @@ When you leave home, you won't be able to connect unless:
 [Learn more] [Continue anyway]
 ```
 
-**Файлы для изменения:**
-- `client/lib/pages/pair_page.dart` — добавить `_showLANOnlyWarning()`
-- Новый файл: `client/lib/widgets/lan_only_warning_dialog.dart`
+**Files to change:**
+- `client/lib/pages/pair_page.dart` — add `_showLANOnlyWarning()`
+- New file: `client/lib/widgets/lan_only_warning_dialog.dart`
 
 ---
 
-### 1.2. Badge "LAN only" в Connection Page
+### 1.2. "LAN only" badge in Connection Page
 
-**Где:** `connection_page.dart` → Device card
+**Where:** `connection_page.dart` → Device card
 
 **UI:**
 ```
@@ -69,7 +69,7 @@ Device
 └─────────────────────────────────┘
 ```
 
-**Логика:**
+**Logic:**
 ```dart
 Widget _deviceCard(ThemeData theme) {
   final c = widget.config;
@@ -106,20 +106,20 @@ Widget _lanOnlyHint() {
 }
 ```
 
-**Файлы для изменения:**
+**Files to change:**
 - `client/lib/pages/connection_page.dart` → `_deviceCard()`
 
 ---
 
-## Фаза 2: Автоматическое переключение режимов (Core)
+## Phase 2: Automatic mode switching (Core)
 
-### 2.1. Fallback механизм в Transport
+### 2.1. Fallback mechanism in Transport
 
-**Идея:** Когда WebSocket не может подключиться, попробовать другие сохранённые endpoints
+**Idea:** When WebSocket can't connect, try the other saved endpoints
 
-**Где:** `client/lib/core/transport/websocket_transport.dart`
+**Where:** `client/lib/core/transport/websocket_transport.dart`
 
-**Новая логика:**
+**New logic:**
 
 ```dart
 class WebSocketTransport {
@@ -163,15 +163,15 @@ class WebSocketTransport {
 }
 ```
 
-**Проблема:** Transport не должен менять config напрямую!
+**Problem:** Transport must not change the config directly!
 
-**Правильная архитектура:** Ввести `ConnectionManager` который управляет fallback
+**Correct architecture:** Introduce a `ConnectionManager` that manages the fallback
 
 ---
 
-### 2.2. ConnectionManager с fallback (правильный подход)
+### 2.2. ConnectionManager with fallback (the right approach)
 
-**Новый файл:** `client/lib/core/connection/connection_fallback_manager.dart`
+**New file:** `client/lib/core/connection/connection_fallback_manager.dart`
 
 ```dart
 /// Manages automatic fallback to alternative endpoints when connection fails
@@ -260,7 +260,7 @@ class ConnectionFallbackManager {
 }
 ```
 
-**Интеграция в main.dart:**
+**Integration into main.dart:**
 
 ```dart
 class _HerdRelayAppState extends State<HerdRelayApp> {
@@ -297,25 +297,25 @@ class _HerdRelayAppState extends State<HerdRelayApp> {
 }
 ```
 
-**Файлы для создания/изменения:**
-- Новый: `client/lib/core/connection/connection_fallback_manager.dart`
-- Изменить: `client/lib/main.dart` → интеграция fallback manager
-- Изменить: `client/lib/core/service_locator.dart` → регистрация
+**Files to create/change:**
+- New: `client/lib/core/connection/connection_fallback_manager.dart`
+- Change: `client/lib/main.dart` → integrate fallback manager
+- Change: `client/lib/core/service_locator.dart` → registration
 
 ---
 
-### 2.3. UI индикатор автопереключения
+### 2.3. Auto-switch UI indicator
 
-**Где:** Home page — показывать когда происходит fallback
+**Where:** Home page — show when a fallback happens
 
-**UI: Banner сверху экрана**
+**UI: Banner at the top of the screen**
 ```
 ┌──────────────────────────────────────────┐
 │ 🔄 Switching to Tailscale...             │
 └──────────────────────────────────────────┘
 ```
 
-После успешного переключения:
+After a successful switch:
 ```
 ┌──────────────────────────────────────────┐
 │ ✅ Connected via Tailscale               │
@@ -323,7 +323,7 @@ class _HerdRelayAppState extends State<HerdRelayApp> {
 └──────────────────────────────────────────┘
 ```
 
-**Реализация:**
+**Implementation:**
 ```dart
 class HomePage extends StatefulWidget {
   // ...
@@ -377,20 +377,20 @@ class _HomePageState extends State<HomePage> {
 }
 ```
 
-**Файлы для изменения:**
-- `client/lib/pages/home_page.dart` → добавить banner
+**Files to change:**
+- `client/lib/pages/home_page.dart` → add banner
 
 ---
 
-## Фаза 3: Улучшение Manual Mode UI (Visibility)
+## Phase 3: Manual Mode UI improvements (Visibility)
 
-### 3.1. Кнопка "Manual mode" всегда видна
+### 3.1. "Manual mode" button always visible
 
-**Сейчас:** Manual mode спрятан внутри mode_picker_sheet
+**Now:** Manual mode is hidden inside mode_picker_sheet
 
-**Улучшение:** Сделать его более заметным в Connection Page
+**Improvement:** Make it more prominent in the Connection Page
 
-**UI: В Connection Page добавить секцию**
+**UI: Add a section in the Connection Page**
 ```
 Connection mode
 ┌─────────────────────────────────────┐
@@ -401,7 +401,7 @@ Connection mode
 └─────────────────────────────────────┘
 ```
 
-При нажатии "Switch mode manually" открыть:
+When "Switch mode manually" is tapped, open:
 ```
 Manual Connection
 ┌─────────────────────────────────────┐
@@ -416,15 +416,15 @@ Manual Connection
 └─────────────────────────────────────┘
 ```
 
-**Файлы для изменения:**
-- `client/lib/pages/connection_page.dart` → добавить "Manual mode" кнопку
-- `client/lib/widgets/mode_picker_sheet.dart` → может быть отдельным диалогом
+**Files to change:**
+- `client/lib/pages/connection_page.dart` → add "Manual mode" button
+- `client/lib/widgets/mode_picker_sheet.dart` → may become a separate dialog
 
 ---
 
-### 3.2. Улучшенный Manual Mode с валидацией
+### 3.2. Improved Manual Mode with validation
 
-**Добавить live-проверку доступности:**
+**Add live reachability check:**
 
 ```dart
 class ManualModeDialog extends StatefulWidget {
@@ -527,24 +527,24 @@ class _ManualModeDialogState extends State<ManualModeDialog> {
 }
 ```
 
-**Новые файлы:**
+**New files:**
 - `client/lib/widgets/manual_mode_dialog.dart`
 
 ---
 
-## Фаза 4: Smart QR — один QR для всех режимов
+## Phase 4: Smart QR — one QR for all modes
 
-### 4.1. Использовать Universal QR из relay
+### 4.1. Use Universal QR from the relay
 
-**Сейчас:** Relay генерирует `universal_qr` (без mode параметра)
+**Now:** The relay generates `universal_qr` (without a mode parameter)
 
-**Клиент должен:**
-1. Распарсить QR без mode
-2. Сделать `GET /pair` чтобы получить все режимы
-3. Сохранить все endpoints сразу
-4. Показать диалог выбора primary режима
+**The client should:**
+1. Parse the QR without a mode
+2. Make a `GET /pair` request to fetch all modes
+3. Save all endpoints at once
+4. Show a dialog to pick the primary mode
 
-**Логика в pair_page.dart:**
+**Logic in pair_page.dart:**
 
 ```dart
 Future<void> _connect(String link) async {
@@ -610,17 +610,17 @@ Future<RelayModeInfo?> _showModeSelectionDialog(List<RelayModeInfo> modes) async
 }
 ```
 
-**Файлы для изменения:**
-- `client/lib/pages/pair_page.dart` → поддержка universal QR
-- `client/lib/models/pair_config.dart` → проверить парсинг без mode
+**Files to change:**
+- `client/lib/pages/pair_page.dart` → support universal QR
+- `client/lib/models/pair_config.dart` → check parsing without mode
 
 ---
 
-## Фаза 5: Документация и онбординг
+## Phase 5: Documentation and onboarding
 
-### 5.1. In-app помощь
+### 5.1. In-app help
 
-**Добавить Help screen:**
+**Add a Help screen:**
 
 ```
 Help & Troubleshooting
@@ -642,15 +642,15 @@ Connection Modes
 └─────────────────────────────────────┘
 ```
 
-**Файлы для создания:**
+**Files to create:**
 - `client/lib/pages/help_page.dart`
-- Добавить пункт в drawer/menu
+- Add an entry to the drawer/menu
 
 ---
 
-### 5.2. Обновить INSTALL.md
+### 5.2. Update INSTALL.md
 
-Добавить секцию "Best Practices":
+Add a "Best Practices" section:
 
 ```markdown
 ## Best Practices for Remote Access
@@ -691,65 +691,65 @@ Solution:
 
 ---
 
-## Итоговый чеклист реализации
+## Final implementation checklist
 
-### Phase 1: Quick Wins (1-2 дня)
-- [x] LAN-only warning при паринге
-- [x] Badge "LAN only" в Connection page
-- [x] Hint с советом про Tailscale
+### Phase 1: Quick Wins (1-2 days)
+- [x] LAN-only warning at pairing
+- [x] "LAN only" badge in Connection page
+- [x] Tailscale tip hint
 
-### Phase 2: Auto-switching (3-5 дней)
+### Phase 2: Auto-switching (3-5 days)
 - [x] ConnectionFallbackManager
-- [x] Интеграция в main.dart
-- [x] UI banner для индикации переключения
-- [x] Тесты для fallback логики
+- [x] Integration into main.dart
+- [x] UI banner to indicate a switch
+- [x] Tests for the fallback logic
 
-### Phase 3: Manual Mode (2-3 дня)
-- [x] Кнопка "Manual mode" в Connection page
-- [x] Отдельный диалог для ручного ввода
-- [x] Live-проверка доступности
-- [x] Улучшенные подсказки
+### Phase 3: Manual Mode (2-3 days)
+- [x] "Manual mode" button in Connection page
+- [x] Separate dialog for manual entry
+- [x] Live reachability check
+- [x] Improved hints
 
-### Phase 4: Universal QR (2-3 дня)
-- [x] Поддержка QR без mode параметра
-- [x] Автоматический fetch всех режимов
-- [x] Диалог выбора primary режима
-- [x] Тесты для universal QR
+### Phase 4: Universal QR (2-3 days)
+- [x] Support QR without a mode parameter
+- [x] Automatic fetch of all modes
+- [x] Primary mode selection dialog
+- [x] Tests for universal QR
 
-### Phase 5: Documentation (1 день)
-- [x] Help page в приложении
-- [x] Обновить INSTALL.md
-- [x] Обновить README.md
+### Phase 5: Documentation (1 day)
+- [x] Help page in the app
+- [x] Update INSTALL.md
+- [x] Update README.md
 
 ---
 
-## Приоритизация
+## Prioritization
 
-### Must Have (для первого релиза):
-1. ✅ Phase 1: Подсказки (критично для UX)
+### Must Have (for the first release):
+1. ✅ Phase 1: Hints (critical for UX)
 2. ✅ Phase 2: Auto-switching (core feature)
-3. ✅ Phase 3.1: Manual mode кнопка (fallback)
+3. ✅ Phase 3.1: Manual mode button (fallback)
 
 ### Should Have (v0.2.0):
-4. Phase 3.2: Live проверка в manual mode
+4. Phase 3.2: Live check in manual mode
 5. Phase 4: Universal QR
 6. Phase 5: Documentation
 
 ### Nice to Have (v0.3.0+):
-7. Умная приоритизация режимов (геолокация?)
-8. History переключений режимов
-9. Network quality индикатор
+7. Smart mode prioritization (geolocation?)
+8. Mode switch history
+9. Network quality indicator
 
 ---
 
-## Оценка трудозатрат
+## Effort estimate
 
-- **Phase 1**: 1-2 дня (simple UI changes)
-- **Phase 2**: 3-5 дней (core logic + testing)
-- **Phase 3**: 2-3 дня (UI + validation)
-- **Phase 4**: 2-3 дня (protocol changes)
-- **Phase 5**: 1 день (docs)
+- **Phase 1**: 1-2 days (simple UI changes)
+- **Phase 2**: 3-5 days (core logic + testing)
+- **Phase 3**: 2-3 days (UI + validation)
+- **Phase 4**: 2-3 days (protocol changes)
+- **Phase 5**: 1 day (docs)
 
-**Total: 9-14 дней работы**
+**Total: 9-14 days of work**
 
-Для MVP (релиз v0.2.0): реализовать Phase 1 + Phase 2 + Phase 3.1 = ~6-8 дней
+For the MVP (release v0.2.0): implement Phase 1 + Phase 2 + Phase 3.1 = ~6-8 days

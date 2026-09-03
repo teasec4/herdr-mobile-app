@@ -1,14 +1,14 @@
 # Implementation Plan: Terminal Stream Optimization
 
-**Дата:** 2026-08-30  
-**Основание:** docs/13-terminal-stream-analysis.md  
-**Цель:** Reduce latency by 97%, eliminate subprocess overhead, enable client-side caching
+**Date:** 2026-08-30  
+**Basis:** docs/13-terminal-stream-analysis.md  
+**Goal:** Reduce latency by 97%, eliminate subprocess overhead, enable client-side caching
 
 ---
 
 ## Overview
 
-Три последовательные фазы, каждая приносит измеримую пользу:
+Three sequential phases, each delivering measurable value:
 
 1. **Phase 1:** Server-side output cache (2-3 days) → 72% latency reduction
 2. **Phase 2:** Client-side revision cache (1-2 days) → 97% total reduction
@@ -383,7 +383,7 @@ It returns **raw stdout** from `herdr agent read`. Need to check herdr CLI behav
 
 **Checking docs/10-herdr-api.md §8:**
 > `herdr api snapshot` → `{"result":{"snapshot":…}}`  
-> `agent read <target> --lines N --format <text|ansi>` — **не указано**, возвращает ли JSON или raw text
+> `agent read <target> --lines N --format <text|ansi>` — **not specified** whether it returns JSON or raw text
 
 **Action:** Need to test herdr CLI to confirm output format.
 
@@ -393,8 +393,8 @@ It returns **raw stdout** from `herdr agent read`. Need to check herdr CLI behav
 
 **Updated approach:**
 1. OutputCache stores text, but **no revision** (we don't have it from CLI)
-2. Invalidation on **any** `pane.updated` event (не проверяем revision)
-3. Cache просто reduces CLI spawn, но не делает semantic caching by revision
+2. Invalidation on **any** `pane.updated` event (we don't check revision)
+3. Cache simply reduces CLI spawns, but doesn't do semantic caching by revision
 
 **Revised GetOutput:**
 ```go
@@ -432,7 +432,7 @@ func (s *AgentService) GetOutput(target string, lines int, format string) (*doma
 }
 ```
 
-**Trade-off:** Кэш не semantic (no revision check), но всё равно даёт 70%+ hit rate за счёт:
+**Trade-off:** Cache isn't semantic (no revision check), but still gives 70%+ hit rate thanks to:
 - TTL 60s
 - Event-based invalidation on `pane.updated`
 

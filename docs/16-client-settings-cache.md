@@ -23,8 +23,8 @@ Future<String> getOutput(String agentId, {int lines = 500, int? knownRevision}) 
 ```
 
 **Status:** ✅ **DONE** — in-memory cache with revision tracking  
-**Coverage:** Terminal output для всех agents/panes  
-**Invalidation:** По revision change из событий
+**Coverage:** Terminal output for all agents/panes  
+**Invalidation:** On revision change from events
 
 ---
 
@@ -48,7 +48,7 @@ Future<List<RelayAgent>> getAgents() async {
 ```
 
 **Status:** ✅ **DONE** — persistent cache (SharedPreferences)  
-**Coverage:** Agent list для offline mode  
+**Coverage:** Agent list for offline mode  
 **Invalidation:** On successful fetch
 
 ---
@@ -89,7 +89,7 @@ Future<void> addCommand(String agentId, String command) async {
 ```
 
 **Status:** ✅ **DONE** — persistent, per-agent, max 100 commands  
-**Coverage:** Command history для agent prompt input  
+**Coverage:** Command history for agent prompt input  
 **Invalidation:** Manual clear or size limit
 
 ---
@@ -153,9 +153,9 @@ static const TextStyle defaultStyle = TextStyle(
 ```
 
 **Problem:** 
-- На маленьких экранах (phones) 12px может быть мелковато
-- На планшетах можно было бы больше
-- Accessibility: пользователи с плохим зрением не могут увеличить
+- On small screens (phones) 12px may be too small
+- On tablets it could be larger
+- Accessibility: users with poor eyesight cannot increase it
 
 **Solution:**
 ```dart
@@ -215,7 +215,7 @@ bool _stickToBottom = true; // ❌ Always resets on page open
 
 **Problem:** User scrolls up to read history → new output arrives → auto-scrolls to bottom → user loses place
 
-**Current mitigation:** `_stickToBottom` turns off when user scrolls up, но **resets при reopening page**
+**Current mitigation:** `_stickToBottom` turns off when user scrolls up, but **resets when reopening the page**
 
 **Solution:**
 ```dart
@@ -258,7 +258,7 @@ IconButton(
 ### 2.2 Connection Preferences — **MEDIUM PRIORITY**
 
 #### 2.2.1 Last Used Transport Mode (WS vs HTTP)
-**Current behavior:** Always WebSocket, HTTP fallback только manual
+**Current behavior:** Always WebSocket, HTTP fallback only manual
 
 **File:** `client/lib/core/service_locator.dart:81-84`
 ```dart
@@ -268,7 +268,7 @@ final Transport transport = switch (transportMode) {
 };
 ```
 
-**Problem:** Если у пользователя WebSocket блокируется firewall, приходится каждый раз вручную переключаться на HTTP
+**Problem:** If the user's WebSocket is blocked by a firewall, they have to manually switch to HTTP every time
 
 **Solution:**
 ```dart
@@ -296,12 +296,12 @@ SegmentedButton<String>(
 )
 ```
 
-**Impact:** Меньше friction для пользователей за корп. firewall
+**Impact:** Less friction for users behind a corporate firewall
 
 ---
 
 #### 2.2.2 Connection Test History
-**Current behavior:** Test results lost при closing ConnectionPage
+**Current behavior:** Test results lost when closing ConnectionPage
 
 **File:** `client/lib/pages/connection_page.dart:88-103`
 ```dart
@@ -348,7 +348,7 @@ if (_testHistory.isNotEmpty)
 #### 2.3.1 "Don't Show Again" Dialogs
 **Use case:** Onboarding hints, feature announcements
 
-**Not currently implemented**, но если добавите:
+**Not currently implemented**, but if you add it:
 ```dart
 class OnboardingFlags {
   Future<bool> hasSeenWelcome() async => _prefs.getBool('seen_welcome') ?? false;
@@ -377,7 +377,7 @@ Future<void> _showOnboardingIfNeeded() async {
 ---
 
 #### 2.3.2 Debug Mode / Advanced Features Toggle
-**Use case:** Show advanced settings только для power users
+**Use case:** Show advanced settings only for power users
 
 ```dart
 class DebugPreferences {
@@ -674,7 +674,7 @@ testWidgets('AgentPage respects font size preference', (tester) async {
 - Old: (none, hardcoded defaults)
 - New: `ui.*`, `connection.*`, `flags.*`
 
-Existing caches не затрагиваются:
+Existing caches are not affected:
 - `last_snapshot` (agents)
 - `pair_profiles` (connections)
 - `command_history_*` (per-agent)

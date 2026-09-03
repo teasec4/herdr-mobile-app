@@ -1,34 +1,34 @@
-# Диагностика обновления статуса агента
+# Agent Status Update Diagnostics
 
-> ⚠ 30.08: документ описывает отладочную сессию на старой схеме. Сейчас
-> плагинный хук удалён — статусы приходят только по socket-подписке релея
-> (`events.subscribe`), а debug-`print` из HomePage/AgentPage убраны
-> (docs/12-fix-plan.md A1, G1). Пункты ниже про `on-event.sh` и
-> `/api/events/herdr` неактуальны.
+> ⚠ 30.08: this document describes a debug session on the old scheme. The
+> plugin hook has since been removed — statuses now arrive only via the relay's
+> socket subscription (`events.subscribe`), and the debug `print`s from
+> HomePage/AgentPage have been removed (docs/12-fix-plan.md A1, G1). The
+> items below about `on-event.sh` and `/api/events/herdr` are no longer valid.
 
-## Что добавлено
+## What was added
 
-### 1. Логирование на всех уровнях
+### 1. Logging at all levels
 
-**Плагин herdr (plugin/on-event.sh):**
-- Логирует все входящие события в `/tmp/herdr-relay-events.log`
-- Формат: `[2026-08-29 10:30:00] Event: {"data":{...}}`
+**herdr plugin (plugin/on-event.sh):**
+- Logs all incoming events to `/tmp/herdr-relay-events.log`
+- Format: `[2026-08-29 10:30:00] Event: {"data":{...}}`
 
-**Relay сервер (cmd/relay/httpapi.go):**
-- Логирует broadcast событий с количеством подключённых клиентов
-- Видно в логах relay: `/tmp/herdrelay.log` или `./relay-status.sh logs`
+**Relay server (cmd/relay/httpapi.go):**
+- Logs event broadcasts with the number of connected clients
+- Visible in relay logs: `/tmp/herdrelay.log` or `./relay-status.sh logs`
 
-**Flutter клиент (client/lib/services/relay_client.dart):**
-- Логирует входящие WebSocket события: `[RelayClient] WS event: pane.agent_status_changed`
+**Flutter client (client/lib/services/relay_client.dart):**
+- Logs incoming WebSocket events: `[RelayClient] WS event: pane.agent_status_changed`
 
 **HomePage (client/lib/pages/home_page.dart):**
-- Логирует получение событий: `[HomePage] Event received: ...`
-- Логирует refresh: `[HomePage] Fetching snapshot...`
-- Логирует результаты: `[HomePage] Got N agents: ...`
+- Logs event receipt: `[HomePage] Event received: ...`
+- Logs refresh: `[HomePage] Fetching snapshot...`
+- Logs results: `[HomePage] Got N agents: ...`
 
 ### 2. Race condition fix
 
-Добавлена задержка 150ms между получением события и вызовом snapshot, чтобы herdr успел обновить свой internal state:
+A 150ms delay was added between receiving an event and calling snapshot, so that herdr has time to update its internal state:
 
 ```dart
 if (event.name == 'pane.agent_status_changed' || event.name == 'pane.updated') {
@@ -38,132 +38,132 @@ if (event.name == 'pane.agent_status_changed' || event.name == 'pane.updated') {
 }
 ```
 
-## Как использовать диагностику
+## How to use the diagnostics
 
-### Запустить Flutter приложение с логами
+### Run the Flutter app with logs
 
 ```bash
 cd client
 flutter run 2>&1 | grep -E '\[HomePage\]|\[RelayClient\]'
 ```
 
-Или просто:
+Or simply:
 ```bash
 cd client
 flutter run
 ```
 
-И смотреть консоль на логи с префиксами `[HomePage]` и `[RelayClient]`.
+And watch the console for log entries prefixed with `[HomePage]` and `[RelayClient]`.
 
-### Проверить логи herdr плагина
+### Check the herdr plugin logs
 
 ```bash
-# События от herdr
+# Events from herdr
 tail -f /tmp/herdr-relay-events.log
 
-# Должны появляться строки при изменении статуса агента:
+# Lines should appear when the agent status changes:
 # [2026-08-29 10:30:15] Event: {"data":{"pane_id":"wH:p7","agent":"claude","agent_status":"blocked"}}
 ```
 
-### Проверить логи relay
+### Check the relay logs
 
 ```bash
-# Текущие логи relay
+# Current relay logs
 tail -f /tmp/herdrelay.log
 
-# Или через утилиту
+# Or via the utility
 ./relay-status.sh logs
 
-# Должны быть строки:
+# Lines should look like:
 # [relay] Broadcasting event pane.agent_status_changed to 1 clients: {...}
 ```
 
-### Полный flow проверки
+### Full flow check
 
-1. **Запустить Flutter с логами:**
+1. **Run Flutter with logs:**
    ```bash
    cd client && flutter run
    ```
 
-2. **В другом терминале следить за событиями:**
+2. **In another terminal, watch for events:**
    ```bash
    tail -f /tmp/herdr-relay-events.log
    ```
 
-3. **Изменить статус агента** (например, запустить команду в herdr агенте)
+3. **Change the agent status** (e.g. run a command in the herdr agent)
 
-4. **Проверить что произошло:**
-   - `/tmp/herdr-relay-events.log` - событие пришло от herdr? ✓
-   - `/tmp/herdrelay.log` - relay получил и broadcast'нул? ✓
-   - Flutter консоль - `[RelayClient] WS event` - клиент получил? ✓
-   - Flutter консоль - `[HomePage] Event received` - HomePage обработал? ✓
-   - Flutter консоль - `[HomePage] Fetching snapshot` - запросил обновление? ✓
-   - Flutter консоль - `[HomePage] Got N agents` - получил агентов? ✓
-   - Flutter консоль - `[HomePage] UI updated` - обновил UI? ✓
+4. **Check what happened:**
+   - `/tmp/herdr-relay-events.log` - did the event arrive from herdr? ✓
+   - `/tmp/herdrelay.log` - did the relay receive and broadcast it? ✓
+   - Flutter console - `[RelayClient] WS event` - did the client receive it? ✓
+   - Flutter console - `[HomePage] Event received` - did HomePage process it? ✓
+   - Flutter console - `[HomePage] Fetching snapshot` - did it request an update? ✓
+   - Flutter console - `[HomePage] Got N agents` - did it fetch the agents? ✓
+   - Flutter console - `[HomePage] UI updated` - did it update the UI? ✓
 
-## Типичные проблемы
+## Typical problems
 
-### Событие не приходит в /tmp/herdr-relay-events.log
-**Причина:** herdr не вызывает плагин  
-**Решение:**
+### The event does not arrive in /tmp/herdr-relay-events.log
+**Cause:** herdr does not call the plugin  
+**Solution:**
 ```bash
-# Проверить что плагин enabled
+# Check that the plugin is enabled
 herdr plugin list | grep herdrelay
 
-# Проверить версию herdr (нужна >= 0.7.5)
+# Check the herdr version (>= 0.7.5 required)
 herdr --version
 
-# Посмотреть логи herdr
+# Look at the herdr logs
 tail -f ~/.local/state/herdr/logs/plugin_*.log
 ```
 
-### Событие в логе есть, но relay не broadcast'ит
-**Причина (старая схема):** Токен не найден, relay не работает, curl не может отправить.
-**Статус:** роут `/api/events/herdr` **удалён** (docs/12 A1) — проверять статусы
-надо по socket-подписке релея (лог `herdr socket: connected to ...`), а не через хук:
+### The event is in the log, but the relay does not broadcast it
+**Cause (old scheme):** token not found, relay not running, curl cannot send.
+**Status:** the `/api/events/herdr` route has been **removed** (docs/12 A1) —
+statuses must be checked via the relay's socket subscription (log `herdr socket: connected to ...`), not through the hook:
 ```bash
-# Проверить relay
+# Check the relay
 ./relay-status.sh
 
-# Лог сокет-подписки релея (статусы/вывод)
+# Relay socket-subscription log (statuses/output)
 tail -f ~/.local/state/herdrelay/relay.err.log | grep 'herdr socket'
 ```
 
-### Relay broadcast'ит, но клиент не получает
-**Причина:** WebSocket отключён  
-**Решение:** Смотреть Flutter консоль на reconnect логи, проверить что `status.value == RelayStatus.connected`
+### The relay broadcasts, but the client does not receive it
+**Cause:** WebSocket is disconnected  
+**Solution:** watch the Flutter console for reconnect logs, check that `status.value == RelayStatus.connected`
 
-### Клиент получает, но UI не обновляется
-**Причина:** Race condition (herdr ещё не обновил state) или setState не вызывается  
-**Решение:** Уже исправлено задержкой 150ms, смотреть логи `[HomePage] UI updated`
+### The client receives, but the UI does not update
+**Cause:** race condition (herdr has not updated its state yet) or setState is not called  
+**Solution:** already fixed by the 150ms delay; watch the `[HomePage] UI updated` logs
 
-## После диагностики
+## After diagnostics
 
-Когда проблема найдена и исправлена, можно отключить DEBUG логи:
+Once the problem is found and fixed, you can turn off the DEBUG logs:
 
-### Отключить лог событий в плагине
+### Disable event logging in the plugin
 ```bash
-# В plugin/on-event.sh закомментировать строку:
+# In plugin/on-event.sh, comment out the line:
 # echo "[$(date '+%Y-%m-%d %H:%M:%S')] Event: $RAW" >> /tmp/herdr-relay-events.log
 ```
 
-### Убрать print() из Flutter
-Удалить или закомментировать `print()` в:
+### Remove print() from Flutter
+Delete or comment out `print()` in:
 - `client/lib/services/relay_client.dart` (_onMessage)
 - `client/lib/pages/home_page.dart` (_onEvent, _refresh)
 
-### Убрать лог из relay
-Удалить или закомментировать `log.Printf` в `cmd/relay/httpapi.go:137`
+### Remove the log from relay
+Delete or comment out `log.Printf` in `cmd/relay/httpapi.go:137`
 
-Но оставить задержку 150ms в _onEvent - она исправляет race condition!
+But keep the 150ms delay in _onEvent — it fixes the race condition!
 
-## Чек-лист для проверки
+## Verification checklist
 
-- [ ] Relay запущен (`./relay-status.sh`)
-- [ ] Плагин enabled (`herdr plugin list`)
+- [ ] Relay is running (`./relay-status.sh`)
+- [ ] Plugin is enabled (`herdr plugin list`)
 - [ ] herdr >= 0.7.5 (`herdr --version`)
-- [ ] События пишутся в `/tmp/herdr-relay-events.log`
-- [ ] Relay broadcast'ит события (`tail -f /tmp/herdrelay.log`)
-- [ ] Flutter получает события (консоль `[RelayClient]`)
-- [ ] HomePage обрабатывает события (консоль `[HomePage]`)
-- [ ] UI обновляется после snapshot
+- [ ] Events are written to `/tmp/herdr-relay-events.log`
+- [ ] Relay broadcasts events (`tail -f /tmp/herdrelay.log`)
+- [ ] Flutter receives events (console `[RelayClient]`)
+- [ ] HomePage processes events (console `[HomePage]`)
+- [ ] UI updates after the snapshot

@@ -1,63 +1,63 @@
-# Проблема: статус агента не обновляется на главном экране
+# Problem: agent status is not updated on the main screen
 
-> ⚠ 30.08: документ описывает отладочную сессию на старой схеме. Плагинный хук
-> удалён — статусы приходят только по socket-подписке релея (docs/12-fix-plan.md
-> A1), а HomePage больше не делает snapshot на каждое статус-событие
-> (обновляет список локально из события).
+> ⚠ 30.08: this document describes a debugging session on the old scheme. The plugin
+> hook has been removed — statuses now arrive only via the relay's socket subscription
+> (docs/12-fix-plan.md A1), and HomePage no longer takes a snapshot on every status
+> event (it updates the list locally from the event).
 
-## Поток событий (как должно работать)
+## Event flow (how it should work)
 
-1. **herdr** обнаруживает изменение статуса агента
-2. **herdr** шлёт `pane.agent_status_changed` по unix-сокету (подписка релея `events.subscribe`)
-3. **relay** форвардит событие клиентам по WebSocket (`pane.agent_status_changed`)
-4. **Flutter клиент** получает событие через WebSocket
-5. **HomePage** обновляет тайл агента локально из события (без snapshot)
-6. **AgentPage** обновляет статус локально из события (без snapshot/read)
+1. **herdr** detects an agent status change
+2. **herdr** sends `pane.agent_status_changed` over the unix socket (relay subscription `events.subscribe`)
+3. **relay** forwards the event to clients over WebSocket (`pane.agent_status_changed`)
+4. **Flutter client** receives the event over WebSocket
+5. **HomePage** updates the agent tile locally from the event (no snapshot)
+6. **AgentPage** updates the status locally from the event (no snapshot/read)
 
-## Возможные причины сбоя
+## Possible causes of failure
 
-### 1. Плагин не вызывается herdr
-**Симптомы:** События вообще не доходят до relay  
-**Причины:**
-- Плагин отключен: `herdr plugin list` показывает disabled
-- herdr не распознаёт событие `pane.agent_status_changed` (старая версия herdr < 0.7.5)
-- Хук не зарегистрирован правильно в manifest
+### 1. Plugin is not invoked by herdr
+**Symptoms:** Events never reach the relay  
+**Causes:**
+- Plugin is disabled: `herdr plugin list` shows disabled
+- herdr does not recognize the `pane.agent_status_changed` event (old herdr version < 0.7.5)
+- Hook is not registered correctly in the manifest
 
-**Проверка:**
+**Verification:**
 ```bash
-# Проверить что плагин enabled
+# Check that the plugin is enabled
 herdr plugin list | grep herdrelay
 
-# Проверить версию herdr (нужна >= 0.7.5)
+# Check the herdr version (needs >= 0.7.5)
 herdr --version
 
-# Посмотреть логи плагина
+# View plugin logs
 tail -f ~/.local/state/herdr/logs/plugin_*.log
 ```
 
-**Диагностика relay:**
+**Relay diagnostics:**
 ```bash
-# Добавить логирование в on-event.sh (временно)
+# Add logging to on-event.sh (temporarily)
 echo "Event received: $HERDR_PLUGIN_EVENT_JSON" >> /tmp/herdr-events.log
 ```
 
-### 2. on-event.sh не может отправить на relay
-**Симптомы:** События генерируются, но не доходят до relay  
-**Причины:**
-- Токен файл не найден: `~/.config/herdr/herdrelay.token` отсутствует
-- Relay не запущен (порт 8375 не слушается)
-- Неправильный порт (по умолчанию 8375, но может быть переопределён)
-- curl не установлен или не работает
+### 2. on-event.sh cannot send to the relay
+**Symptoms:** Events are generated but never reach the relay  
+**Causes:**
+- Token file not found: `~/.config/herdr/herdrelay.token` is missing
+- Relay is not running (port 8375 is not listening)
+- Wrong port (default 8375, but it can be overridden)
+- curl is not installed or not working
 
-**Проверка:**
+**Verification:**
 ```bash
-# Токен существует?
+# Does the token exist?
 ls -la ~/.config/herdr/herdrelay.token
 
-# Relay слушает порт?
+# Is the relay listening on the port?
 lsof -nP -iTCP:8375 -sTCP:LISTEN
 
-# Проверить вручную
+# Check manually
 TOKEN=$(cat ~/.config/herdr/herdrelay.token)
 curl -v -X POST "http://127.0.0.1:8375/api/events/herdr" \
   -H "Authorization: Bearer $TOKEN" \
@@ -65,45 +65,45 @@ curl -v -X POST "http://127.0.0.1:8375/api/events/herdr" \
   -d '{"data":{"pane_id":"test","agent_status":"blocked"}}'
 ```
 
-**Фикс:** on-event.sh молча игнорирует ошибки (`|| exit 0` на строке 41), поэтому можно временно убрать это:
+**Fix:** on-event.sh silently ignores errors (`|| exit 0` on line 41), so you can temporarily remove it:
 ```bash
-# Изменить строку 36-41 в plugin/on-event.sh на:
+# Change lines 36-41 in plugin/on-event.sh to:
 curl -v -X POST "http://127.0.0.1:${PORT}/api/events/herdr" \
   -H "Authorization: Bearer $(cat "$TOKEN_FILE")" \
   -H "Content-Type: application/json" \
   --data-binary "$RAW"
-# Это покажет ошибки в логах herdr
+# This will surface errors in the herdr logs
 ```
 
-### 3. Relay не broadcast'ит события
-**Симптомы:** События доходят до relay, но не идут в WebSocket  
-**Причины:**
-- Ошибка парсинга JSON в `handlePluginEvent` (строка 125-138 httpapi.go)
-- Hub пустой (нет подключённых клиентов) - нормально, но события теряются
-- Ошибка записи в WebSocket (`c.write(b) != nil` на ws.go:89)
+### 3. Relay does not broadcast events
+**Symptoms:** Events reach the relay but do not go out over WebSocket  
+**Causes:**
+- JSON parsing error in `handlePluginEvent` (lines 125-138 httpapi.go)
+- Hub is empty (no connected clients) - normal, but events are lost
+- Error writing to WebSocket (`c.write(b) != nil` at ws.go:89)
 
-**Проверка:**
+**Verification:**
 ```bash
-# Добавить логирование в cmd/relay/httpapi.go:137
+# Add logging to cmd/relay/httpapi.go:137
 log.Printf("Broadcasting event %s: %s", name, string(ev.Data))
 
-# Пересобрать
+# Rebuild
 ./relay-status.sh rebuild
 
-# Посмотреть логи
+# View logs
 ./relay-status.sh logs
 ```
 
-### 4. WebSocket отключился на клиенте
-**Симптомы:** События broadcast'ятся, но клиент не получает  
-**Причины:**
-- WebSocket connection dropped (нет реконнекта)
-- События приходят, но `_events` stream закрыт
-- Listener был удалён (`_client.events.listen(_onEvent)` отписался)
+### 4. WebSocket disconnected on the client
+**Symptoms:** Events are broadcast but the client does not receive them  
+**Causes:**
+- WebSocket connection dropped (no reconnect)
+- Events arrive, but the `_events` stream is closed
+- Listener was removed (`_client.events.listen(_onEvent)` unsubscribed)
 
-**Проверка в Flutter:**
+**Verification in Flutter:**
 ```dart
-// В HomePage._onEvent добавить лог:
+// Add a log in HomePage._onEvent:
 void _onEvent(RelayEvent event) {
   print('Event received: ${event.name} - ${event.data}');
   if (event.name == 'pane.agent_status_changed' || event.name == 'pane.updated') {
@@ -112,25 +112,25 @@ void _onEvent(RelayEvent event) {
 }
 ```
 
-**Типичная проблема:** `StreamController<RelayEvent>` не broadcast, поэтому только один listener работает.
+**Typical problem:** `StreamController<RelayEvent>` is not broadcast, so only one listener works.
 
-Проверить в `relay_client.dart`:
+Check in `relay_client.dart`:
 ```dart
-// Должно быть:
+// Should be:
 final StreamController<RelayEvent> _events = StreamController.broadcast();
 ```
 
-### 5. _refresh() вызывается, но UI не обновляется
-**Симптомы:** События приходят, _refresh вызывается, но список не меняется  
-**Причины:**
-- `setState()` не вызывается внутри `_refresh()` (есть на строке 69-72 home_page.dart - OK)
-- Агент не в списке (фильтр отсекает?)
-- `RelayAgent.sorted()` возвращает старые данные (кеш?)
-- `_client.snapshot()` возвращает устаревшие данные
+### 5. _refresh() is called, but the UI is not updated
+**Symptoms:** Events arrive, _refresh is called, but the list does not change  
+**Causes:**
+- `setState()` is not called inside `_refresh()` (present on lines 69-72 home_page.dart - OK)
+- Agent is not in the list (is a filter cutting it out?)
+- `RelayAgent.sorted()` returns stale data (cache?)
+- `_client.snapshot()` returns stale data
 
-**Проверка:**
+**Verification:**
 ```dart
-// В HomePage._refresh добавить лог:
+// Add a log in HomePage._refresh:
 Future<void> _refresh() async {
   setState(() => _error = null);
   try {
@@ -152,31 +152,31 @@ Future<void> _refresh() async {
 }
 ```
 
-### 6. Race condition: событие приходит раньше snapshot
-**Симптомы:** Иногда работает, иногда нет  
-**Причины:**
-- Событие `pane.agent_status_changed` приходит
-- `_refresh()` вызывает `snapshot()` по HTTP
-- Но herdr ещё не обновил свой internal state
-- snapshot возвращает старый статус
+### 6. Race condition: the event arrives before the snapshot
+**Symptoms:** Sometimes it works, sometimes not  
+**Causes:**
+- The `pane.agent_status_changed` event arrives
+- `_refresh()` calls `snapshot()` over HTTP
+- But herdr has not updated its internal state yet
+- snapshot returns the old status
 
-**Фикс:** Добавить небольшую задержку перед refresh:
+**Fix:** Add a small delay before the refresh:
 ```dart
 void _onEvent(RelayEvent event) {
   if (event.name == 'pane.agent_status_changed' || event.name == 'pane.updated') {
-    // Дать herdr время обновить state перед snapshot
+    // Give herdr time to update state before the snapshot
     Future.delayed(const Duration(milliseconds: 100), _refresh);
   }
 }
 ```
 
-### 7. Событие приходит, но для другого pane_id
-**Симптомы:** События приходят, но не для нужного агента  
-**Причины:**
-- herdr генерирует события для всех panes, включая не-агентские
-- Событие есть, но `pane_id` не совпадает с `agent.id`
+### 7. Event arrives, but for a different pane_id
+**Symptoms:** Events arrive, but not for the right agent  
+**Causes:**
+- herdr generates events for all panes, including non-agent ones
+- The event is there, but `pane_id` does not match `agent.id`
 
-**Проверка:**
+**Verification:**
 ```dart
 void _onEvent(RelayEvent event) {
   print('Event: ${event.name}');
@@ -187,50 +187,50 @@ void _onEvent(RelayEvent event) {
 }
 ```
 
-## Рекомендации по диагностике
+## Diagnostics recommendations
 
-### Уровень 1: Быстрая проверка
+### Level 1: Quick check
 ```bash
-# 1. Relay работает?
+# 1. Is the relay running?
 ./relay-status.sh
 
-# 2. Плагин enabled?
+# 2. Is the plugin enabled?
 herdr plugin list | grep herdrelay
 
-# 3. Версия herdr поддерживает событие?
-herdr --version  # должна быть >= 0.7.5
+# 3. Does the herdr version support the event?
+herdr --version  # must be >= 0.7.5
 ```
 
-### Уровень 2: Логирование
-Добавить логи в критических точках:
+### Level 2: Logging
+Add logs at critical points:
 
-1. **on-event.sh** - echo в /tmp/herdr-events.log
-2. **httpapi.go:137** - log.Printf перед broadcast
-3. **home_page.dart:_onEvent** - print события
-4. **home_page.dart:_refresh** - print результатов
+1. **on-event.sh** - echo to /tmp/herdr-events.log
+2. **httpapi.go:137** - log.Printf before broadcast
+3. **home_page.dart:_onEvent** - print the event
+4. **home_page.dart:_refresh** - print results
 
-### Уровень 3: Мониторинг WebSocket
+### Level 3: WebSocket monitoring
 ```bash
-# Подключиться к WebSocket и смотреть события
+# Connect to the WebSocket and watch events
 websocat "ws://localhost:8375/ws" \
   -H "Authorization: Bearer $(cat ~/.config/herdr/herdrelay.token)"
 
-# Должны приходить события вида:
+# Events like this should arrive:
 # {"type":"event","event":"pane.agent_status_changed","data":{...}}
 ```
 
-## Наиболее вероятные причины
+## Most likely causes
 
-По убыванию вероятности:
+In order of decreasing probability:
 
-1. **WebSocket отключился** - клиент потерял соединение и не реконнектится
-2. **Race condition** - snapshot возвращает старые данные до того как herdr обновился
-3. **on-event.sh не может отправить** - токен не найден или relay не работает
-4. **События не для того pane** - фильтрация нужна на клиенте
+1. **WebSocket disconnected** - the client lost the connection and does not reconnect
+2. **Race condition** - snapshot returns stale data before herdr has updated
+3. **on-event.sh cannot send** - token not found or the relay is not working
+4. **Events are not for the right pane** - filtering is needed on the client
 
-## Предлагаемый фикс
+## Proposed fix
 
-Добавить в HomePage:
+Add to HomePage:
 
 ```dart
 void _onEvent(RelayEvent event) {
@@ -239,7 +239,7 @@ void _onEvent(RelayEvent event) {
   print('[HomePage] Event: ${event.name}'); // DEBUG
   
   if (event.name == 'pane.agent_status_changed' || event.name == 'pane.updated') {
-    // Небольшая задержка чтобы herdr успел обновить state
+    // Small delay so herdr has time to update state
     Future.delayed(const Duration(milliseconds: 100), () {
       if (mounted) _refresh();
     });
@@ -247,8 +247,8 @@ void _onEvent(RelayEvent event) {
 }
 ```
 
-И проверить что StreamController broadcast:
+And check that the StreamController is broadcast:
 ```dart
-// В relay_client.dart
+// In relay_client.dart
 final StreamController<RelayEvent> _events = StreamController.broadcast();
 ```

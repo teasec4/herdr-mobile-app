@@ -1,22 +1,22 @@
-# План исправления обязательных security и correctness проблем
+# Plan for fixing mandatory security and correctness issues
 
-## Обзор
+## Overview
 
-Исправляем 4 критические проблемы (P1-P2), найденные в ходе Linus аудита:
-1. **P1**: Timing attack в token verification
-2. **P1**: Race condition в event subscription
-3. **P2**: Отсутствие timeout в exec.Command (netdetect)
-4. **P2**: Race condition при создании token/identity файлов
+We are fixing 4 critical issues (P1-P2) found during the Linus audit:
+1. **P1**: Timing attack in token verification
+2. **P1**: Race condition in event subscription
+3. **P2**: Missing timeout in exec.Command (netdetect)
+4. **P2**: Race condition when creating token/identity files
 
-## Детали исправлений
+## Fix details
 
-### 1. Timing attack в token verification
+### 1. Timing attack in token verification
 
-**Файл:** `cmd/relay/router.go:51-56`
+**File:** `cmd/relay/router.go:51-56`
 
-**Проблема:** Используется простое сравнение строк `==` для проверки токена, что позволяет атакующему восстановить токен побайтово через timing attack.
+**Problem:** A plain string comparison `==` is used to check the token, which lets an attacker recover the token byte-by-byte via a timing attack.
 
-**Решение:**
+**Solution:**
 ```go
 import "crypto/subtle"
 
@@ -31,36 +31,36 @@ func verifyToken(r *http.Request, token string) bool {
 }
 ```
 
-**Обоснование:** `crypto/subtle.ConstantTimeCompare` выполняет сравнение за константное время независимо от позиции первого различающегося байта.
+**Rationale:** `crypto/subtle.ConstantTimeCompare` performs the comparison in constant time regardless of the position of the first differing byte.
 
-**Тесты:** Добавить `TestVerifyTokenConstantTime` — проверить, что неправильные токены отклоняются (функциональность), явная проверка timing невозможна в unit-тесте, но код review покажет использование subtle.
+**Tests:** Add `TestVerifyTokenConstantTime` — verify that incorrect tokens are rejected (functionality); explicit timing verification is not possible in a unit test, but code review will show the use of subtle.
 
 ---
 
-### 2. Race condition в event subscription
+### 2. Race condition in event subscription
 
-**Файл:** `cmd/relay/main.go:49-59`
+**File:** `cmd/relay/main.go:49-59`
 
-**Проблема:** Горутина вызывает `Subscribe()` после старта. Если `Start()` начнёт генерировать события до вызова `Subscribe()`, они потеряются.
+**Problem:** The goroutine calls `Subscribe()` after startup. If `Start()` begins generating events before `Subscribe()` is called, they will be lost.
 
-**Текущий код:**
+**Current code:**
 ```go
 hub := ws.NewHub()
 
 go func() {
-    events := eventService.Subscribe()  // ← вызывается внутри горутины
+    events := eventService.Subscribe()  // ← called inside the goroutine
     for event := range events {
         hub.BroadcastEvent(event)
     }
 }()
 
-if err := eventService.Start(); err != nil {  // ← Start может начать генерить события раньше Subscribe
+if err := eventService.Start(); err != nil {  // ← Start may begin generating events before Subscribe
 ```
 
-**Решение:**
+**Solution:**
 ```go
 hub := ws.NewHub()
-events := eventService.Subscribe()  // ← Subscribe ДО запуска горутины и Start
+events := eventService.Subscribe()  // ← Subscribe BEFORE launching the goroutine and Start
 
 go func() {
     for event := range events {
@@ -71,25 +71,25 @@ go func() {
 if err := eventService.Start(); err != nil {
 ```
 
-**Обоснование:** `Subscribe()` создаёт канал и добавляет его в список listeners до того, как `Start()` начнёт broadcast. EventService уже имеет sync.RWMutex для защиты listeners, так что это безопасно.
+**Rationale:** `Subscribe()` creates a channel and adds it to the listeners list before `Start()` begins broadcasting. EventService already has a sync.RWMutex protecting the listeners, so this is safe.
 
-**Тесты:** Добавить `TestEventSubscriptionOrdering` — проверить, что Subscribe() возвращает канал до Start(), и что события не теряются.
+**Tests:** Add `TestEventSubscriptionOrdering` — verify that `Subscribe()` returns a channel before `Start()`, and that no events are lost.
 
 ---
 
-### 3. Отсутствие timeout в exec.Command
+### 3. Missing timeout in exec.Command
 
-**Файл:** `internal/infrastructure/netdetect/detector.go`
+**File:** `internal/infrastructure/netdetect/detector.go`
 
-**Проблема:** Все вызовы `exec.Command()` (ipconfig, hostname, tailscale) без timeout. Зависший процесс блокирует HTTP handler навсегда.
+**Problem:** All `exec.Command()` calls (ipconfig, hostname, tailscale) run without a timeout. A hung process blocks the HTTP handler forever.
 
-**Методы для исправления:**
-- `LANIP()` — строки 45, 52
-- `Tailscale()` — строка 74
-- `TailscaleReachable()` — уже есть 2s timeout в net.DialTimeout, ОК
-- `FunnelEnabled()` — строка 113
+**Methods to fix:**
+- `LANIP()` — lines 45, 52
+- `Tailscale()` — line 74
+- `TailscaleReachable()` — already has a 2s timeout in net.DialTimeout, OK
+- `FunnelEnabled()` — line 113
 
-**Решение:** Добавить `context.WithTimeout(2*time.Second)` для всех exec.Command:
+**Solution:** Add `context.WithTimeout(2*time.Second)` for all exec.Command calls:
 
 ```go
 import "context"
@@ -122,25 +122,25 @@ func (SystemDetector) LANIP() string {
 }
 ```
 
-Аналогично для `Tailscale()` и `FunnelEnabled()`.
+Do the same for `Tailscale()` and `FunnelEnabled()`.
 
-**Обоснование:** 2 секунды — достаточно для выполнения локальной команды, но предотвращает бесконечное зависание.
+**Rationale:** 2 seconds is enough for a local command to complete, but prevents infinite hangs.
 
-**Тесты:** Существующие тесты в `server_test.go` используют `stubDetector`, который не вызывает реальные команды. Добавить integration test с реальным SystemDetector — проверить, что методы возвращаются за разумное время (< 3s).
+**Tests:** The existing tests in `server_test.go` use `stubDetector`, which does not invoke real commands. Add an integration test with the real SystemDetector — verify that the methods return within a reasonable time (< 3s).
 
 ---
 
-### 4. Race condition при создании token/identity файлов
+### 4. Race condition when creating token/identity files
 
-**Файлы:** 
+**Files:** 
 - `cmd/relay/token.go:12-32`
 - `cmd/relay/identity.go:17-48`
 
-**Проблема:** Два concurrent relay процесса могут оба прочитать отсутствующий файл и создать разные токены/relay_ids. Последний WriteFile победит, но первый процесс будет работать с неправильным значением.
+**Problem:** Two concurrent relay processes can both read the missing file and create different tokens/relay_ids. The last WriteFile wins, but the first process will keep working with the wrong value.
 
-**Решение:** Использовать `os.OpenFile` с флагом `O_EXCL` — атомарно создаёт файл, возвращает ошибку если файл уже существует.
+**Solution:** Use `os.OpenFile` with the `O_EXCL` flag — it atomically creates the file and returns an error if the file already exists.
 
-**Для token.go:**
+**For token.go:**
 ```go
 func loadToken(cfg Config) (string, error) {
     if cfg.Token != "" {
@@ -184,47 +184,47 @@ func loadToken(cfg Config) (string, error) {
 }
 ```
 
-**Для identity.go:** Аналогичная логика, но с JSON маршаллингом.
+**For identity.go:** The same logic, but with JSON marshalling.
 
-**Обоснование:** 
-- `O_EXCL` гарантирует атомарное создание файла на уровне ОС
-- Если файл уже существует (другой процесс победил), делаем recursive call для чтения существующего файла
-- Рекурсия безопасна: максимум 2 уровня (первый создаёт, второй читает)
+**Rationale:** 
+- `O_EXCL` guarantees atomic file creation at the OS level
+- If the file already exists (another process won), make a recursive call to read the existing file
+- The recursion is safe: at most 2 levels (the first creates, the second reads)
 
-**Тесты:** 
-- Расширить `TestLoadTokenCreatesFile` — запустить два concurrent loadToken() и проверить, что оба получат одинаковый токен
-- Расширить `TestLoadIdentityCreatesFile` — аналогично для identity
+**Tests:** 
+- Extend `TestLoadTokenCreatesFile` — run two concurrent loadToken() calls and verify that both get the same token
+- Extend `TestLoadIdentityCreatesFile` — same for identity
 
 ---
 
-## Порядок выполнения
+## Execution order
 
-1. **Fix timing attack** (task #1) — независимое изменение, простое
-2. **Fix event subscription race** (task #2) — независимое изменение, простое
-3. **Add timeouts to netdetect** (task #3) — независимое изменение, средняя сложность
-4. **Fix token race** (task #4) — средняя сложность
-5. **Fix identity race** (task #5) — аналогично #4, можно копировать паттерн
-6. **Add tests** (task #6) — после всех исправлений, проверяем correctness
+1. **Fix timing attack** (task #1) — independent change, simple
+2. **Fix event subscription race** (task #2) — independent change, simple
+3. **Add timeouts to netdetect** (task #3) — independent change, medium complexity
+4. **Fix token race** (task #4) — medium complexity
+5. **Fix identity race** (task #5) — similar to #4, can copy the pattern
+6. **Add tests** (task #6) — after all fixes, verify correctness
 
-## Проверка
+## Verification
 
-После всех изменений:
-1. Запустить существующие тесты: `go test ./cmd/relay -v`
-2. Запустить новые тесты для security fixes
-3. Проверить, что relay стартует и отвечает на `/pair`
-4. Проверить, что WebSocket клиенты получают events
+After all changes:
+1. Run the existing tests: `go test ./cmd/relay -v`
+2. Run the new tests for the security fixes
+3. Verify that the relay starts and responds to `/pair`
+4. Verify that WebSocket clients receive events
 
-## Риски и компромиссы
+## Risks and trade-offs
 
-**Минимальные изменения:** Все исправления локальны, не меняют публичные API или behaviour (кроме исправления bugs).
+**Minimal changes:** All fixes are local and do not change public APIs or behavior (except for fixing bugs).
 
 **Backwards compatibility:** 
-- Token/identity файлы, созданные старой версией, читаются новой версией без проблем
-- Новая версия создаёт файлы в том же формате
+- Token/identity files created by the old version are read by the new version without issues
+- The new version creates files in the same format
 
 **Performance:** 
-- `subtle.ConstantTimeCompare` добавляет ~microseconds на каждый HTTP request — незаметно
-- `context.WithTimeout` для exec.Command не влияет на happy path (команды выполняются быстро)
-- O_EXCL в loadToken/loadIdentity вызывается один раз при старте — нет impact
+- `subtle.ConstantTimeCompare` adds ~microseconds per HTTP request — imperceptible
+- `context.WithTimeout` for exec.Command does not affect the happy path (commands execute quickly)
+- O_EXCL in loadToken/loadIdentity is called once at startup — no impact
 
-**Concurrency:** Race conditions исправлены, concurrent старт relay процессов теперь безопасен.
+**Concurrency:** Race conditions are fixed; concurrent startup of relay processes is now safe.

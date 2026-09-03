@@ -8,7 +8,7 @@ herdr_relay/
 ├── 📄 LICENSE                      ← MIT лицензия
 ├── 📄 CHANGELOG.md                 ← История изменений
 ├── 📄 RELEASE_CHECKLIST.md         ← Чеклист перед релизом
-├── 📄 RELEASE_GUIDE_RU.md          ← ⭐ НАЧНИ ОТСЮДА (на русском)
+├── 📄 RELEASE_GUIDE.md             ← ⭐ НАЧНИ ОТСЮДА
 │
 ├── 🔧 quick-start.sh               ← Скрипт быстрой установки
 ├── 🔧 relay-status.sh              ← Проверка статуса relay
@@ -57,7 +57,7 @@ herdr_relay/
 - ✅ **Issue templates** — структурированные bug reports и feature requests
 
 ### 3. Гайды для тебя
-- ✅ **RELEASE_GUIDE_RU.md** — краткая сводка на русском
+- ✅ **RELEASE_GUIDE.md** — краткая сводка по релизу
 - ✅ **RELEASE_CHECKLIST.md** — что проверить перед публикацией
 - ✅ **docs/COMMUNITY_RELEASE.md** — стратегия анонса с шаблонами
 
@@ -151,4 +151,4 @@ herdr plugin action invoke show-pair-link --plugin herdrelay.events
 
 **Готов к релизу! 🚀**
 
-Начни с **RELEASE_GUIDE_RU.md** — там вся информация кратко и по делу.
+Начни с **RELEASE_GUIDE.md** — там вся информация кратко и по делу.

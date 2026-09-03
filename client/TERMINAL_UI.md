@@ -1,19 +1,19 @@
-# Terminal UI - Интерактивные кнопки
+# Terminal UI - Interactive buttons
 
-## Концепция
+## Concept
 
-Вместо набора статичных кнопок с непонятными функциями (Esc, Ctrl-L, Ctrl-D и т.д.), терминал теперь показывает **только релевантные действия**:
+Instead of a set of static buttons with unclear functions (Esc, Ctrl-L, Ctrl-D, etc.), the terminal now shows **only relevant actions**:
 
-1. **Ctrl-C** - всегда доступна (прервать агента)
-2. **Умные кнопки** - появляются автоматически, парся реальные варианты из вывода агента
+1. **Ctrl-C** - always available (interrupt the agent)
+2. **Smart buttons** - appear automatically, parsing real options from the agent's output
 
-## Как работает парсинг
+## How parsing works
 
-Когда агент в статусе `blocked`, анализируется вывод для поиска вариантов ответа. Парсер использует **только чёткие паттерны**, не угадывает:
+When the agent is in the `blocked` status, the output is analyzed to find response options. The parser uses **only clear patterns**, it doesn't guess:
 
-### Стратегия 1: Inline опции в последней строке
+### Strategy 1: Inline options in the last line
 
-Распознаёт встроенные варианты в скобках или через слэш:
+Recognizes inline options in parentheses or separated by a slash:
 
 ```
 Do you want to proceed? (y/n)          → кнопки: Y, N
@@ -21,14 +21,14 @@ Would you like to continue? [yes/no]   → кнопки: Yes, No
 Please accept/reject this change       → кнопки: Accept, Reject
 ```
 
-**Паттерны:**
-- `(option1/option2)` - в круглых скобках
-- `[option1/option2]` - в квадратных скобках  
-- `option1/option2` - просто через слэш (только в последней строке)
+**Patterns:**
+- `(option1/option2)` - in parentheses
+- `[option1/option2]` - in square brackets  
+- `option1/option2` - simply separated by a slash (only in the last line)
 
-### Стратегия 2: Вопросительные предложения
+### Strategy 2: Question sentences
 
-Если последние строки содержат вопрос с ключевыми фразами:
+If the last lines contain a question with key phrases:
 
 ```
 Would you like to...?    → кнопки: Yes, No
@@ -37,9 +37,9 @@ Should I...?             → кнопки: Yes, No
 Can I...?                → кнопки: Yes, No
 ```
 
-### Стратегия 3: Нумерованные варианты
+### Strategy 3: Numbered options
 
-Распознаёт списки с номерами:
+Recognizes lists with numbers:
 
 ```
 Please choose:
@@ -48,15 +48,15 @@ Please choose:
 3. Skip this step        → кнопка: "Skip this step" (отправляет "3")
 ```
 
-**Паттерны:**
-- `1. текст` - с точкой
-- `1) текст` - со скобкой
+**Patterns:**
+- `1. text` - with a period
+- `1) text` - with a parenthesis
 
-Показывает от 2 до 6 вариантов. Длинные тексты обрезаются до 40 символов.
+Shows between 2 and 6 options. Long texts are truncated to 40 characters.
 
-### Стратегия 4: Checkbox списки (пропускаются)
+### Strategy 4: Checkbox lists (skipped)
 
-Если встречается список с чек-боксами, он **НЕ** распознаётся как варианты ответа:
+If a list with checkboxes is encountered, it is **NOT** recognized as response options:
 
 ```
 ◻ Task one
@@ -64,43 +64,43 @@ Please choose:
 ◼ Task three (done)
 ```
 
-Это список задач, а не варианты выбора.
+This is a task list, not a choice of options.
 
-## Что НЕ распознаётся
+## What is NOT recognized
 
-Парсер **НЕ угадывает** варианты по ключевым словам в тексте. Например:
+The parser does **NOT guess** options from keywords in the text. For example:
 
 ```
 You can continue working or skip this step.
 ```
 
-Кнопки **НЕ появятся**, потому что нет чёткого паттерна (нет "(continue/skip)", нет нумерации).
+Buttons will **NOT appear**, because there is no clear pattern (no "(continue/skip)", no numbering).
 
-Это сделано специально, чтобы избежать ложных срабатываний.
+This is done deliberately to avoid false positives.
 
-## Примеры работы
+## Examples of how it works
 
-### Пример 1: Простой yes/no
-**Вывод агента:**
+### Example 1: Simple yes/no
+**Agent output:**
 ```
 ✻ File already exists. Overwrite? (y/n)
 ❯
 ```
 
-**Кнопки:** `Y` `N`
+**Buttons:** `Y` `N`
 
-### Пример 2: Развёрнутые варианты
-**Вывод агента:**
+### Example 2: Expanded options
+**Agent output:**
 ```
 ✻ This operation requires confirmation.
   Would you like to proceed? [yes/no]
 ❯
 ```
 
-**Кнопки:** `Yes` `No`
+**Buttons:** `Yes` `No`
 
-### Пример 3: Множественный выбор
-**Вывод агента:**
+### Example 3: Multiple choice
+**Agent output:**
 ```
 ✻ Select migration strategy:
   1. Incremental migration (safer)
@@ -110,31 +110,31 @@ You can continue working or skip this step.
 ❯
 ```
 
-**Кнопки:** `Incremental migration (safer)` `Full rewrite (faster)` `Keep both versions` `Cancel operation`
+**Buttons:** `Incremental migration (safer)` `Full rewrite (faster)` `Keep both versions` `Cancel operation`
 
-Нажатие отправляет: `1`, `2`, `3`, `4` соответственно.
+Pressing sends: `1`, `2`, `3`, `4` respectively.
 
-### Пример 4: Inline actions
-**Вывод агента:**
+### Example 4: Inline actions
+**Agent output:**
 ```
 ✻ Changes ready. You can approve/reject or skip this file.
 ❯
 ```
 
-**Кнопки:** `Approve` `Reject` `Skip`
+**Buttons:** `Approve` `Reject` `Skip`
 
-## Код
+## Code
 
-### Парсинг (agent_page.dart:435-545)
+### Parsing (agent_page.dart:435-545)
 
-Основная логика в `_parseSuggestedActions()`:
+The main logic is in `_parseSuggestedActions()`:
 
-1. Работает только когда `agent.status == 'blocked'`
-2. Анализирует последние 50 строк вывода
-3. Находит последнюю непустую строку (обычно это промпт)
-4. Применяет стратегии парсинга по приоритету (1→2→3→4)
-5. Останавливается на первой успешной стратегии
-6. **Не угадывает** - если паттерн не найден, кнопки не появляются
+1. Works only when `agent.status == 'blocked'`
+2. Analyzes the last 50 lines of output
+3. Finds the last non-empty line (usually the prompt)
+4. Applies parsing strategies by priority (1→2→3→4)
+5. Stops at the first successful strategy
+6. **Does not guess** - if no pattern is found, the buttons do not appear
 
 ```dart
 void _parseSuggestedActions(String output) {
@@ -151,7 +151,7 @@ void _parseSuggestedActions(String output) {
 
 ### UI (agent_page.dart:265-286)
 
-Кнопки показываются только если `_suggestedActions` не пуст:
+Buttons are shown only if `_suggestedActions` is not empty:
 
 ```dart
 if (_suggestedActions.isNotEmpty) ...[
@@ -170,48 +170,48 @@ if (_suggestedActions.isNotEmpty) ...[
 ],
 ```
 
-## Преимущества нового парсера
+## Benefits of the new parser
 
-✅ **Точность** - парсит только чёткие паттерны, не угадывает  
-✅ **Нет ложных срабатываний** - если паттерн не найден, кнопки не появляются  
-✅ **Приоритеты** - inline опции важнее вопросов, вопросы важнее списков  
-✅ **Очистка текста** - убирает ANSI escape коды, обрезает длинные строки  
-✅ **Умная фильтрация** - не показывает task lists как варианты ответа  
-✅ **Простота** - всего 4 стратегии, легко понять и расширить
+✅ **Accuracy** - parses only clear patterns, doesn't guess  
+✅ **No false positives** - if no pattern is found, the buttons don't appear  
+✅ **Priorities** - inline options take precedence over questions, questions over lists  
+✅ **Text cleanup** - strips ANSI escape codes, truncates long lines  
+✅ **Smart filtering** - does not show task lists as response options  
+✅ **Simplicity** - only 4 strategies, easy to understand and extend
 
-## Ограничения
+## Limitations
 
-- Парсер работает только с текстовым выводом (не понимает rich UI)
-- Если агент не форматирует варианты чётко, кнопки могут не появиться
-- Максимум 6 вариантов в нумерованном списке (иначе UI переполнится)
-- Текст на кнопках обрезается до 40 символов
+- The parser only works with text output (doesn't understand rich UI)
+- If the agent doesn't format options clearly, the buttons may not appear
+- Maximum of 6 options in a numbered list (otherwise the UI overflows)
+- Button text is truncated to 40 characters
 
-## Тесты
+## Tests
 
-Два теста покрывают основные сценарии:
+Two tests cover the main scenarios:
 
-1. **Inline опции:** `(y/n)` → кнопки `Y`, `N`
-2. **Нумерованный список:** `1. Option` → кнопка с текстом опции, отправляет номер
+1. **Inline options:** `(y/n)` → buttons `Y`, `N`
+2. **Numbered list:** `1. Option` → button with the option's text, sends the number
 
 ```dart
 testWidgets('предложенные действия появляются когда агент blocked с yes/no', ...);
 testWidgets('предложенные действия парсят нумерованные варианты', ...);
 ```
 
-## Что удалено
+## What was removed
 
-- ❌ Ctrl-Z, Esc, Ctrl-L, Ctrl-D, Enter - непонятные и не нужные
-- ❌ "Быстрые команды" меню с выдуманными командами
-- ❌ Группировка кнопок по цветам
-- ❌ Выдумывание кнопок на основе ключевых слов без контекста
+- ❌ Ctrl-Z, Esc, Ctrl-L, Ctrl-D, Enter - confusing and unnecessary
+- ❌ "Quick commands" menu with made-up commands
+- ❌ Grouping buttons by color
+- ❌ Making up buttons based on keywords without context
 
-Осталось только:
-- ✅ Ctrl-C (всегда видна)
-- ✅ Умные кнопки, распарсенные из реального вывода агента
+Only this remains:
+- ✅ Ctrl-C (always visible)
+- ✅ Smart buttons parsed from the agent's real output
 
-## Расширение
+## Extension
 
-Чтобы добавить новый паттерн, добавьте стратегию в `_parseSuggestedActions()`:
+To add a new pattern, add a strategy to `_parseSuggestedActions()`:
 
 ```dart
 // Strategy 6: Custom pattern
@@ -222,4 +222,4 @@ if (lastNonEmpty.contains('your_custom_pattern')) {
 }
 ```
 
-Стратегии выполняются сверху вниз. Первая успешная останавливает парсинг.
+Strategies run from top to bottom. The first successful one stops the parsing.

@@ -1,241 +1,251 @@
-# 08 — Исполнительный план (лупы, контрольные точки, проверки)
+# 08 — Execution Plan (loops, gates, checks)
 
-> **Исторический документ.** План этапов (включая фазы рефакторинга клиента и
-> слои `WsRelayClient`/`provider`, упомянутые в тексте ниже) выполнен — текущая
-> архитектура клиента описана в [05 — Flutter-приложение](05-flutter-app.md),
-> ход и результат рефакторинга — в [09 — План рефакторинга](09-refactoring-plan.md).
+> **Historical document.** The phased plan (including the client refactoring
+> phases and the `WsRelayClient`/`provider` layers mentioned below) has been
+> completed — the current client architecture is described in
+> [05 — Flutter App](05-flutter-app.md), the refactoring progress and outcome
+> in [09 — Refactoring Plan](09-refactoring-plan.md).
 
-Этот документ превращает архитектуру (01–07) в пошаговый план работы.
-Проект делается **лупами** — законченными итерациями, которые можно запустить
-и потрогать.
+This document turns the architecture (01–07) into a step-by-step work plan.
+The project is built in **loops** — complete iterations you can launch and try
+out.
 
-## Правила игры
+## Ground rules
 
-- Каждый луп = **законченный кусок** + **контрольная точка (гейт)** — список
-  проверок, которые обязаны пройти.
-- **Гейт красный → не идём дальше**: чиним луп, пока проверки не зазеленеют.
-- Проверки запускаются командами из раздела «проверки» лупа.
-- Между лупами — общий контур обратной связи: пишем → запускаем → проверяем →
-  чиним/фиксируем → берём следующий луп. Всё крутится на ноуте (релей) и на
-  телефоне/симуляторе (клиент).
-- Лупы релей/плагин/клиент можно вести параллельно, но гейты лупов
-  выполняются в порядке слоёв: релей → плагин → клиент → сквозной.
-- «Проверенные факты» дополняются по мере работы — это копилка того, что уже
-  подтверждено живьём и на что можно опираться без перепроверки.
+- Each loop = **a complete piece of work** + **a gate** — a list of checks
+  that must pass.
+- **Gate red → don't move on**: fix the loop until the checks turn green.
+- Checks are run with the commands in the loop's "checks" section.
+- Between loops there is a shared feedback loop: write → run → check →
+  fix/commit → take the next loop. Everything runs on the laptop (relay) and
+  on the phone/simulator (client).
+- Relay/plugin/client loops can proceed in parallel, but loop gates pass in
+  layer order: relay → plugin → client → end-to-end.
+- "Verified facts" grow as work progresses — a store of what has been
+  confirmed live and can be relied on without re-checking.
 
-## Проверенные факты (закрыты на старте, дополняется по мере работы)
+## Verified facts (confirmed at the start, expands as work progresses)
 
-- herdr 0.8.0, сокет `~/.config/herdr/herdr.sock`, protocol 19.
-- Таргет агента для `read/send-keys/prompt` — **`pane_id`** (имя неуникально:
-  в снимке две `kimi`). Проверено живьём: `herdr agent read wG:p1 --lines 5
-  --format text` отдаёт текст терминала; `--format ansi` — с ANSI-кодами.
-- `herdr agent send-keys <TARGET> <KEY>...` (клавиши — отдельными аргументами,
-  `esc` каноническое имя Esc).
+- herdr 0.8.0, socket `~/.config/herdr/herdr.sock`, protocol 19.
+- The agent target for `read/send-keys/prompt` is **`pane_id`** (the name is
+  non-unique: two `kimi` in the snapshot). Verified live:
+  `herdr agent read wG:p1 --lines 5 --format text` returns the terminal text;
+  `--format ansi` — with ANSI codes.
+- `herdr agent send-keys <TARGET> <KEY>...` (keys are separate arguments,
+  `esc` is the canonical name for Esc).
 - `herdr agent prompt <TARGET> <TEXT> [--wait] [--until STATUS]`.
-- `herdr api snapshot` / `agent list` отдают JSON-конверт
+- `herdr api snapshot` / `agent list` return a JSON envelope
   `{"id":..., "result":{...}}`.
-- Событийный хук плагина: herdr передаёт событие через env
-  **`HERDR_PLUGIN_EVENT_JSON`** в формате `{"data":{...}}` (pane_id, tab_id,
-  tab_label, workspace_id, agent_status, agent, display_agent, cwd, ...). Имя
-  события в env не приходит — его фиксирует манифест плагина
-  (`pane.agent_status_changed`), релей подставляет каноническое имя сам.
-- `pane.agent_status_changed` подтверждено живьём: после `herdr plugin link`
-  события реально стреляли при смене статуса агента (`herdr plugin log list`
-  → status=succeeded, exit_code=0), WS-клиент получал событие с полным `data`
-  — E2E, не эмуляция.
-- **Хуки herdr НЕ умеют события вывода терминала**: `pane.updated`,
-  `pane.output_changed`, `pane.scroll_changed` → «unknown event» (проверено
-  брутфорсом на 0.8.0). Живой вывод через плагин невозможен — только через сокет.
-- **Сокет-подписка (Б-lite)**: unix-сокет herdr — newline-делимитед JSON-RPC 2.0,
-  id запроса — строка. Запрос `events.subscribe` с полем `subscriptions`.
-  Входящие нотификации плоские: `{"event":"pane.scroll_changed","data":{pane_id,
+- Plugin event hook: herdr passes the event via the env var
+  **`HERDR_PLUGIN_EVENT_JSON`** in the form `{"data":{...}}` (pane_id, tab_id,
+  tab_label, workspace_id, agent_status, agent, display_agent, cwd, ...). The
+  event name does not arrive in the env — the plugin manifest fixes it
+  (`pane.agent_status_changed`), and the relay substitutes the canonical name
+  itself.
+- `pane.agent_status_changed` confirmed live: after `herdr plugin link`,
+  events really fired on agent status changes (`herdr plugin log list`
+  → status=succeeded, exit_code=0), and the WS client received the event with
+  full `data` — E2E, not an emulation.
+- **herdr hooks CANNOT deliver terminal output events**: `pane.updated`,
+  `pane.output_changed`, `pane.scroll_changed` → "unknown event" (verified by
+  brute force on 0.8.0). Live output via the plugin is impossible — only via
+  the socket.
+- **Socket subscription (B-lite)**: the herdr unix socket is
+  newline-delimited JSON-RPC 2.0, request id is a string. The
+  `events.subscribe` request carries the `subscriptions` field. Incoming
+  notifications are flat: `{"event":"pane.scroll_changed","data":{pane_id,
   scroll:{max_offset_from_bottom, offset_from_bottom, viewport_rows},
-  workspace_id}}` и `{"event":"pane_updated","data":{"pane":{...}}}`.
-- Токен релея: `~/.config/herdr/herdrelay.token` (0600, 64 hex); env
-  `HERDRELAY_TOKEN` — приоритет. Порт по умолчанию 8375 (env `HERDRELAY_PORT`).
-- При `herdr plugin link` (в отличие от `install`) `[[build]]` herdr **не
-  выполняет** — локально релей ставится вручную: `bash plugin/install.sh`.
+  workspace_id}}` and `{"event":"pane_updated","data":{"pane":{...}}}`.
+- Relay token: `~/.config/herdr/herdrelay.token` (0600, 64 hex); env
+  `HERDRELAY_TOKEN` takes precedence. Default port 8375 (env `HERDRELAY_PORT`).
+- With `herdr plugin link` (unlike `install`), herdr does **not** run
+  `[[build]]` — locally the relay is installed manually:
+  `bash plugin/install.sh`.
 
-## Лупы релея (Go, `cmd/relay`)
+## Relay loops (Go, `cmd/relay`)
 
-### L0. Каркас: конфиг, токен, HTTP, `/healthz` — ✅ реализовано
+### L0. Scaffold: config, token, HTTP, `/healthz` — ✅ implemented
 
-- `main.go` — запуск, env-конфиг, `loadOrCreateToken`.
-- HTTP-сервер: `/healthz`, auth-middleware (Bearer) на всё кроме `/healthz`.
-- Токен: генерируется при первом запуске (32 байта hex), хранится в
-  `~/.config/herdr/herdrelay.token` (0600), из env `HERDRELAY_TOKEN` — приоритет.
+- `main.go` — startup, env config, `loadOrCreateToken`.
+- HTTP server: `/healthz`, auth middleware (Bearer) on everything except `/healthz`.
+- Token: generated on first run (32 bytes hex), stored in
+  `~/.config/herdr/herdrelay.token` (0600), env `HERDRELAY_TOKEN` takes precedence.
 
-Проверки L0 (все прошли):
+L0 checks (all passed):
 ```bash
 go build ./... && go vet ./...
-./bin/relay &                          # токен напечатан/создан
+./bin/relay &                          # token printed/created
 curl -s localhost:8375/healthz         # {"ok":true}
-curl -s -i localhost:8375/api/snapshot # 401 без токена
+curl -s -i localhost:8375/api/snapshot # 401 without token
 ```
 
-### L1. herdr v1: snapshot + read/keys/prompt по HTTP — ✅ реализовано
+### L1. herdr v1: snapshot + read/keys/prompt over HTTP — ✅ implemented
 
-- `herdr.go` — тонкая обёртка CLI (subprocess), интерфейс `AgentAPI`.
-- `GET /api/snapshot` → агенты+статусы; `GET /api/agents/{pane_id}/output`;
+- `herdr.go` — thin CLI wrapper (subprocess), `AgentAPI` interface.
+- `GET /api/snapshot` → agents+statuses; `GET /api/agents/{pane_id}/output`;
   `POST /api/agents/{pane_id}/keys`; `POST /api/agents/{pane_id}/prompt`.
 
-Проверки L1 (все прошли):
+L1 checks (all passed):
 ```bash
-curl -s -H "Authorization: Bearer $T" localhost:8375/api/snapshot  # живые агенты
+curl -s -H "Authorization: Bearer $T" localhost:8375/api/snapshot  # live agents
 curl -s -H "Authorization: Bearer $T" \
-  "localhost:8375/api/agents/<pane_id>/output?lines=20"            # текст терминала
-# сравнить с: herdr agent read <pane_id> --lines 20 --format text
+  "localhost:8375/api/agents/<pane_id>/output?lines=20"            # terminal text
+# compare with: herdr agent read <pane_id> --lines 20 --format text
 ```
 
-### L2. WS-канал + события — ✅ реализовано
+### L2. WS channel + events — ✅ implemented
 
-- `ws.go` — хаб клиентов, JSON-конверт (request/response/event/ping/pong),
-  методы `agents.snapshot`, `agent.output`, `agent.keys`, `agent.prompt`.
-- `POST /api/events` (auth) `{"event":"...","data":{...}}` → рассылка по всем
-  WS-клиентам (эмуляция руками и для тестов).
-- `POST /api/events/herdr` (auth) — отдельный вход для плагина: принимает
-  сырой `HERDR_PLUGIN_EVENT_JSON` (`{"data":{...}}`) и рассылает с
-  каноническим именем `pane.agent_status_changed`.
+- `ws.go` — client hub, JSON envelope (request/response/event/ping/pong),
+  methods `agents.snapshot`, `agent.output`, `agent.keys`, `agent.prompt`.
+- `POST /api/events` (auth) `{"event":"...","data":{...}}` → broadcast to all
+  WS clients (manual emulation and for tests).
+- `POST /api/events/herdr` (auth) — a separate entry point for the plugin:
+  accepts the raw `HERDR_PLUGIN_EVENT_JSON` (`{"data":{...}}`) and broadcasts
+  it under the canonical name `pane.agent_status_changed`.
 
-Проверки L2 (все прошли):
+L2 checks (all passed):
 ```bash
-go test ./cmd/relay/ -run WS             # юнит: конверт request/response, ping/pong
-go test ./cmd/relay/ -run HerdrEvent     # юнит: POST /api/events/herdr → WS-клиенты
-# эмуляция события: curl -X POST -H "Authorization: Bearer $T" \
+go test ./cmd/relay/ -run WS             # unit: request/response envelope, ping/pong
+go test ./cmd/relay/ -run HerdrEvent     # unit: POST /api/events/herdr → WS clients
+# emulate an event: curl -X POST -H "Authorization: Bearer $T" \
 #   localhost:8375/api/events -d '{"event":"agent_status_changed","data":{}}'
-# WS-клиент получает {"type":"event",...}
+# the WS client receives {"type":"event",...}
 ```
 
-### L3. Пары и режимы: `/pair`, автодетект LAN/Tailscale — ✅ реализовано
+### L3. Pairs and modes: `/pair`, LAN/Tailscale auto-detection — ✅ implemented
 
-- `pair.go` — детект доступных режимов: LAN-IP (`ipconfig getifaddr en0` /
-  `hostname -I`), tailnet (`tailscale status --json` → MagicDNS-имя), funnel
-  (если включён), gateway (из env).
-- `GET /pair` → `{primary, urls:{mode→{url, link}}, token}`. QR рендерит
-  плагин/клиент.
-- Подкоманда `herdrelay pair [--qr]` — печатает режим / WS-url / ссылку;
-  `--qr` рисует ANSI-QR (qrterminal, half blocks) прямо в терминал herdr.
+- `pair.go` — detects available modes: LAN IP (`ipconfig getifaddr en0` /
+  `hostname -I`), tailnet (`tailscale status --json` → MagicDNS name), funnel
+  (if enabled), gateway (from env).
+- `GET /pair` → `{primary, urls:{mode→{url, link}}, token}`. The QR is
+  rendered by the plugin/client.
+- The `herdrelay pair [--qr]` subcommand — prints the mode / WS URL / link;
+  `--qr` draws an ANSI QR (qrterminal, half blocks) right into the herdr
+  terminal.
 
-Проверки L3 (все прошли):
+L3 checks (all passed):
 ```bash
 curl -s -H "Authorization: Bearer $T" localhost:8375/pair
-# в ответе: lan (192.168.x.x:8375) и tailscale (macbook-pro.tail….ts.net:8375),
-# если tailnet жив
-plugin/bin/herdrelay pair --qr        # ANSI-QR печатается в stdout
+# in the response: lan (192.168.x.x:8375) and tailscale (macbook-pro.tail….ts.net:8375),
+# if the tailnet is up
+plugin/bin/herdrelay pair --qr        # ANSI-QR printed to stdout
 ```
 
-### L5. Б-lite: живой вывод через сокет-подписку — ✅ реализовано
+### L5. B-lite: live output via socket subscription — ✅ implemented
 
-- `herdrevents.go` — подписчик на unix-сокет herdr: `events.subscribe` с
-  `pane.updated` (глобально) + `pane.scroll_changed` (по каждому pane_id).
-- Seed-снимок: при старте берём `herdr api snapshot` (seedKnown), чтобы
-  подписаться на уже существующие пейны; новые пейны подписываются
-  инкрементально по `pane_updated`.
-- Реконнект с бэкоффом 2s → 30s; на изменение скролла релей форвардит клиентам
-  событие `pane.output_changed` (data: `{pane_id, workspace_id}`).
-- Запуск из `main.go`; изолирован от HTTP-API.
+- `herdrevents.go` — subscriber to the herdr unix socket: `events.subscribe`
+  with `pane.updated` (globally) + `pane.scroll_changed` (per pane_id).
+- Seed snapshot: on startup we take `herdr api snapshot` (seedKnown) to
+  subscribe to already-existing panes; new panes are subscribed incrementally
+  via `pane_updated`.
+- Reconnect with backoff 2s → 30s; on a scroll change the relay forwards the
+  `pane.output_changed` event to clients (data: `{pane_id, workspace_id}`).
+- Started from `main.go`; isolated from the HTTP API.
 
-Проверки L5:
+L5 checks:
 ```bash
-go build ./... && go vet ./... && go test ./...  # зелёное
-launchctl print gui/$(id -u)/com.herdrelay.relay  # релей жив, подписчик стартовал
-# живой тест: печатаешь в терминале агента → клиент обновляет вывод по
-# pane.output_changed (debounce ~400мс)
+go build ./... && go vet ./... && go test ./...  # green
+launchctl print gui/$(id -u)/com.herdrelay.relay  # relay alive, subscriber started
+# live test: type in the agent terminal → the client updates the output via
+# pane.output_changed (debounce ~400ms)
 ```
 
-## Лупы плагина herdr (`plugin/`)
+## herdr plugin loops (`plugin/`)
 
-### L4. Плагин: манифест, QR-пейн, on-event, launchd — ✅ реализовано
+### L4. Plugin: manifest, QR pane, on-event, launchd — ✅ implemented
 
 - `herdr-plugin.toml` (id `herdrelay.events`):
-  - `[[build]]` → `install.sh` (сборка релея + launchd);
+  - `[[build]]` → `install.sh` (relay build + launchd);
   - `[[events]]` on `pane.agent_status_changed` → `on-event.sh`;
   - `[[actions]]` `show-pair-link` → `open-pane.sh setup`;
   - `[[panes]]` `setup` (placement zoomed) → `setup-menu.sh`.
-- `on-event.sh` — читает `HERDR_PLUGIN_EVENT_JSON`, `curl -X POST
-  http://127.0.0.1:8375/api/events/herdr` с Bearer-токеном из
-  `~/.config/herdr/herdrelay.token`; при любой ошибке `exit 0` (не мешать herdr).
-- `install.sh` — `go build` релея из корня репо в `bin/herdrelay`, ставит
-  launchd-юнит `com.herdrelay.relay` (RunAtLoad + KeepAlive, логи в
-  `${XDG_STATE_HOME:-$HOME/.local/state}/herdrelay/`, env `HERDRELAY_MODE=lan`),
-  healthz-проверка.
-- `setup-menu.sh` — статус релея + `bin/herdrelay pair --qr` + инструкция.
+- `on-event.sh` — reads `HERDR_PLUGIN_EVENT_JSON`, `curl -X POST
+  http://127.0.0.1:8375/api/events/herdr` with the Bearer token from
+  `~/.config/herdr/herdrelay.token`; on any error `exit 0` (don't disturb herdr).
+- `install.sh` — `go build` of the relay from the repo root into
+  `bin/herdrelay`, installs the launchd unit `com.herdrelay.relay`
+  (RunAtLoad + KeepAlive, logs in
+  `${XDG_STATE_HOME:-$HOME/.local/state}/herdrelay/`, env
+  `HERDRELAY_MODE=lan`), healthz check.
+- `setup-menu.sh` — relay status + `bin/herdrelay pair --qr` + instructions.
 - `open-pane.sh` — `herdr plugin pane open --plugin herdrelay.events
   --entrypoint setup --placement zoomed --focus`.
 
-Проверки L4 (все прошли):
+L4 checks (all passed):
 ```bash
-bash plugin/install.sh              # собран bin/herdrelay, launchd, "relay is running on :8375"
-launchctl print gui/$(id -u)/com.herdrelay.relay   # state=running, pid, пути логов
+bash plugin/install.sh              # built bin/herdrelay, launchd, "relay is running on :8375"
+launchctl print gui/$(id -u)/com.herdrelay.relay   # state=running, pid, log paths
 herdr plugin link ~/herdr-relay/plugin
 herdr plugin list                   # herdrelay.events (HerdRelay) enabled [local:...]
 herdr plugin action list --plugin herdrelay.events # show-pair-link
-# живые события (не эмуляция): сменить статус агента → 
+# live events (not an emulation): change the agent status →
 #   herdr plugin log list --plugin herdrelay.events → status=succeeded, exit_code=0
-#   подключённый WS-клиент получает pane.agent_status_changed с полным data
+#   the connected WS client receives pane.agent_status_changed with full data
 ```
-QR-пейн в живом TUI проверяется руками (открывает zoomed-пейн, не делаем без
-спроса): `herdr plugin action invoke show-pair-link --plugin herdrelay.events`.
+The QR pane in the live TUI is checked by hand (it opens a zoomed pane, we
+don't do it uninvited): `herdr plugin action invoke show-pair-link --plugin
+herdrelay.events`.
 
-## Лупы клиента Flutter (`client/`)
+## Flutter client loops (`client/`)
 
-### C1. Каркас + onboarding — ✅ реализовано (QR-скан проверен на телефоне по LAN)
+### C1. Scaffold + onboarding — ✅ implemented (QR scan verified on a phone over LAN)
 
-- Custom scheme `herdrelay://` (Info.plist / intent-filter), скан/вставка
-  ссылки, сохранение конфига, коннект к WS, healthz-проверка.
-- Реализовано: `PairConfig` (парсинг/валидация ссылки, wsUri/healthUri),
-  `ConfigStore` (SharedPreferences), `PairPage` (mobile_scanner + ручной ввод),
-  deep link в `main.dart` (app_links), `RelayClient` — абстрактный контракт для
-  UI, реализация по WS `WsRelayClient` (автореконнект с бэкоффом,
-  request/response, события, ping/pong); клиент создаётся на уровне приложения
-  (`main.dart`) и раздаётся всему дереву через `provider`
-  (`Provider<RelayClient>.value` — один WS-канал на список и детали, виден и
-  push-роутам); в тестах — подмена фейком `FakeRelayClient` через тот же
-  `Provider.value`.
+- Custom scheme `herdrelay://` (Info.plist / intent-filter), link scan/paste,
+  config saving, WS connection, healthz check.
+- Implemented: `PairConfig` (link parsing/validation, wsUri/healthUri),
+  `ConfigStore` (SharedPreferences), `PairPage` (mobile_scanner + manual
+  input), deep link in `main.dart` (app_links), `RelayClient` — an abstract
+  contract for the UI, WS-backed implementation `WsRelayClient`
+  (auto-reconnect with backoff, request/response, events, ping/pong); the
+  client is created at the app level (`main.dart`) and handed to the whole
+  tree via `provider` (`Provider<RelayClient>.value` — a single WS channel
+  for the list and details, also visible to push routes); in tests it is
+  replaced by the `FakeRelayClient` fake through the same `Provider.value`.
 
-Проверки C1:
+C1 checks:
 ```bash
-cd client && flutter analyze && flutter test   # зелёное (53 теста)
-cd client && flutter run                # на телефоне в одной сети — пройдено по LAN
-# навести на QR (L4) -> приложение открылось и подключилось
+cd client && flutter analyze && flutter test   # green (53 tests)
+cd client && flutter run                # on a phone on the same network — verified over LAN
+# point at the QR (L4) -> the app opened and connected
 ```
 
-### C2. Список агентов — ✅ код
+### C2. Agent list — ✅ code
 
-- Снимок + обновления по событиям (`pane.agent_status_changed` → переснапшот),
-  **blocked сверху** (сортировка `RelayAgent.sorted` + подсветка карточки),
+- Snapshot + updates on events (`pane.agent_status_changed` → re-snapshot),
+  **blocked on top** (`RelayAgent.sorted` ordering + card highlighting),
   pull-to-refresh.
 
-### C3. Терминал-детали — ✅ код
+### C3. Terminal details — ✅ code
 
-- `AgentPage`: вывод терминала (`agent.output`, моноширинный тёмный терминал,
-  автоскролл, **живое обновление по `pane.output_changed` с debounce ~400мс**),
-  строка ввода (`agent.prompt`), быстрые клавиши Esc и Ctrl-C (`agent.keys`).
-  Один общий WS-клиент на список и детали.
-- ANSI-цвета — своим SGR-парсером в `widgets/ansi_terminal.dart` (TextSpan,
-  тёмная тема, softWrap); тёмная тема всего приложения — в `main.dart`.
-- Покрытие виджет-тестами (`test/agent_page_test.dart`, `test/home_page_test.dart`,
-  `test/fakes/fake_relay_client.dart`): рендер вывода, отправка промпта,
-  клавиши, обновление статуса по событию, сортировка blocked-сверху,
-  навигация в детали, экран ошибки.
+- `AgentPage`: terminal output (`agent.output`, monospaced dark terminal,
+  auto-scroll, **live updates on `pane.output_changed` with a ~400 ms
+  debounce**), input line (`agent.prompt`), quick keys Esc and Ctrl-C
+  (`agent.keys`). A single shared WS client for the list and details.
+- ANSI colors — via our own SGR parser in `widgets/ansi_terminal.dart`
+  (TextSpan, dark theme, softWrap); the whole app's dark theme lives in
+  `main.dart`.
+- Covered by widget tests (`test/agent_page_test.dart`, `test/home_page_test.dart`,
+  `test/fakes/fake_relay_client.dart`): output rendering, prompt sending,
+  keys, status updates on events, blocked-on-top ordering, navigation to
+  details, error screen.
 
-### C4. Сквозной гейт MVP (телефон) — ✅ LAN, [ ] B1
+### C4. End-to-end MVP gate (phone) — ✅ LAN, [ ] B1
 
-Проверки C4 (всё руками с телефона):
-1. [x] Дома по LAN (режим A): скан QR → список → вывод → промпт → вижу ответ.
-2. [ ] С улицы через tailnet (B1): то же самое.
-3. [x] blocked-агент подсвечен сверху; ответ на него уходит за < 2 c.
+C4 checks (all by hand from the phone):
+1. [x] At home over LAN (mode A): scan QR → list → output → prompt → I see the answer.
+2. [ ] From outside via tailnet (B1): the same.
+3. [x] The blocked agent is highlighted on top; the answer to it arrives in under 2 s.
 
-## Полировка и харденинг (после MVP)
+## Polish and hardening (after MVP)
 
-- `flutter_xterm`/настоящий скроллбэк, локальные нотификации, funnel (B2).
-- Гейтвей (C) + Docker-деплой (`cmd/gateway`, `deploy/`).
-- E2E-шифрование, push FCM, ротация токенов, несколько воркспейсов.
+- `flutter_xterm`/real scrollback, local notifications, funnel (B2).
+- Gateway (C) + Docker deployment (`cmd/gateway`, `deploy/`).
+- E2E encryption, FCM push, token rotation, multiple workspaces.
 
-## Финальный гейт MVP
+## Final MVP gate
 
-- [x] `go build ./... && go vet ./... && go test ./...` — зелёное.
-- [x] `flutter analyze` — без ошибок, **53** unit-теста зелёные.
-- [~] LAN (A) с телефона — ✅ пройдено живьём; tailnet (B1) с улицы — не проверено.
-- [x] События blocked долетают мгновенно (плагин, не эмуляция).
-- [x] Доки обновлены под фактическое поведение.
+- [x] `go build ./... && go vet ./... && go test ./...` — green.
+- [x] `flutter analyze` — no errors, **53** unit tests green.
+- [~] LAN (A) from the phone — ✅ verified live; tailnet (B1) from outside — not checked.
+- [x] Blocked events arrive instantly (plugin, not an emulation).
+- [x] Docs updated to match the actual behavior.
