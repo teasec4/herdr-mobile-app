@@ -51,7 +51,7 @@ func loadIdentity(cfg Config) (domain.Identity, error) {
 		}
 		return id, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	if _, err := f.Write(append(b, '\n')); err != nil {
 		return id, err

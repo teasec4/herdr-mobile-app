@@ -22,7 +22,7 @@ func unixSockPath(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("temp dir: %v", err)
 	}
-	t.Cleanup(func() { os.RemoveAll(dir) })
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	return filepath.Join(dir, "s.sock")
 }
 
@@ -61,7 +61,7 @@ func startFakeHerdr(t *testing.T, pace time.Duration, perConn ...[]string) *fake
 		f.conns <- c
 	}
 	go f.acceptLoop()
-	t.Cleanup(func() { ln.Close() })
+	t.Cleanup(func() { _ = ln.Close() })
 	return f
 }
 
@@ -76,7 +76,7 @@ func (f *fakeHerdrSocket) acceptLoop() {
 }
 
 func (f *fakeHerdrSocket) handle(conn net.Conn) {
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	scanner := bufio.NewScanner(conn)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
@@ -101,9 +101,9 @@ func (f *fakeHerdrSocket) handle(conn net.Conn) {
 		}
 		subscribed = true
 		// Response frame: the repository skips frames without an "event" field.
-		conn.Write([]byte(`{"jsonrpc":"2.0","id":"sub-0","result":{"status":"subscription_started"}}` + "\n"))
+		_, _ = conn.Write([]byte(`{"jsonrpc":"2.0","id":"sub-0","result":{"status":"subscription_started"}}` + "\n"))
 		for _, n := range notifications {
-			conn.Write([]byte(n + "\n"))
+			_, _ = conn.Write([]byte(n + "\n"))
 			if f.pace > 0 {
 				time.Sleep(f.pace)
 			}
@@ -153,7 +153,7 @@ func TestSocketEventRepositoryNormalizesAndForwardsRevision(t *testing.T) {
 	events := make(chan domain.Event, 16)
 	done := make(chan struct{})
 	go func() {
-		repo.Subscribe(events)
+		_ = repo.Subscribe(events)
 		close(done)
 	}()
 
@@ -190,7 +190,7 @@ func TestSocketEventRepositoryNormalizesAndForwardsRevision(t *testing.T) {
 		t.Fatalf("expected output_changed rev 8, got %#v", ocs[2])
 	}
 
-	repo.Close()
+	_ = repo.Close()
 	<-done
 }
 
@@ -210,7 +210,7 @@ func TestSocketEventRepositoryDebounce(t *testing.T) {
 	events := make(chan domain.Event, 16)
 	done := make(chan struct{})
 	go func() {
-		repo.Subscribe(events)
+		_ = repo.Subscribe(events)
 		close(done)
 	}()
 
@@ -221,7 +221,7 @@ func TestSocketEventRepositoryDebounce(t *testing.T) {
 		t.Fatalf("expected a single output_changed, got %#v", got[1:])
 	}
 
-	repo.Close()
+	_ = repo.Close()
 	<-done
 }
 
@@ -240,7 +240,7 @@ func TestSocketEventRepositoryStatusFieldsAndRestart(t *testing.T) {
 	events := make(chan domain.Event, 16)
 	done := make(chan struct{})
 	go func() {
-		repo.Subscribe(events)
+		_ = repo.Subscribe(events)
 		close(done)
 	}()
 
@@ -278,7 +278,7 @@ func TestSocketEventRepositoryStatusFieldsAndRestart(t *testing.T) {
 		t.Fatalf("status event lost herdr fields: %#v", as)
 	}
 
-	repo.Close()
+	_ = repo.Close()
 	<-done
 }
 
@@ -301,7 +301,7 @@ func TestSocketEventRepositoryDropsDeadPane(t *testing.T) {
 	events := make(chan domain.Event, 16)
 	done := make(chan struct{})
 	go func() {
-		repo.Subscribe(events)
+		_ = repo.Subscribe(events)
 		close(done)
 	}()
 
@@ -337,6 +337,6 @@ func TestSocketEventRepositoryDropsDeadPane(t *testing.T) {
 		t.Fatalf("subscribe after pane_not_found must not scope the dead pane: %s", subs[2])
 	}
 
-	repo.Close()
+	_ = repo.Close()
 	<-done
 }

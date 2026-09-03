@@ -22,6 +22,6 @@ func TestClientWriteQueueFull(t *testing.T) {
 // Close must be idempotent and never panic on double close.
 func TestClientCloseIdempotent(t *testing.T) {
 	c := NewClient(nil)
-	c.Close()
-	c.Close() // second close must be a no-op
+	_ = c.Close()
+	_ = c.Close() // second close must be a no-op
 }

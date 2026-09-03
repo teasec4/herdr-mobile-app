@@ -124,7 +124,7 @@ func (h *Handler) handleOutput(w http.ResponseWriter, r *http.Request, target st
 	// Return plain text output directly
 	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(output.Output))
+	_, _ = w.Write([]byte(output.Output))
 }
 
 func (h *Handler) handleKeys(w http.ResponseWriter, r *http.Request, target string) {

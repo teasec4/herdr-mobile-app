@@ -53,7 +53,7 @@ func (h *Hub) Broadcast(data []byte) {
 	for _, client := range clients {
 		if err := client.Write(data); err != nil {
 			log.Printf("ws: broadcast error: %v", err)
-			client.Close()
+			_ = client.Close()
 		}
 	}
 }
@@ -114,7 +114,7 @@ func (c *Client) StartWriter() {
 		case msg := <-c.send:
 			if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
 				log.Printf("ws: write error: %v", err)
-				c.Close()
+				_ = c.Close()
 				return
 			}
 		case <-c.done:
@@ -132,7 +132,7 @@ func (c *Client) Write(data []byte) error {
 		return nil
 	default:
 		log.Printf("ws: client queue full, closing slow consumer")
-		c.Close()
+		_ = c.Close()
 		return errors.New("ws: slow consumer, connection closed")
 	}
 }

@@ -22,7 +22,7 @@ func fetchPairInfo(base, token string) (domain.PairInfo, error) {
 	if err != nil {
 		return domain.PairInfo{}, fmt.Errorf("relay is not responding (%v) — start it (launchctl start / install.sh)", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		return domain.PairInfo{}, fmt.Errorf("relay responded %s: %s", resp.Status, strings.TrimSpace(string(b)))

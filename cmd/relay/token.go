@@ -35,7 +35,7 @@ func loadToken(cfg Config) (string, error) {
 		}
 		return "", err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	if _, err := f.WriteString(tok + "\n"); err != nil {
 		return "", err

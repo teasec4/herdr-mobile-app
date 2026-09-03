@@ -204,7 +204,7 @@ func (r *SocketEventRepository) subscribeOnce(events chan<- domain.Event, subscr
 		r.mu.Lock()
 		r.conn = nil
 		r.mu.Unlock()
-		conn.Close()
+		_ = conn.Close()
 	}()
 
 	// Subscribe to everything in a single events.subscribe message. pane.updated

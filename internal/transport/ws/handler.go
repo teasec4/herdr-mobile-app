@@ -43,7 +43,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	go client.StartWriter()
 	defer func() {
 		h.hub.Unregister(client)
-		client.Close()
+		_ = client.Close()
 	}()
 
 	for {

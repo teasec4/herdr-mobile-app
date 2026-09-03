@@ -100,7 +100,6 @@ Please choose an option:
 
   group('comma-separated numeric choice', () {
     test('"Choose one: 1, 2, 3" parses to 1/2/3', () {
-      final actions = parse('Choose one: 1, 2, 3');
       expect(responses('Choose one: 1, 2, 3'), ['1', '2', '3']);
     });
 

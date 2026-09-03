@@ -93,7 +93,7 @@ func TestAuth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("expected 401 without token, got %d", resp.StatusCode)
 	}
@@ -102,7 +102,7 @@ func TestAuth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 with token, got %d", resp.StatusCode)
 	}
@@ -116,7 +116,7 @@ func TestSnapshotAPI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var snap domain.Snapshot
 	if err := json.NewDecoder(resp.Body).Decode(&snap); err != nil {
@@ -172,7 +172,7 @@ func TestPairEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var info domain.PairInfo
 	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
@@ -427,7 +427,7 @@ func TestRPCEndpoint(t *testing.T) {
 
 	t.Run("unknown method returns error frame", func(t *testing.T) {
 		res := post(`{"type":"request","id":7,"method":"nope","params":{}}`)
-		defer res.Body.Close()
+		defer func() { _ = res.Body.Close() }()
 		var frame struct {
 			Type  string `json:"type"`
 			ID    int    `json:"id"`
@@ -450,7 +450,7 @@ func TestRPCEndpoint(t *testing.T) {
 
 	t.Run("agents.snapshot returns ok frame with agents", func(t *testing.T) {
 		res := post(`{"type":"request","id":8,"method":"agents.snapshot","params":{}}`)
-		defer res.Body.Close()
+		defer func() { _ = res.Body.Close() }()
 		var frame struct {
 			Type   string `json:"type"`
 			ID     int    `json:"id"`
@@ -469,7 +469,7 @@ func TestRPCEndpoint(t *testing.T) {
 
 	t.Run("rejects malformed frames", func(t *testing.T) {
 		res := post(`not json`)
-		defer res.Body.Close()
+		defer func() { _ = res.Body.Close() }()
 		if res.StatusCode != http.StatusBadRequest {
 			t.Fatalf("expected 400, got %d", res.StatusCode)
 		}
@@ -495,7 +495,7 @@ func TestEventStreamSSE(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sse connect: %v", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if ct := res.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/event-stream") {
 		t.Fatalf("unexpected content-type %q", ct)
 	}
@@ -545,7 +545,7 @@ func TestSpacesAPI(t *testing.T) {
 	// session.snapshot returns the full hierarchy.
 	t.Run("session.snapshot returns workspaces/panes/agents", func(t *testing.T) {
 		res := post(`{"type":"request","id":1,"method":"session.snapshot","params":{}}`)
-		defer res.Body.Close()
+		defer func() { _ = res.Body.Close() }()
 		var frame struct {
 			Type string `json:"type"`
 			OK   bool   `json:"ok"`
@@ -569,7 +569,7 @@ func TestSpacesAPI(t *testing.T) {
 	// agent.start launches an agent into a pane.
 	t.Run("agent.start returns ok", func(t *testing.T) {
 		res := post(`{"type":"request","id":2,"method":"agent.start","params":{"name":"codex","kind":"codex","pane_id":"wF:p5"}}`)
-		defer res.Body.Close()
+		defer func() { _ = res.Body.Close() }()
 		var frame struct {
 			Type   string `json:"type"`
 			OK     bool   `json:"ok"`
@@ -586,7 +586,7 @@ func TestSpacesAPI(t *testing.T) {
 	// agent.start with empty kind is rejected.
 	t.Run("agent.start rejects empty kind", func(t *testing.T) {
 		res := post(`{"type":"request","id":3,"method":"agent.start","params":{"name":"x","pane_id":"wF:p5"}}`)
-		defer res.Body.Close()
+		defer func() { _ = res.Body.Close() }()
 		var frame struct {
 			Type  string `json:"type"`
 			Error *struct{ Code string `json:"code"` } `json:"error"`
@@ -602,7 +602,7 @@ func TestSpacesAPI(t *testing.T) {
 	// workspace.create returns the new id and label.
 	t.Run("workspace.create returns id/label", func(t *testing.T) {
 		res := post(`{"type":"request","id":4,"method":"workspace.create","params":{"label":"mobile"}}`)
-		defer res.Body.Close()
+		defer func() { _ = res.Body.Close() }()
 		var frame struct {
 			Type   string `json:"type"`
 			OK     bool   `json:"ok"`
