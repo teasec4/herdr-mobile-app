@@ -10,6 +10,17 @@ the relay subscribes to herdr's unix socket directly (`events.subscribe`,
 has no `[[events]]` entry point (a hook used to duplicate socket-delivered
 statuses; see `docs/12-fix-plan.md` A1).
 
+## Requirements
+
+- **macOS only** for now — the `[[build]]` step installs a launchd service
+  (`~/Library/LaunchAgents/com.herdrelay.relay.plist`), which is
+  macOS-specific. Linux is not supported in the published plugin yet
+  (`platforms = ["macos"]` in the manifest).
+- **Go toolchain** (`go` on PATH) — required by `install.sh` to build the relay
+  binary from `../cmd/relay`. herdr reports a build failure if `go` is missing.
+- **herdr CLI** (≥ 0.8.0) and **curl** — used by the install step and the setup
+  pane.
+
 ## How the plugin talks to herdr
 
 A herdr plugin is **just a directory with a `herdr-plugin.toml` manifest and
@@ -57,7 +68,8 @@ it survives herdr restarts.
 herdr plugin link ~/herdr-relay/plugin
 bash plugin/install.sh                  # build the relay + launchd service
 
-# from GitHub:
+# from GitHub (unlink the local link first — herdr refuses to install over it):
+herdr plugin unlink herdrelay.events
 herdr plugin install teasec4/herdr-mobile-app/plugin
 
 # checks:

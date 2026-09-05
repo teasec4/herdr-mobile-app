@@ -18,7 +18,9 @@ name = "Herdr Mobile"
 version = "0.3.0"
 description = "Remote control for Herdr: monitor and check agents from your phone over LAN/Tailscale"
 min_herdr_version = "0.8.0"
-platforms = ["macos", "linux"]
+# macOS only for now: the [[build]] step installs a launchd service, which is
+# macOS-specific. Linux support may come later (systemd unit in install.sh).
+platforms = ["macos"]
 
 # Build the Go relay into bin/ and install the launchd service (macOS).
 [[build]]
