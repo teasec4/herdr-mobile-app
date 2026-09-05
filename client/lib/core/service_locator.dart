@@ -8,6 +8,7 @@ import '../controllers/session_controller.dart';
 import '../models/pair_config.dart';
 import '../repositories/agent_repository.dart';
 import '../services/app_settings.dart';
+import '../services/background_blocked_watch.dart';
 import '../services/command_history_service.dart';
 import '../services/config_store.dart';
 import '../services/notification_api.dart';
@@ -147,11 +148,16 @@ Future<void> setupRelayServices(
 
   // Local notifications for blocked agents while the app is in the background.
   // Created per relay connection: it binds to the live AgentRepository events.
+  // The optional syncBackgroundWatch wiring registers/cancels the WorkManager
+  // background task (Android) together with the notifications toggle.
   getIt.registerSingleton<NotificationService>(
     NotificationService(
       getIt<AgentRepository>(),
       getIt<AppSettings>(),
       getIt<NotificationApi>(),
+      syncBackgroundWatch: (bool enabled) => enabled
+          ? registerBackgroundWatch()
+          : cancelBackgroundWatch(),
     ),
   )..start();
 }

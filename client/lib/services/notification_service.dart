@@ -6,6 +6,9 @@ import '../models/relay_agent.dart';
 import '../models/relay_event.dart';
 import '../repositories/agent_repository.dart';
 import '../services/app_settings.dart';
+import 'background_blocked_watch.dart';
+import 'flutter_test_env_stub.dart' if (dart.library.io) 'flutter_test_env_io.dart'
+    as flutter_test_env;
 import 'notification_api.dart';
 import 'relay_client.dart';
 
@@ -24,16 +27,35 @@ import 'relay_client.dart';
 /// are lost — so on reconnect, and whenever the app drops into the
 /// background, the agent snapshot is re-read and any pane blocked in the
 /// meantime is notified from there ([_syncFromSnapshot]).
+///
+/// Long-background coverage (the OS suspended/killed the process) is handled
+/// by the periodic WorkManager task ([registerBackgroundWatch]) which
+/// re-checks the relay snapshot from a background isolate. While this service
+/// is active it keeps a foreground heartbeat fresh so the background task
+/// stays quiet (no duplicate notifications). [syncBackgroundWatch] is called
+/// with the current notifications toggle so production wiring can
+/// register/cancel that task; tests leave it null (disabled).
 class NotificationService with WidgetsBindingObserver {
-  NotificationService(this._repository, this._settings, this._api);
+  NotificationService(
+    this._repository,
+    this._settings,
+    this._api, {
+    this.syncBackgroundWatch,
+  });
 
   final AgentRepository _repository;
   final AppSettings _settings;
   final NotificationApi _api;
 
+  /// Called with `notificationsEnabled` on start and whenever the setting
+  /// changes; production wiring registers/cancels the WorkManager task.
+  final Future<void> Function(bool enabled)? syncBackgroundWatch;
+
   StreamSubscription<RelayEvent>? _eventSub;
   final Set<String> _notifiedPaneIds = {};
   AppLifecycleState _lifecycle = AppLifecycleState.resumed;
+  Timer? _heartbeatTimer;
+  DateTime? _lastHeartbeat;
 
   /// Called with the agent pane id when the user taps a notification.
   void Function(String paneId)? onOpenAgent;
@@ -43,25 +65,42 @@ class NotificationService with WidgetsBindingObserver {
   void start() {
     if (_eventSub != null) return;
     WidgetsBinding.instance.addObserver(this);
+    _settings.addListener(_onSettingsChanged);
     _eventSub = _repository.events.listen(_onEvent);
     _repository.status.addListener(_onConnectionStatus);
     _api.init(onTap: _handleTap);
     if (_settings.notificationsEnabled) {
       _api.requestPermission();
     }
+    _syncBackgroundWatch();
+    _updateHeartbeatTimer();
     // Already backgrounded at start (e.g. service re-created while paused):
     // sync from the snapshot so blocked agents notify even with no new events.
     if (_inBackground) _syncFromSnapshot();
   }
 
-  /// Unsubscribes; idempotent.
+  /// Unsubscribes; idempotent. The WorkManager task itself is app-scoped and
+  /// is left alone here (it is only cancelled when the notifications setting
+  /// is turned off, via [_onSettingsChanged]).
   void stop() {
     if (_eventSub == null) return;
     WidgetsBinding.instance.removeObserver(this);
+    _settings.removeListener(_onSettingsChanged);
     _eventSub?.cancel();
     _eventSub = null;
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = null;
     _repository.status.removeListener(_onConnectionStatus);
     _notifiedPaneIds.clear();
+  }
+
+  void _onSettingsChanged() {
+    _syncBackgroundWatch();
+    _updateHeartbeatTimer();
+  }
+
+  void _syncBackgroundWatch() {
+    syncBackgroundWatch?.call(_settings.notificationsEnabled);
   }
 
   void _handleTap(String paneId) {
@@ -70,6 +109,10 @@ class NotificationService with WidgetsBindingObserver {
 
   void _onEvent(RelayEvent event) {
     if (event is! AgentStatusChanged) return;
+    if (_settings.notificationsEnabled) {
+      // Activity while the app is in use keeps the background task quiet.
+      _touchForegroundHeartbeat();
+    }
     if (event.status.toLowerCase() == 'blocked') {
       if (!_settings.notificationsEnabled) return;
       if (!_inBackground) return;
@@ -95,6 +138,7 @@ class NotificationService with WidgetsBindingObserver {
     } catch (_) {
       return; // offline, no cache — the next connected status will retry
     }
+    _touchForegroundHeartbeat();
     for (final agent in agents) {
       if (agent.isBlocked) {
         if (_notifiedPaneIds.add(agent.id)) {
@@ -113,9 +157,45 @@ class NotificationService with WidgetsBindingObserver {
 
   bool get _inBackground => _lifecycle != AppLifecycleState.resumed;
 
+  /// While the app is foregrounded (and notifications are on) the heartbeat
+  /// timer keeps the WorkManager background task from double-notifying. The
+  /// task itself also stays quiet for [heartbeatFreshWindow] after the last
+  /// heartbeat, covering the brief backgrounded-but-alive window.
+  ///
+  /// The timer is skipped under `flutter test` (env probe): DI-constructed
+  /// services in widget tests are never torn down, and a pending periodic
+  /// timer would trip the binding's timer invariant.
+  void _updateHeartbeatTimer() {
+    final active = !_inBackground &&
+        _settings.notificationsEnabled &&
+        !flutter_test_env.isFlutterTestEnvironment;
+    if (active) {
+      _heartbeatTimer ??= Timer.periodic(
+        const Duration(seconds: 30),
+        (_) => _touchForegroundHeartbeat(),
+      );
+    } else {
+      _heartbeatTimer?.cancel();
+      _heartbeatTimer = null;
+    }
+  }
+
+  /// Writes the foreground heartbeat (throttled).
+  void _touchForegroundHeartbeat() {
+    final now = DateTime.now();
+    if (_lastHeartbeat != null &&
+        now.difference(_lastHeartbeat!) < const Duration(seconds: 10)) {
+      return;
+    }
+    _lastHeartbeat = now;
+    // ignore: discarded_futures
+    touchForegroundHeartbeat();
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _lifecycle = state;
+    _updateHeartbeatTimer();
     if (_inBackground) _syncFromSnapshot();
   }
 }

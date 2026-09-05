@@ -41,6 +41,7 @@ dependencies:
   http: ^1.6.0
   get_it: ^9.2.1
   flutter_local_notifications: ^22.3.0
+  workmanager: ^0.10.7
 
 dev_dependencies:
   flutter_test:

@@ -5,6 +5,25 @@ All notable changes to Herdr Mobile project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Plugin install without Go toolchain**: `plugin/install.sh` downloads the
+  prebuilt relay for the manifest version from the GitHub Release (sha256-
+  verified) and falls back to `go build` only when no release exists yet
+  (`.github/workflows/release.yml` attaches `herdrelay-<ver>-<os>-<arch>`
+  artifacts to every `vX.Y.Z` tag).
+- **Service actions in the manifest**: `status` / `start` / `stop` /
+  `restart` / `uninstall-service` (plus a read-only status pane).
+  `uninstall-service` removes the launchd service but keeps the pairing
+  token/identity, so a reinstall reconnects without a new QR.
+- **CI**: Go vet/test + Flutter analyze/test on push and PR
+  (`.github/workflows/ci.yml`).
+- **Android background blocked notifications** (WorkManager, ≥15 min): when
+  the OS suspends or kills the app, a background task re-checks the relay
+  snapshot over plain HTTP and notifies for newly blocked agents; suppressed
+  while the app is in active use (foreground heartbeat).
+
 ## [0.4.0] - 2026-09-05
 
 ### Added
