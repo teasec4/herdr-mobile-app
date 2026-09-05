@@ -17,7 +17,7 @@
 id = "herdrelay.events"
 name = "Herdr Mobile"
 version = "0.3.0"
-description = "Remote control for Herdr: monitor and check agents from your phone over LAN/Tailscale"
+description = "Native mobile app for Herdr: watch live agent terminal output, check statuses, and send prompts from your phone over LAN/Tailscale/Funnel"
 min_herdr_version = "0.8.0"
 # macOS only for now: the [[build]] step installs a launchd service, which is
 # macOS-specific. Linux support may come later (systemd unit in install.sh).

@@ -120,11 +120,11 @@ The implemented manifest (`plugin/herdr-plugin.toml`):
 ```toml
 id = "herdrelay.events"
 name = "Herdr Mobile"
-version = "0.1.0"
-description = "Remote control for Herdr: monitor and check agents from your phone over LAN/Tailscale"
-platforms = ["macos", "linux"]
+version = "0.3.0"
+description = "Native mobile app for Herdr: watch live agent terminal output, check statuses, and send prompts from your phone over LAN/Tailscale/Funnel"
+platforms = ["macos"]
 
-# build the Go relay into bin/ and install the launchd service (macOS)
+# build the Go relay into ~/.local/bin/herdrelay and install the launchd service (macOS)
 [[build]]
 command = ["bash", "install.sh"]
 
