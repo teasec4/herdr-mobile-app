@@ -5,33 +5,117 @@ All notable changes to Herdr Mobile project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.4.0] - 2026-09-05
 
 ### Added
-- **Settings page** (`client/lib/pages/settings_page.dart`): pairing profiles and
-  app preferences in one place; replaces the notification-settings page.
+- **Relay identity**: on first start the relay generates a stable `relay_id`
+  (32 hex) and a host `name` (`~/.config/herdr/herdrelay.id`); `relay_id`/`name`
+  added to the pair link and to the universal QR.
+- **Client profiles**: the app stores several pair configurations
+  (Switch / Add / Forget) — handy when changing networks, sessions or moving to
+  another machine.
+- **`herdrelay status`**: diagnostic subcommand — mode, address, identity,
+  config paths and live state (exit 0 = relay is running).
+- **Mode switch without rebuild**: `plugin/configure.sh` rewrites the launchd
+  plist (`HERDRELAY_MODE`, `HERDRELAY_GATEWAY_URL`) and restarts the service;
+  install.sh and the plist read those variables from the environment.
+- **Automatic mode switching** (docs/AUTO_MODE_SWITCHING_PLAN.md, Phase 2):
+  `ConnectionFallbackManager` falls back to the other saved endpoints when the
+  active mode is unreachable, with a "Relay unreachable — switched to …"
+  SnackBar.
+- **Manual Mode** (Phase 3): "Switch mode manually" in the Connection page with
+  a live `/healthz` check — works even when the relay is unreachable
+  (`widgets/manual_mode_dialog.dart`).
+- **Universal QR** (Phase 4): a mode-less link pulls all modes through
+  `ModeService` and offers a primary choice; LAN-only links show a "Limited
+  connectivity detected" warning (`widgets/lan_only_warning_dialog.dart`).
+- **Help page** (Phase 5): `pages/help_page.dart` — FAQ on connection modes /
+  remote access, "Help" item in the HomePage menu.
+- **Settings page** (`client/lib/pages/settings_page.dart`): pairing profiles
+  and app preferences in one place; replaces the notification-settings page.
 - **Mode icons** (`client/lib/widgets/mode_icons.dart`) for LAN / Tailscale /
   Funnel / Gateway.
-- **`docs/screenshots/`** — placeholder folder for README screenshots with a
-  naming guide.
+- **`docs/screenshots/`** — real app screenshots in the README (agent list,
+  terminal, spaces, settings).
 - App bootstrap test (`client/test/app_bootstrap_test.dart`).
 
 ### Changed
-- **WS auth by header**: `WebSocketTransport` now takes the token as a parameter
-  and sends it as an `Authorization` header on every (re)connect instead of
+- **WS auth by header**: `WebSocketTransport` takes the token as a parameter and
+  sends it as an `Authorization` header on every (re)connect instead of
   embedding it in the URL; `PairConfig` no longer puts the token into `wsUri`.
   Channel factories are now 2-arg (`url`, `headers`) for IO and web.
 - **README rewritten**: detailed install guide, step-by-step usage, connection
-  modes, troubleshooting; architecture moved below; screenshots placeholders.
-- Relay `pair`/`status` commands and plugin scripts/docs brought in line with the
-  token-in-header change.
+  modes, troubleshooting; screenshots; "Best Practices for Remote Access".
+- Relay `pair`/`status` commands and plugin scripts/docs brought in line with
+  the token-in-header change.
+- **Event pipeline dedup** (docs/12-fix-plan.md A1–A3): a single status channel
+  (socket subscription only — the plugin `on-event.sh` hook and `/api/events/*`
+  routes removed); agent page updates locally from `pane.agent_status_changed`
+  (no re-snapshot); output re-read only on `pane.output_changed`; revision
+  guard revived; AnsiTerminal memoization; pong consumed by the transport;
+  interruptible reconnect loop.
+- **View architecture: controllers instead of orchestration in State**:
+  lightweight `ChangeNotifier` controllers (`AgentsStore`, `SessionController`)
+  own status/list/session state, reconnect catch-up and refresh debounce;
+  refresh races closed with a generation counter; lazy HomePage tabs;
+  header/ANSI fixes; dead `provider` dependency removed.
+- **Rebrand**: project renamed HerdRelay → **Herdr Mobile**; repository and docs
+  updated.
+
+### Fixed
+- **No more LAN bounce on background/resume**: away from home the app kept
+  re-trying the dead LAN endpoint on every return from background — the
+  fallback manager walked the whole priority list on each drop (an 8 s timer
+  raced slow-but-live Tailscale reconnects), and the proposed candidate was
+  persisted into the profile before it ever connected, so every cold start
+  resumed on `mode=lan`. Connection behavior is now sticky and evidence-based:
+  - `WebSocketTransport` forces a fresh handshake after a long background
+    (>30 s) instead of sitting in a zombie "connected" state until keepalive
+    notices the dead socket;
+  - a mode switch requires several consecutive failures (a single drop is
+    absorbed by the transport's own reconnect loop);
+  - modes switched away from stay "dead" for 10 minutes — once LAN went dark in
+    a ride it is not re-proposed;
+  - when every alternative is dead the app reverts to the last-connected mode
+    (or the boot mode on a cold start into a dead zone);
+  - the active mode is persisted to the profile only once the relay actually
+    connects over it. Metro flow: background/foreground reconnects over
+    Tailscale in seconds with a fresh session — no LAN attempt.
+- **Reliable relay install path**: the relay binary is now built to a stable
+  `~/.local/bin/herdrelay` (`HERDRELAY_BIN` override) so the launchd service
+  and plugin scripts survive `herdr plugin install`/reinstall (previously the
+  plist referenced the temporary plugin checkout that got replaced).
+- **Reconnect without duplicates**: before a new connection the old subscription
+  is cancelled; `onError`/`onDone` merged into one handler with
+  `cancelOnError: true`; duplicate reconnects blocked.
+- **Lifecycle**: reconnect loop pauses in background, resumes on return (battery
+  + no dangling pending requests).
+- **ConfigStore race condition**: concurrent `saveProfile` calls serialized
+  (in-memory lock) — parallel deep links no longer lose profiles.
+- **healthz retry**: up to 3 attempts with backoff instead of one.
+- **List update debounce**: a burst of simultaneous events triggers one snapshot
+  instead of N parallel requests.
+- **Offline agent cache**: last successful snapshot cached and shown while the
+  relay is unreachable.
+- **Clear errors**: protocol errors (`not_connected`/`timeout`/`unauthorized`)
+  mapped to human-readable text instead of raw `toString()`.
+- **Pair link validation**: token at least 16 characters, rejected characters
+  that break a query string; `PairConfig.toJsonSafe()` masks the token in logs.
 
 ### Removed
 - **Smart interactive buttons** — the "questions from agent output → active
   buttons" feature removed entirely: `ActionParserService` +
-  `SuggestedAction` (`client/lib/services/action_parser_service.dart`), its DI
-  registration, all AgentPage wiring/UI (suggested-action buttons), its tests,
+  `SuggestedAction`, its DI registration, all AgentPage wiring/UI, its tests,
   and docs.
+
+### Planned
+- Remote API access (outside the local network)
+- Multi-workspace support
+- Theme settings (dark/light)
+- Search over agent output
+- Agent history export
+- Push notifications for critical events
+- Auto-return to LAN when back home (reachability probe on foreground)
 
 ## [0.3.0] - 2026-08-30
 
@@ -200,57 +284,3 @@ The parser automatically recognizes answer options from the agent's output:
 - Requires herdr >= 0.7.5
 - macOS/Linux (Windows not tested)
 - The interactive-button parser only works with text output
-
----
-
-## [Unreleased]
-
-### Added
-- **Relay identity**: on first start the relay generates a stable `relay_id` (32 hex) and a host `name` (`~/.config/herdr/herdrelay.id`); `relay_id`/`name` added to the pair link and to the universal QR.
-- **Client profiles**: the app stores several pair configurations (Switch / Add / Forget) — handy when changing networks, sessions or moving to another machine.
-- **`herdrelay status`**: diagnostic subcommand — mode, address, identity, config paths and live state (exit 0 = relay is running).
-- **Mode switch without rebuild**: `plugin/configure.sh` rewrites the launchd plist (`HERDRELAY_MODE`, `HERDRELAY_GATEWAY_URL`) and restarts the service; install.sh and the plist now read `HERDRELAY_MODE`/`HERDRELAY_GATEWAY_URL` from the environment.
-- **Automatic mode switching** (docs/AUTO_MODE_SWITCHING_PLAN.md, Phase 2): `ConnectionFallbackManager` — on transport drop it tries the saved endpoints (tailscale → lan → funnel), SnackBar "Relay unreachable — switched to …"; integrated in `main.dart`, `websocket_transport.dart` now goes `disconnected` on connection errors.
-- **Manual Mode** (Phase 3): "Switch mode manually" button in the Connection page, dialog with a live `/healthz` check — works even when the relay is unreachable (`widgets/manual_mode_dialog.dart`).
-- **Universal QR** (Phase 4): a mode-less link pulls all modes through `ModeService` and offers a primary choice; LAN-only links show a "Limited connectivity detected" warning (`widgets/lan_only_warning_dialog.dart`).
-- **Help page** (Phase 5): `pages/help_page.dart` — FAQ on Connection modes / remote access, "Help" item in the HomePage menu.
-- **Documentation rebalance**: README/INSTALL — "Best Practices for Remote Access" section; plan checklist marked.
-
-### Fixed (Flutter Client, reliability)
-- **Reconnect without duplicates**: before a new connection the old subscription is cancelled, `onError`/`onDone` merged into a single handler with `cancelOnError: true`, re-scheduling reconnect is blocked. More than 1 active WS connection and lost request responses are excluded.
-- **Lifecycle**: when the app goes to background the reconnect loop pauses; it resumes on return (saves battery, leaves no dangling pending requests).
-- **ConfigStore race condition**: concurrent `saveProfile` calls are serialized (in-memory lock) — parallel deep links no longer lose profiles.
-- **healthz retry**: up to 3 attempts with backoff instead of one — a single network failure no longer marks the relay offline.
-- **List update debounce**: a burst of simultaneous events (e.g. batch start) triggers one snapshot instead of N parallel requests.
-- **Offline agent cache**: the last successful snapshot is cached and shown when the relay is unreachable.
-- **Clear errors**: protocol errors (`not_connected`/`timeout`/`unauthorized`) are mapped to human-readable text instead of a raw `toString()`.
-- **Pair link validation**: token at least 16 characters and without characters that break a query string; `PairConfig.toJsonSafe()` masks the token in logs.
-
-### Changed (event pipeline, dedup — docs/12-fix-plan.md A1-A3)
-- **Single status channel**: the plugin hook (`on-event.sh` → `POST /api/events/herdr`) and the `/api/events/*` routes removed — statuses now only come from the socket subscription (`events.subscribe`, `pane.agent_status_changed`). One status change = one event to the client instead of two.
-- **Agent page without extra requests**: the `pane.agent_status_changed` event updates the status locally (and name/workspace from the payload) — no re-snapshot or re-read of output; output is read only on `pane.output_changed` and manual refresh.
-- **Status event extended**: `agent`, `display_agent`, `workspace_id`, `title` from the herdr payload now reach the client (`relay_event.dart`).
-- **Revision revived**: the relay attaches the last known `revision` from `pane.updated` to `pane.output_changed` (strictly increasing only) — the client revision-guard starts working, a stale revision is not sent so a live update is never skipped.
-- **AnsiTerminal memoization**: same text → same `SelectableText` instance (no ANSI re-parse or re-layout) — duplicate/status rebuilds no longer rebuild the terminal.
-- **Pong no longer leaks into messages**: keepalive-pong is consumed by the transport, upper layers don't parse an empty frame.
-- **Agent cache written only on list change** (not on every snapshot).
-- **Interruptible socket reconnect loop**: `Close()` no longer waits for the backoff sleep (docs/12 B3).
-- **Debug print removed** from `agent_page.dart` (and the event path of `home_page.dart`).
-
-### Changed (view architecture: controllers instead of orchestration in State)
-- **Lightweight ViewModels** (plain `ChangeNotifier` + `ListenableBuilder`, no framework): `AgentsController` (agent list: status deltas, debounce, reconnect catch-up, pause under AgentPage) and `SessionController` (session for the Spaces/Run tabs: one load instead of two, live status updates, reconnect catch-up, `freePaneFor`).
-- **Triple reconnect-catch-up duplication removed** (`_wasDisconnected` used to live in home/run/spaces — now it lives in the two controllers).
-- **Refresh races closed** (generation counter): a stale response no longer overwrites a fresh one — `AgentsController`, `SessionController`, `AgentPage._refresh`, `ConnectionPage._checkConnection`.
-- **Lazy HomePage tabs**: Spaces/Agents/Run are built on first visit — no `getAgents()` and no double `session()` for invisible tabs at startup (covered by a test).
-- **HomePage header no longer overflows** on narrow screens: the mode badge (TAILSCALE) and status are truncated, padding reduced; test at 320 px.
-- **AnsiTerminalParser moved** to a separate file (`widgets/ansi_terminal_parser.dart`); list tiles wrapped in `RepaintBoundary`.
-- **Dead `provider` dependency removed** from pubspec.
-
-### Planned
-- Remote API access (outside the local network)
-- Multi-workspace support
-- Theme settings (dark/light)
-- Search over agent output
-- Agent history export
-- Push notifications for critical events
-
