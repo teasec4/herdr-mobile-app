@@ -160,7 +160,7 @@ half-blocks right in the pane). The pane closes by itself after a few seconds.
 
 1. On your phone, open the
    [Releases](https://github.com/teasec4/herdr-mobile-app/releases) page.
-2. Under the newest release, tap the APK asset (e.g. `Herdr Mobile-v0.4.0.apk`) to
+2. Under the newest release, tap the APK asset (e.g. `Herdr Mobile-v0.5.0.apk`) to
    download it.
 3. Open the downloaded file. Android warns that the app is from an *unknown
    source* — expected, since this APK is not on Google Play. Allow the install
