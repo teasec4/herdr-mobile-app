@@ -9,7 +9,6 @@ import '../core/service_locator.dart';
 import '../models/relay_agent.dart';
 import '../models/relay_event.dart';
 import '../repositories/agent_repository.dart';
-import '../services/action_parser_service.dart';
 import '../services/app_settings.dart';
 import '../services/command_history_service.dart';
 import '../utils/toast_service.dart';
@@ -32,7 +31,6 @@ class _AgentPageState extends State<AgentPage> {
   late final AgentRepository _repository;
   late final AgentsStore _store;
   late final CommandHistoryService _historyService;
-  late final ActionParserService _parserService;
 
   /// Root session: on a config switch the relay services are torn down and
   /// recreated, so every cached getIt reference below becomes stale. We record
@@ -83,9 +81,6 @@ class _AgentPageState extends State<AgentPage> {
   int? _historyIndex;
   String? _historyTemp;
 
-  /// Suggested actions parsed from agent output.
-  List<SuggestedAction> _suggestedActions = [];
-
   /// Guards against overlapping refreshes: a manual refresh and an event
   /// trigger may run concurrently — a stale response must not overwrite a
   /// fresher one (docs/12-fix-plan.md, refresh races).
@@ -104,7 +99,6 @@ class _AgentPageState extends State<AgentPage> {
     // the live-poll timer with them so the timer exists only while working.
     _store.addListener(_onStoreChanged);
     _historyService = getIt<CommandHistoryService>();
-    _parserService = getIt<ActionParserService>();
     _settings = getIt<AppSettings>();
     _stickToBottom = _settings.autoScrollFollow;
     _terminalFontSize = _settings.terminalFontSize;
@@ -256,7 +250,6 @@ class _AgentPageState extends State<AgentPage> {
       setState(() {
         _output = output;
         _loading = false;
-        _suggestedActions = _parserService.parse(output);
       });
       _scrollToBottom();
     } catch (e) {
@@ -383,28 +376,6 @@ class _AgentPageState extends State<AgentPage> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Suggested actions (dynamic based on agent output)
-          if (_suggestedActions.isNotEmpty) ...[
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: _suggestedActions.map((action) {
-                return FilledButton.tonal(
-                  onPressed: () {
-                    _input.text = action.response;
-                    _send();
-                  },
-                  style: FilledButton.styleFrom(
-                    visualDensity: VisualDensity.compact,
-                    backgroundColor: Colors.blue.shade100,
-                    foregroundColor: Colors.blue.shade700,
-                  ),
-                  child: Text(action.label),
-                );
-              }).toList(),
-            ),
-            const SizedBox(height: 8),
-          ],
           // Control: only Ctrl-C
           Row(
             children: [

@@ -29,7 +29,6 @@
 | **Relay modes** (LAN/Tailscale/Funnel) | Fetched on mode picker open | Medium — static config | P2 |
 | **Agent metadata** (display names, CWDs) | In snapshot, refetched often | High — bundled with snapshot cache | P1 |
 | **Connection test results** | Lost on page close | Low — ephemeral diagnostic | P3 |
-| **Suggested actions** (parsed from output) | Recomputed on every output change | Medium — could memoize | P3 |
 | **ANSI parsed spans** | Memoized by text hash (in-memory) | Already optimized | — |
 
 ---

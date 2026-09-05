@@ -67,7 +67,6 @@ Future<void> _refresh({bool silent = false}) async {
     final output = await _repository.getOutput(_agent.id, lines: 500);
     setState(() {
         _output = output;  // full replacement
-        _suggestedActions = _parserService.parse(output);
     });
     _scrollToBottom();
 }
@@ -541,7 +540,6 @@ func computeDelta(oldText, newText string) Delta {
        
        setState(() {
            _output = result.text;
-           _suggestedActions = _parserService.parse(result.text);
        });
        _scrollToBottom();
    }

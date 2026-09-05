@@ -7,7 +7,6 @@ import '../controllers/modes_controller.dart';
 import '../controllers/session_controller.dart';
 import '../models/pair_config.dart';
 import '../repositories/agent_repository.dart';
-import '../services/action_parser_service.dart';
 import '../services/app_settings.dart';
 import '../services/command_history_service.dart';
 import '../services/config_store.dart';
@@ -36,7 +35,6 @@ Future<void> setupDependencies() async {
   getIt.registerSingleton<CommandHistoryService>(
     CommandHistoryService(getIt<SharedPreferences>()),
   );
-  getIt.registerSingleton<ActionParserService>(ActionParserService());
   // Typed key-centralized settings/cache over SharedPreferences.
   getIt.registerSingleton<AppSettings>(
     AppSettings(getIt<SharedPreferences>()),

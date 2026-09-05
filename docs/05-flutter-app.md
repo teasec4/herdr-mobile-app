@@ -83,8 +83,8 @@ phone does not need Tailscale). The client is built in layers:
    - output: a monospace dark terminal, auto-scroll, live updates via
      `pane.output_changed` with a ~400 ms debounce, ANSI — via its own SGR
      parser (`widgets/ansi_terminal.dart`);
-   - input line: prompt (`agent.prompt`); quick keys Esc/Ctrl-C
-     (`agent.keys`); command history; action buttons from the output.
+   - input line: prompt (`agent.prompt`); quick keys Ctrl-C
+     (`agent.keys`); command history.
 
 ## Transport
 

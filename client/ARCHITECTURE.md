@@ -35,7 +35,7 @@ resolved with `getIt<T>()` (no Provider / `context.read`).
 
 - **`setupDependencies()`** — app-wide singletons that outlive a relay switch:
   `ConfigStore`, `AppSettings` (a `ChangeNotifier`), `CommandHistoryService`,
-  `ActionParserService`, `ModeService`, `ModesController`, `NotificationApi`.
+  `ModeService`, `ModesController`, `NotificationApi`.
 - **`setupRelayServices(config)`** — per-connection stack, torn down and
   rebuilt on every config change: `Transport`, `ConnectionManager`,
   `RelayClient`, `AgentRepository`, `AgentsStore`, `SessionController`,
@@ -130,7 +130,6 @@ AsyncValue<List<RelayAgent>> _agentsState
 String _output
 bool _loading
 bool _sending
-List<_SuggestedAction> _suggestedActions
 ```
 
 **Error handling:**

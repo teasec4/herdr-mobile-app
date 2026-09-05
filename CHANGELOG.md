@@ -26,6 +26,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Relay `pair`/`status` commands and plugin scripts/docs brought in line with the
   token-in-header change.
 
+### Removed
+- **Smart interactive buttons** — the "questions from agent output → active
+  buttons" feature removed entirely: `ActionParserService` +
+  `SuggestedAction` (`client/lib/services/action_parser_service.dart`), its DI
+  registration, all AgentPage wiring/UI (suggested-action buttons), its tests,
+  and docs.
+
 ## [0.3.0] - 2026-08-30
 
 ### Added (terminal stream dedup, docs/14-terminal-stream-implementation-plan.md)

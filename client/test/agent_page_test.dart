@@ -106,54 +106,6 @@ void main() {
     expect(client.keysCalls[0].$2, ['C-c']);
   });
 
-  testWidgets('предложенные действия появляются когда агент blocked с yes/no', (tester) async {
-    client.outputText = 'Do you want to approve this? (y/n)\n';
-    agent = RelayAgent.fromJson({
-      'pane_id': 'wG:p1',
-      'agent': 'codex',
-      'agent_status': 'blocked',
-      'cwd': '/Users/me/proj',
-    });
-    await pumpAgent(tester);
-
-    // Should show y and n buttons (parsed from (y/n))
-    expect(find.text('y'), findsOneWidget);
-    expect(find.text('n'), findsOneWidget);
-
-    // Tap y should send 'y'
-    await tester.tap(find.text('y'));
-    await tester.pumpAndSettle();
-
-    expect(client.prompts, [(agent.id, 'y')]);
-  });
-
-  testWidgets('предложенные действия парсят нумерованные варианты', (tester) async {
-    client.outputText = '''
-Please choose an option:
-1. Create new file
-2. Update existing
-3. Skip this step
-''';
-    agent = RelayAgent.fromJson({
-      'pane_id': 'wG:p1',
-      'agent': 'codex',
-      'agent_status': 'blocked',
-      'cwd': '/Users/me/proj',
-    });
-    await pumpAgent(tester);
-
-    // Should show numbered options with truncated labels
-    expect(find.textContaining('1:'), findsOneWidget);
-    expect(find.textContaining('2:'), findsOneWidget);
-    expect(find.textContaining('3:'), findsOneWidget);
-
-    // Tap should send the number
-    await tester.tap(find.textContaining('2:'));
-    await tester.pumpAndSettle();
-
-    expect(client.prompts, [(agent.id, '2')]);
-  });
-
   testWidgets('событие pane.agent_status_changed обновляет статус агента', (tester) async {
     await pumpAgent(tester);
     expect(find.text('blocked'), findsOneWidget);

@@ -6,7 +6,6 @@ import 'package:client/core/connection/mode_service.dart';
 import 'package:client/core/service_locator.dart';
 import 'package:client/models/pair_config.dart';
 import 'package:client/repositories/agent_repository.dart';
-import 'package:client/services/action_parser_service.dart';
 import 'package:client/services/app_settings.dart';
 import 'package:client/services/command_history_service.dart';
 import 'package:client/services/config_store.dart';
@@ -42,7 +41,6 @@ Future<void> setupTestDependencies(
   getIt.registerSingleton<CommandHistoryService>(
     CommandHistoryService(getIt<SharedPreferences>()),
   );
-  getIt.registerSingleton<ActionParserService>(ActionParserService());
   getIt.registerSingleton<ModeService>(ModeService());
   // Mirrors production wiring: modes live in a global controller.
   getIt.registerSingleton<ModesController>(
