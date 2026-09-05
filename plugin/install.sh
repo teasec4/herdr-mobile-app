@@ -86,8 +86,11 @@ if [ -n "$target" ] && [ "${HERDRELAY_FORCE_BUILD:-0}" != "1" ] && [ -n "$versio
     archive="herdrelay-${version}-${target}.tar.gz"
     tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/herdrelay-install.XXXXXX")"
     trap 'rm -rf "$tmp_dir"' EXIT
-    if curl -fsSL --retry 3 --connect-timeout 10 -o "$tmp_dir/$archive" "$base/$archive" \
-        && curl -fsSL --retry 3 --connect-timeout 10 -o "$tmp_dir/$archive.sha256" "$base/$archive.sha256"; then
+    log "downloading herdrelay v$version ($target)..."
+    # --max-time / --retry: a slow or stalled transfer must fail into the
+    # source-build fallback instead of hanging the plugin install forever.
+    if curl -fsSL --retry 1 --connect-timeout 10 --max-time 30 -o "$tmp_dir/$archive" "$base/$archive" \
+        && curl -fsSL --retry 1 --connect-timeout 10 --max-time 30 -o "$tmp_dir/$archive.sha256" "$base/$archive.sha256"; then
         # Verify sha256 (shasum on macOS/BSD, sha256sum on Linux, openssl fallback).
         want="$(awk '{print $1}' "$tmp_dir/$archive.sha256")"
         got=""
@@ -101,7 +104,6 @@ if [ -n "$target" ] && [ "${HERDRELAY_FORCE_BUILD:-0}" != "1" ] && [ -n "$versio
             log_err "no sha256 tool found (shasum/sha256sum/openssl) — refusing unsigned download"
         fi
         if [ -n "$want" ] && [ "$want" = "$got" ]; then
-            log "downloading herdrelay v$version ($target)..."
             tar -xzf "$tmp_dir/$archive" -C "$tmp_dir"
             mv "$tmp_dir/herdrelay" "$BIN"
             chmod 0755 "$BIN"
