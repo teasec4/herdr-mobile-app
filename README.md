@@ -19,8 +19,38 @@ prompts, and manage workspaces while you are away from the keyboard.
 ![App](https://img.shields.io/badge/App-Android-lightgrey)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <img src="docs/screenshots/agent_list.jpg" width="280" alt="Home — agents list">
+      <br>
+      <em>Home — agents at a glance</em>
+    </td>
+    <td width="50%" align="center">
+      <img src="docs/screenshots/terminal_output.jpg" width="280" alt="Agent — live terminal output">
+      <br>
+      <em>Agent — live terminal output</em>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <img src="docs/screenshots/spaces.jpg" width="280" alt="Run / Spaces — workspaces">
+      <br>
+      <em>Run / Spaces — workspaces</em>
+    </td>
+    <td width="50%" align="center">
+      <img src="docs/screenshots/settings.jpg" width="280" alt="Settings — profiles and preferences">
+      <br>
+      <em>Settings — pairing profiles &amp; preferences</em>
+    </td>
+  </tr>
+</table>
+
 ## Table of contents
 
+- [Screenshots](#screenshots)
 - [Installation](#installation)
 - [Using Herdr Mobile](#using-herdrelay)
 - [Troubleshooting](#troubleshooting)
@@ -159,43 +189,25 @@ That's it — you should see your agents with live status and output.
 #### Home — agents at a glance
 
 Live list of herdr agents and panes with their current status (`idle`,
-`working`, `blocked`, `done`). Tap an agent to open it.
-
-<img src="docs/screenshots/agent_list.jpg" alt="Home — agents list" width="260">
-
-*Home screen: agent list with live status.*
+`working`, `blocked`, `done`). Tap an agent to open it (see screenshot above).
 
 #### Agent — live terminal
 
 Follows the agent's output as it streams, with auto-scroll. Use the controls to
 adjust font size, send a **prompt**, or send **keypresses** (Esc, Ctrl-C, text).
 
-<img src="docs/screenshots/terminal_output.jpg" alt="Agent — terminal output" width="260">
-
-*Agent screen: live terminal output and input controls.*
-
 #### Run / Spaces — workspaces
 
 Manage herdr workspaces and start runs from the phone.
-
-<img src="docs/screenshots/spaces.jpg" alt="Run / Spaces — workspaces" width="260">
-
-*Run / Spaces screen.*
 
 #### Connection — which network path the app uses
 
 Shows which connection modes are reachable and lets you switch between them
 manually or re-test reachability. Useful when you move between networks.
 
-*(Screenshot for this screen not added yet — will be linked here when it is.)*
-
 #### Settings — pairing profiles and preferences
 
 Manage saved pairing profiles, output polling behavior, and app preferences.
-
-<img src="docs/screenshots/settings.jpg" alt="Settings — profiles and preferences" width="260">
-
-*Settings screen.*
 
 ### Step 5 — Connection modes: LAN, Tailscale, Funnel, Gateway
 
