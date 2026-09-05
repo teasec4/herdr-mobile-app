@@ -121,6 +121,39 @@ void main() {
     expect(find.text('вывод агента\n'), findsOneWidget);
   });
 
+  testWidgets(
+      'агент завершился вне чата → маркер на тайле + бейдж; просмотр снимает',
+      (tester) async {
+    client.agents = [agent('p:alice', 'alice', 'working')];
+    await pumpHome(tester);
+    await goToAgents(tester);
+
+    // The agent finishes while the user is elsewhere: prev=working comes from
+    // the snapshot seed, the done event flips it to unseen.
+    client.emit(AgentStatusChanged(
+        paneId: 'p:alice', status: 'done', agent: 'alice'));
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('Finished while you were away'), findsOneWidget,
+        reason: 'tile marker on the finished agent');
+    final bell = find.byTooltip('Agents finished while you were away');
+    expect(bell, findsOneWidget, reason: 'AppBar badge shows unseen work');
+    expect(
+        find.descendant(of: bell, matching: find.text('1')), findsOneWidget,
+        reason: 'badge counts one unseen agent');
+
+    // Tapping the badge opens the chat; opening = viewing clears the mark.
+    await tester.tap(bell);
+    await tester.pumpAndSettle();
+    expect(find.byType(AgentPage), findsOneWidget);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Finished while you were away'), findsNothing,
+        reason: 'viewing cleared the unseen mark');
+    expect(find.byTooltip('Agents finished while you were away'), findsNothing);
+  });
+
   testWidgets('ошибка снимка показывает «Повторить», повторный тап чинит', (tester) async {
     client.snapshotError = true;
     await pumpHome(tester);

@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../controllers/agents_store.dart';
 import '../controllers/app_session_controller.dart';
+import '../controllers/attention_store.dart';
 import '../core/service_locator.dart';
 import '../models/relay_agent.dart';
 import '../models/relay_event.dart';
@@ -105,6 +106,16 @@ class _AgentPageState extends State<AgentPage> {
     _agent = widget.agent;
     _scroll.addListener(_onScroll);
     _eventSubscription = _repository.events.listen(_onEvent);
+    // Opening the chat views the agent: a "finished while you were away" mark
+    // is cleared here, and a finish while this chat stays open is not marked.
+    // Deferred past the mount frame: view() notifies listeners, and the Home
+    // page behind this route can be rebuilding during the push transition.
+    if (getIt.isRegistered<AttentionStore>()) {
+      final attention = getIt<AttentionStore>();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) attention.view(_agent.id);
+      });
+    }
     _loadCommandHistory();
     _refresh();
     _syncPollTimer();
@@ -113,6 +124,9 @@ class _AgentPageState extends State<AgentPage> {
   @override
   void dispose() {
     _eventSubscription?.cancel();
+    if (getIt.isRegistered<AttentionStore>()) {
+      getIt<AttentionStore>().closeView(_agent.id);
+    }
     _store.removeListener(_onStoreChanged);
     _session.removeListener(_onSessionChanged);
     _scroll.removeListener(_onScroll);

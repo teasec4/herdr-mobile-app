@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../controllers/agents_store.dart';
+import '../controllers/attention_store.dart';
 import '../controllers/modes_controller.dart';
 import '../core/service_locator.dart';
 import '../models/pair_config.dart';
@@ -224,6 +225,9 @@ class _HomePageState extends State<HomePage> {
               );
             },
           ),
+          // Bell + count: "agents finished while you were away". Hidden when
+          // nothing is unseen; tapping jumps to the next unseen agent.
+          _attentionBell(),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _repository.status.value == RelayStatus.connected
@@ -447,8 +451,16 @@ class _HomePageState extends State<HomePage> {
     // Lazy load: the store was primed when the Agents tab became visible
     // (initState if restored, onDestinationSelected otherwise) — nothing is
     // fetched until the user actually opens the tab.
+    // Unseen "finished while away" marks live in AttentionStore (registered
+    // with the relay services); tiles re-render when either the list or a
+    // mark changes.
+    final attention = getIt.isRegistered<AttentionStore>()
+        ? getIt<AttentionStore>()
+        : null;
     return ListenableBuilder(
-      listenable: _store,
+      listenable: attention == null
+          ? _store
+          : Listenable.merge([_store, attention]),
       builder: (context, _) {
         return switch (_store.state) {
           AsyncIdle() || AsyncLoading() =>
@@ -518,6 +530,7 @@ class _HomePageState extends State<HomePage> {
                   key: ValueKey(agent.id),
                   child: _AgentTile(
                     agent: agent,
+                    unseen: attention?.isUnseen(agent.id) ?? false,
                     onTap: () => _openAgent(agent),
                   ),
                 );
@@ -536,6 +549,42 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  /// AppBar bell + count, shown only while at least one agent finished while
+  /// the user was not looking. Tap opens the first such agent's chat (which
+  /// clears the mark — the chat page reports itself as viewed).
+  Widget _attentionBell() {
+    if (!getIt.isRegistered<AttentionStore>()) {
+      return const SizedBox.shrink();
+    }
+    return ListenableBuilder(
+      listenable: getIt<AttentionStore>(),
+      builder: (context, _) {
+        final attention = getIt<AttentionStore>();
+        if (attention.unseenCount == 0) return const SizedBox.shrink();
+        return IconButton(
+          tooltip: 'Agents finished while you were away',
+          onPressed: _openNextUnseen,
+          icon: Badge.count(
+            count: attention.unseenCount,
+            child: const Icon(Icons.notifications_none),
+          ),
+        );
+      },
+    );
+  }
+
+  /// Opens the chat of the first unseen agent (stale marks without a known
+  /// agent are skipped; the store prunes them on its next refresh).
+  void _openNextUnseen() {
+    final attention = getIt<AttentionStore>();
+    for (final id in attention.unseenPaneIds) {
+      final agent = _store.byId(id);
+      if (agent == null) continue;
+      _openAgent(agent);
+      return;
+    }
+  }
+
   Color _modeColor(String mode) {
     return switch (mode) {
       'lan' => Colors.blue,
@@ -547,22 +596,56 @@ class _HomePageState extends State<HomePage> {
 }
 
 class _AgentTile extends StatelessWidget {
-  const _AgentTile({required this.agent, required this.onTap});
+  const _AgentTile({
+    required this.agent,
+    required this.onTap,
+    this.unseen = false,
+  });
 
   final RelayAgent agent;
   final VoidCallback onTap;
+
+  /// True when the agent finished while the user was not looking at it
+  /// (AttentionStore); shown as a dot on the avatar.
+  final bool unseen;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final tile = ListTile(
       onTap: onTap,
-      leading: CircleAvatar(
-        backgroundColor: statusColor(theme, agent.status),
-        child: Text(
-          agent.displayAgent.characters.first.toUpperCase(),
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-        ),
+      leading: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          CircleAvatar(
+            backgroundColor: statusColor(theme, agent.status),
+            child: Text(
+              agent.displayAgent.characters.first.toUpperCase(),
+              style: const TextStyle(
+                  color: Colors.white, fontWeight: FontWeight.bold),
+            ),
+          ),
+          if (unseen)
+            Positioned(
+              top: -2,
+              right: -2,
+              child: Tooltip(
+                message: 'Finished while you were away',
+                child: Container(
+                  width: 14,
+                  height: 14,
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.primary,
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: theme.colorScheme.surface,
+                      width: 1.5,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
       title: Row(
         children: [

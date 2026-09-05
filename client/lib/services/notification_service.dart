@@ -53,6 +53,16 @@ class NotificationService with WidgetsBindingObserver {
 
   StreamSubscription<RelayEvent>? _eventSub;
   final Set<String> _notifiedPaneIds = {};
+
+  /// pane_id -> last status seen via events/snapshots, used to recognize a
+  /// finish (`working → done/idle`) and to re-arm per pane after it leaves
+  /// the finished state.
+  final Map<String, String> _lastStatus = {};
+
+  /// Pane ids already notified about "finished while you were away"; cleared
+  /// when the pane's agent starts working again (allows one notification per
+  /// finish).
+  final Set<String> _finishedNotifiedPaneIds = {};
   AppLifecycleState _lifecycle = AppLifecycleState.resumed;
   Timer? _heartbeatTimer;
   DateTime? _lastHeartbeat;
@@ -92,6 +102,7 @@ class NotificationService with WidgetsBindingObserver {
     _heartbeatTimer = null;
     _repository.status.removeListener(_onConnectionStatus);
     _notifiedPaneIds.clear();
+    _finishedNotifiedPaneIds.clear();
   }
 
   void _onSettingsChanged() {
@@ -109,19 +120,36 @@ class NotificationService with WidgetsBindingObserver {
 
   void _onEvent(RelayEvent event) {
     if (event is! AgentStatusChanged) return;
+    final paneId = event.paneId;
+    final status = event.status.toLowerCase();
+    final prev = _lastStatus[paneId];
+    _lastStatus[paneId] = status;
+
     if (_settings.notificationsEnabled) {
       // Activity while the app is in use keeps the background task quiet.
       _touchForegroundHeartbeat();
     }
-    if (event.status.toLowerCase() == 'blocked') {
+    if (status == 'blocked') {
       if (!_settings.notificationsEnabled) return;
       if (!_inBackground) return;
-      if (_notifiedPaneIds.add(event.paneId)) {
-        _api.showBlocked(event.paneId, event.agent);
+      if (_notifiedPaneIds.add(paneId)) {
+        _api.showBlocked(paneId, event.agent);
       }
-    } else {
-      // Left the blocked state: allow a future notification for this pane.
-      _notifiedPaneIds.remove(event.paneId);
+      return;
+    }
+    // Left the blocked state: allow a future notification for this pane.
+    _notifiedPaneIds.remove(paneId);
+    if (!_settings.notificationsEnabled) return;
+
+    if (prev == 'working' && (status == 'done' || status == 'idle')) {
+      // The agent finished while the user was away: one quiet notification per
+      // finish (dedup until the agent starts working again).
+      if (_inBackground && _finishedNotifiedPaneIds.add(paneId)) {
+        _api.showFinished(paneId, event.agent);
+      }
+    } else if (status == 'working' || status == 'blocked') {
+      // The agent is active again: allow a future finish notification.
+      _finishedNotifiedPaneIds.remove(paneId);
     }
   }
 
@@ -140,6 +168,9 @@ class NotificationService with WidgetsBindingObserver {
     }
     _touchForegroundHeartbeat();
     for (final agent in agents) {
+      // Seed the last-status map from the snapshot so a finish that happens
+      // right after (re)connect is recognized (prev = working).
+      _lastStatus[agent.id] = agent.status.toLowerCase();
       if (agent.isBlocked) {
         if (_notifiedPaneIds.add(agent.id)) {
           _api.showBlocked(agent.id, agent.agent);

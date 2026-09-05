@@ -28,6 +28,7 @@ class AppSettings extends ChangeNotifier {
   static const String kNotificationsEnabled = 'settings_notifications_enabled';
   static const String kAgentSnapshot = 'last_snapshot';
   static const String kAgentSnapshotAt = 'last_snapshot:ts';
+  static const String kUnseenDoneIds = 'attention_unseen_done_ids';
 
   // ── App-level settings ─────────────────────────────────────────────────
 
@@ -91,6 +92,20 @@ class AppSettings extends ChangeNotifier {
 
   void setAgentSnapshotAt(String iso) {
     _prefs.setString(kAgentSnapshotAt, iso);
+    notifyListeners();
+  }
+
+  // ── Attention: "done — unseen" (finished while away) ─────────────────
+
+  /// Pane ids of agents that finished while the user was not looking at them
+  /// (see `controllers/attention_store.dart`). Kept across launches so a
+  /// finish that happened before the app was closed is still marked when it
+  /// opens again.
+  List<String> get unseenDoneIds =>
+      _prefs.getStringList(kUnseenDoneIds) ?? const [];
+
+  void setUnseenDoneIds(List<String> ids) {
+    _prefs.setStringList(kUnseenDoneIds, ids);
     notifyListeners();
   }
 }

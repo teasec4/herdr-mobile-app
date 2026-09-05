@@ -6,6 +6,9 @@ class FakeNotificationApi implements NotificationApi {
   /// Recorded `showBlocked(paneId, agentName)` calls.
   final List<(String, String)> shown = [];
 
+  /// Recorded `showFinished(paneId, agentName)` calls.
+  final List<(String, String)> finished = [];
+
   /// Recorded `requestPermission()` calls.
   int permissionRequests = 0;
 
@@ -32,6 +35,11 @@ class FakeNotificationApi implements NotificationApi {
   @override
   Future<void> showBlocked(String paneId, String agentName) async {
     shown.add((paneId, agentName));
+  }
+
+  @override
+  Future<void> showFinished(String paneId, String agentName) async {
+    finished.add((paneId, agentName));
   }
 
   @override

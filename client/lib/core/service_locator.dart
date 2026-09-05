@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../controllers/agents_store.dart';
 import '../controllers/app_session_controller.dart';
+import '../controllers/attention_store.dart';
 import '../controllers/modes_controller.dart';
 import '../controllers/session_controller.dart';
 import '../models/pair_config.dart';
@@ -86,6 +87,10 @@ Future<void> setupRelayServices(
     getIt<SessionController>().dispose();
     getIt.unregister<SessionController>();
   }
+  if (getIt.isRegistered<AttentionStore>()) {
+    getIt<AttentionStore>().dispose();
+    getIt.unregister<AttentionStore>();
+  }
   if (getIt.isRegistered<AgentsStore>()) {
     getIt<AgentsStore>().dispose();
     getIt.unregister<AgentsStore>();
@@ -146,6 +151,17 @@ Future<void> setupRelayServices(
     SessionController(getIt<RelayClient>(), getIt<AgentsStore>()),
   );
 
+  // "Done while you weren't looking" tracking (finished-while-away marks,
+  // AppBar badge, tile markers). Created after AgentsStore/AgentRepository so
+  // it can seed previous statuses and prune stale marks.
+  getIt.registerSingleton<AttentionStore>(
+    AttentionStore(
+      getIt<AgentRepository>(),
+      getIt<AgentsStore>(),
+      getIt<AppSettings>(),
+    ),
+  );
+
   // Local notifications for blocked agents while the app is in the background.
   // Created per relay connection: it binds to the live AgentRepository events.
   // The optional syncBackgroundWatch wiring registers/cancels the WorkManager
@@ -167,6 +183,10 @@ Future<void> teardownRelayServices() async {
   if (getIt.isRegistered<SessionController>()) {
     getIt<SessionController>().dispose();
     getIt.unregister<SessionController>();
+  }
+  if (getIt.isRegistered<AttentionStore>()) {
+    getIt<AttentionStore>().dispose();
+    getIt.unregister<AttentionStore>();
   }
   if (getIt.isRegistered<AgentsStore>()) {
     getIt<AgentsStore>().dispose();

@@ -36,6 +36,9 @@ abstract class NotificationApi {
   /// Shows the "agent blocked" notification.
   Future<void> showBlocked(String paneId, String agentName);
 
+  /// Shows the non-urgent "agent finished while you were away" notification.
+  Future<void> showFinished(String paneId, String agentName);
+
   /// Whether this launch came from a notification tap, and its payload.
   Future<NotificationLaunchDetailsData?> getLaunchDetails();
 }
@@ -55,6 +58,15 @@ class LocalNotificationsApi implements NotificationApi {
     'Blocked agents',
     description: 'Alerts when an agent needs your response',
     importance: Importance.high,
+  );
+
+  /// Channel for non-urgent "agent finished while you were away" alerts.
+  static const AndroidNotificationChannel _finishedChannel =
+      AndroidNotificationChannel(
+    'finished_agents',
+    'Finished agents',
+    description: 'Agents that finished while you were away',
+    importance: Importance.defaultImportance,
   );
 
   @override
@@ -88,6 +100,10 @@ class LocalNotificationsApi implements NotificationApi {
           .resolvePlatformSpecificImplementation<
               AndroidFlutterLocalNotificationsPlugin>()
           ?.createNotificationChannel(_blockedChannel);
+      await _plugin
+          .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>()
+          ?.createNotificationChannel(_finishedChannel);
     } catch (_) {
       // Plugin unavailable (widget tests, unsupported host): degrade to a
       // no-op so app flow is never blocked by notification setup.
@@ -166,6 +182,30 @@ class LocalNotificationsApi implements NotificationApi {
         ),
         iOS: const DarwinNotificationDetails(presentAlert: true, presentSound: true),
         macOS: const DarwinNotificationDetails(presentAlert: true, presentSound: true),
+      ),
+      payload: paneId,
+    );
+  }
+
+  @override
+  Future<void> showFinished(String paneId, String agentName) async {
+    if (!_initialized) return; // init is a no-op on unsupported platforms
+    await _plugin.show(
+      // FNV-1a over the pane id with a distinct offset from showBlocked so the
+      // two kinds never collide on the same pane.
+      id: _paneNotificationId('finished:$paneId'),
+      title: 'Agent finished',
+      body: '$agentName finished while you were away',
+      notificationDetails: NotificationDetails(
+        android: AndroidNotificationDetails(
+          _finishedChannel.id,
+          _finishedChannel.name,
+          channelDescription: _finishedChannel.description,
+          importance: Importance.defaultImportance,
+          priority: Priority.defaultPriority,
+        ),
+        iOS: const DarwinNotificationDetails(),
+        macOS: const DarwinNotificationDetails(),
       ),
       payload: paneId,
     );

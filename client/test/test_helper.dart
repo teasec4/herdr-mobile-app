@@ -1,5 +1,6 @@
 import 'package:client/controllers/agents_store.dart';
 import 'package:client/controllers/app_session_controller.dart';
+import 'package:client/controllers/attention_store.dart';
 import 'package:client/controllers/modes_controller.dart';
 import 'package:client/controllers/session_controller.dart';
 import 'package:client/core/connection/mode_service.dart';
@@ -71,12 +72,24 @@ Future<void> setupTestDependencies(
   getIt.registerSingleton<SessionController>(
     SessionController(getIt<RelayClient>(), getIt<AgentsStore>()),
   );
+
+  // Finished-while-away attention tracking (mirrors production wiring).
+  getIt.registerSingleton<AttentionStore>(
+    AttentionStore(
+      getIt<AgentRepository>(),
+      getIt<AgentsStore>(),
+      getIt<AppSettings>(),
+    ),
+  );
 }
 
 /// Cleanup test dependencies
 Future<void> teardownTestDependencies() async {
   if (getIt.isRegistered<SessionController>()) {
     getIt<SessionController>().dispose();
+  }
+  if (getIt.isRegistered<AttentionStore>()) {
+    getIt<AttentionStore>().dispose();
   }
   if (getIt.isRegistered<AgentsStore>()) {
     getIt<AgentsStore>().dispose();

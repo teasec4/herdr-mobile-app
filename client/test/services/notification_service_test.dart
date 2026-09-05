@@ -192,4 +192,71 @@ void main() {
       expect(api.shown, [('p1', 'codex')]);
     });
   });
+
+  group('finished notifications (done while away)', () {
+    /// Backgrounds the app, runs a working -> done transition, flushes.
+    Future<void> finishedInBackground(
+      String paneId, {
+      String agent = '',
+    }) async {
+      setLifecycle(AppLifecycleState.paused);
+      client.emit(
+          AgentStatusChanged(paneId: paneId, status: 'working', agent: agent));
+      await Future<void>.delayed(Duration.zero);
+      client.emit(
+          AgentStatusChanged(paneId: paneId, status: 'done', agent: agent));
+      await Future<void>.delayed(Duration.zero);
+    }
+
+    test('working -> done in the background notifies once per finish',
+        () async {
+      await finishedInBackground('p1', agent: 'codex');
+      expect(api.finished, [('p1', 'codex')]);
+
+      // A second done event (same finish, pane still done) must not re-notify.
+      client.emit(AgentStatusChanged(paneId: 'p1', status: 'done'));
+      await Future<void>.delayed(Duration.zero);
+      expect(api.finished.length, 1);
+    });
+
+    test('agent starting work again re-arms the finish notification',
+        () async {
+      await finishedInBackground('p1');
+      expect(api.finished.length, 1);
+
+      // Working again -> done again: a new finish, a new notification.
+      client.emit(AgentStatusChanged(paneId: 'p1', status: 'working'));
+      await Future<void>.delayed(Duration.zero);
+      client.emit(AgentStatusChanged(paneId: 'p1', status: 'done'));
+      await Future<void>.delayed(Duration.zero);
+      expect(api.finished.length, 2);
+    });
+
+    test('no finished notification while the app is in the foreground',
+        () async {
+      setLifecycle(AppLifecycleState.resumed);
+      client.emit(AgentStatusChanged(paneId: 'p1', status: 'working'));
+      await Future<void>.delayed(Duration.zero);
+      client.emit(AgentStatusChanged(paneId: 'p1', status: 'done'));
+      await Future<void>.delayed(Duration.zero);
+      expect(api.finished, isEmpty);
+    });
+
+    test('blocked -> done is not a finish notification', () async {
+      // A blocked agent has its own (urgent) notification; resolving straight
+      // to done is not an unseen finish.
+      setLifecycle(AppLifecycleState.paused);
+      client.emit(AgentStatusChanged(paneId: 'p1', status: 'blocked'));
+      await Future<void>.delayed(Duration.zero);
+      client.emit(AgentStatusChanged(paneId: 'p1', status: 'done'));
+      await Future<void>.delayed(Duration.zero);
+      expect(api.finished, isEmpty);
+    });
+
+    test('disabled setting suppresses finished notifications', () async {
+      settings.setNotificationsEnabled(false);
+      await finishedInBackground('p1');
+      expect(api.finished, isEmpty);
+    });
+  });
 }
