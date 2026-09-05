@@ -156,17 +156,12 @@ That's it — you should see your agents with live status and output.
 
 ### Step 4 — What you can do in the app
 
-> **Note about screenshots:** the images below are placeholders — drop the real
-> screenshots into `docs/screenshots/` using the exact file names listed in
-> [docs/screenshots/README.md](docs/screenshots/README.md). Until you add them,
-> the images render as broken links on GitHub.
-
 #### Home — agents at a glance
 
 Live list of herdr agents and panes with their current status (`idle`,
 `working`, `blocked`, `done`). Tap an agent to open it.
 
-<img src="docs/screenshots/home.png" alt="Home — agents list" width="260">
+<img src="docs/screenshots/agent_list.jpg" alt="Home — agents list" width="260">
 
 *Home screen: agent list with live status.*
 
@@ -175,7 +170,7 @@ Live list of herdr agents and panes with their current status (`idle`,
 Follows the agent's output as it streams, with auto-scroll. Use the controls to
 adjust font size, send a **prompt**, or send **keypresses** (Esc, Ctrl-C, text).
 
-<img src="docs/screenshots/agent.png" alt="Agent — terminal output" width="260">
+<img src="docs/screenshots/terminal_output.jpg" alt="Agent — terminal output" width="260">
 
 *Agent screen: live terminal output and input controls.*
 
@@ -183,7 +178,7 @@ adjust font size, send a **prompt**, or send **keypresses** (Esc, Ctrl-C, text).
 
 Manage herdr workspaces and start runs from the phone.
 
-<img src="docs/screenshots/run.png" alt="Run / Spaces — workspaces" width="260">
+<img src="docs/screenshots/spaces.jpg" alt="Run / Spaces — workspaces" width="260">
 
 *Run / Spaces screen.*
 
@@ -192,15 +187,13 @@ Manage herdr workspaces and start runs from the phone.
 Shows which connection modes are reachable and lets you switch between them
 manually or re-test reachability. Useful when you move between networks.
 
-<img src="docs/screenshots/connection.png" alt="Connection — modes and reachability" width="260">
-
-*Connection screen: available modes with manual switch.*
+*(Screenshot for this screen not added yet — will be linked here when it is.)*
 
 #### Settings — pairing profiles and preferences
 
 Manage saved pairing profiles, output polling behavior, and app preferences.
 
-<img src="docs/screenshots/settings.png" alt="Settings — profiles and preferences" width="260">
+<img src="docs/screenshots/settings.jpg" alt="Settings — profiles and preferences" width="260">
 
 *Settings screen.*
 

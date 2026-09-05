@@ -1,19 +1,24 @@
 # Screenshots for the README
 
-Drop the screenshots here using the exact file names below — the main
-[README](../../README.md) references these paths (in the *Step 4 — What you can
-do in the app* section). Until a file exists, the image renders as a broken link
-on GitHub.
+The screenshots live in this folder and are referenced from the main
+[README](../../README.md) (in the *Step 4 — What you can do in the app*
+section). If you replace a screenshot, overwrite the same file name — the
+README `<img src="docs/screenshots/...">` paths must stay in sync.
 
-## Required files
+## Files in use
 
-| File | What it shows | Suggested content |
-|------|---------------|-------------------|
-| `home.png` | Home screen | Agent list with live status chips (idle / working / blocked / done) |
-| `agent.png` | Agent screen | Live terminal output with the input / control bar (prompt, keys, font size) |
-| `run.png` | Run / Spaces screen | Workspace list and run controls |
-| `connection.png` | Connection screen | Available connection modes with reachability and manual switch |
-| `settings.png` | Settings screen | Pairing profiles and app preferences |
+| File | What it shows |
+|------|---------------|
+| `agent_list.jpg` | Home screen — agent list with live status chips (idle / working / blocked / done) |
+| `terminal_output.jpg` | Agent screen — live terminal output with the input / control bar (prompt, keys, font size) |
+| `spaces.jpg` | Run / Spaces screen — workspace list and run controls |
+| `settings.jpg` | Settings screen — pairing profiles and app preferences |
+
+## Missing
+
+- `connection.jpg` — Connection screen (available connection modes with
+  reachability and manual switch). The README section exists but no screenshot
+  has been added yet; the section just mentions this.
 
 ## How to take them
 
@@ -21,13 +26,5 @@ on GitHub.
   one; a plain screenshot of each screen is fine.
 - Keep the phone in portrait orientation so the images match the `width="260"`
   layout in the README.
-- PNG or JPEG both work; PNG is preferred for crisp text.
-- Name the files **exactly** as in the table above (lowercase), overwriting the
-  file if it exists.
-
-## Optional extras
-
-If you want to show more, add a `pair-qr.png` (the herdr pane with the pairing
-QR) — nothing in the README references it yet, but it is a natural fit next to
-*Step 1 — Show the pairing QR code*; just add an `<img>` line there and mention
-it here.
+- JPEG or PNG both work; this folder currently uses `.jpg`.
+- Name files to match the README `<img src="docs/screenshots/...">` paths.
