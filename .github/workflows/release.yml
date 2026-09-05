@@ -1,0 +1,80 @@
+# Release pipeline for the relay binaries.
+#
+# On a tag push vX.Y.Z (matching plugin/herdr-plugin.toml version) build the
+# relay for macOS + Linux, attach `herdrelay-<ver>-<os>-<arch>.tar.gz` and its
+# `.sha256` to the GitHub Release. `plugin/install.sh` downloads these artifacts
+# so a user installing the herdr plugin does not need a Go toolchain.
+#
+# Usage:
+#   git tag v0.5.0 && git push origin v0.5.0
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - darwin-arm64
+          - darwin-amd64
+          - linux-arm64
+          - linux-amd64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Resolve OS/ARCH
+        id: osarch
+        run: |
+          case "${{ matrix.target }}" in
+            darwin-arm64)  os=darwin; arch=arm64 ;;
+            darwin-amd64)  os=darwin; arch=amd64 ;;
+            linux-arm64)   os=linux;  arch=arm64 ;;
+            linux-amd64)   os=linux;  arch=amd64 ;;
+          esac
+          echo "os=$os" >> "$GITHUB_OUTPUT"
+          echo "arch=$arch" >> "$GITHUB_OUTPUT"
+      - name: Build
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          mkdir -p dist/stage
+          CGO_ENABLED=0 GOOS=${{ steps.osarch.outputs.os }} GOARCH=${{ steps.osarch.outputs.arch }} \
+            go build -trimpath -ldflags "-s -w" \
+            -o "dist/stage/herdrelay" ./cmd/relay
+          tar -C dist/stage -czf "dist/herdrelay-${version}-${{ matrix.target }}.tar.gz" herdrelay
+          (cd dist && shasum -a 256 "herdrelay-${version}-${{ matrix.target }}.tar.gz" \
+            > "herdrelay-${version}-${{ matrix.target }}.tar.gz.sha256")
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.target }}
+          path: dist/*.tar.gz*
+          if-no-files-found: error
+
+  release:
+    name: Attach to GitHub Release
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: List artifacts
+        run: ls -la dist
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: dist/*.tar.gz*

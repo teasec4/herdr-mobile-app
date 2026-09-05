@@ -28,13 +28,17 @@ scripts**. There is no SDK: herdr registers the manifest and runs its commands
 as plain processes. Inside the commands we call `herdr ...` through the
 `HERDR_BIN_PATH` env var (points at the running herdr binary).
 
-The manifest registers three entry points (see `herdr-plugin.toml`):
+The manifest registers the entry points (see `herdr-plugin.toml`):
 
 | Section | Script | When herdr calls it |
 | --- | --- | --- |
 | `[[build]]` | `install.sh` | on `herdr plugin install` (not on `link`) |
-| `[[actions]]` | `open-pane.sh setup` | from the herdr menu / hotkey: "Show QR" |
-| `[[panes]]` | `setup-menu.sh` | when the `setup` pane opens (zoomed in herdr's terminal) |
+| `[[actions]]` | `open-pane.sh setup` | "Show QR" — opens the pairing pane |
+| `[[actions]]` | `open-pane.sh configure` | switch lan/tailscale/funnel/gateway |
+| `[[actions]]` | `open-pane.sh status` | relay status / logs pane |
+| `[[actions]]` | `service-ctl.sh start/stop/restart` | manage the relay service |
+| `[[actions]]` | `service-ctl.sh uninstall` | remove service, keep pairing state |
+| `[[panes]]` | `setup-menu.sh` / `status-menu.sh` / `configure.sh` | the matching zoomed panes |
 
 ### QR pairing: phone -> pair
 
@@ -56,13 +60,21 @@ herdr menu: "Herdr Mobile: show phone link / QR"
 
 ### Relay installation
 
-`install.sh` builds the Go relay from the repo root into
-`~/.local/bin/herdrelay` and installs the launchd service
+`install.sh` obtains the relay binary and installs the launchd service
 `com.herdrelay.relay` (RunAtLoad + KeepAlive, port 8375 by default). The
-binary lives outside the plugin directory on purpose: herdr runs `[[build]]`
-from a temporary checkout it moves afterwards (and replaces on reinstall), so
-the launchd plist must never point inside the plugin root. The relay is a
-**system service**, not a herdr process: it survives herdr restarts.
+binary lives at `~/.local/bin/herdrelay`, outside the plugin directory on
+purpose: herdr runs `[[build]]` from a temporary checkout it moves afterwards
+(and replaces on reinstall), so the launchd plist must never point inside the
+plugin root. The relay is a **system service**, not a herdr process: it
+survives herdr restarts.
+
+Binary source precedence (see `install.sh` header):
+1. **Release artifact** — downloads `herdrelay-<ver>-<os>-<arch>.tar.gz` for
+the manifest version from the GitHub Release and verifies its `.sha256`, so
+**no Go toolchain is needed on the host** (macOS + Linux builds are attached
+by the `.github/workflows/release.yml` pipeline on every `vX.Y.Z` tag).
+2. **Source build** — falls back to `go build` from the repo root (used before
+the first tagged release, unreleased versions, or `HERDRELAY_FORCE_BUILD=1`).
 
 ## Install and link
 
@@ -78,6 +90,9 @@ herdr plugin install teasec4/herdr-mobile-app/plugin
 # checks:
 herdr plugin list
 herdr plugin action list --plugin herdrelay.events
+# service control (from herdr menus or CLI):
+herdr plugin action invoke herdrelay.events.restart
+herdr plugin action invoke herdrelay.events.uninstall-service   # keeps pairing
 herdr plugin log list --plugin herdrelay.events
 ```
 
@@ -90,9 +105,12 @@ pairing link). Override with env `HERDRELAY_TOKEN_FILE`.
 | File | Role |
 | --- | --- |
 | `herdr-plugin.toml` | manifest: registers build/actions/panes (no `[[events]]`) |
-| `install.sh` | `[[build]]`: build the relay + install the launchd service |
+| `install.sh` | `[[build]]`: download or build the relay + install the launchd service |
 | `open-pane.sh` | `[[actions]]`: open a plugin pane by id |
+| `service-ctl.sh` | `[[actions]]`: start/stop/restart/uninstall the relay service |
 | `setup-menu.sh` | `[[panes]]`: pane with relay status and the pairing QR |
+| `status-menu.sh` | `[[panes]]`: read-only relay status + logs pane |
+| `configure.sh` | `[[panes]]`: interactive mode selection menu |
 | `redeploy.sh` | dev loop: rebuild relay + restart service + re-link plugin |
 | `relay-lib.sh` | shared helpers (`relay_bin_path`, plist/log paths) |
 

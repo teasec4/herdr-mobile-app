@@ -4,10 +4,12 @@
 #   herdr plugin link ~/herdr-relay/plugin   # local dev
 #   herdr plugin install teasec4/herdr-mobile-app/plugin          # from GitHub (clones the repo)
 #
-# [[build]] runs install.sh on `plugin install`: builds the Go relay from the
-# repo root into ~/.local/bin/herdrelay (stable path, never inside the plugin
-# root) and installs the launchd service. `herdr plugin link`
-# does not run build (see persiyanov/herdr-reviewr reference) — locally call:
+# [[build]] runs install.sh on `plugin install`: it downloads the prebuilt
+# relay for this platform/version from the GitHub Release (verified by sha256)
+# and installs the launchd service — no Go toolchain needed. If no matching
+# release exists yet it falls back to `go build` from the repo root.
+# `herdr plugin link` does not run build (see persiyanov/herdr-reviewr
+# reference) — locally call:
 #   bash plugin/install.sh
 #
 # After install: herdr plugin action invoke show-pair-link --plugin herdrelay.events
@@ -23,9 +25,10 @@ min_herdr_version = "0.8.0"
 # macOS-specific. Linux support may come later (systemd unit in install.sh).
 platforms = ["macos"]
 
-# Build the Go relay into ~/.local/bin/herdrelay and install the launchd
-# service (macOS). HERDR_PLUGIN_ROOT is a managed/temporary checkout during
-# [[build]], so the binary and plist must live outside it.
+# Obtain the relay binary into ~/.local/bin/herdrelay (download or go build)
+# and install the launchd service (macOS). HERDR_PLUGIN_ROOT is a
+# managed/temporary checkout during [[build]], so the binary and plist must
+# live outside it.
 [[build]]
 command = ["bash", "install.sh"]
 
@@ -53,12 +56,47 @@ id = "configure-relay"
 title = "Herdr Mobile: configure mode (lan/tailscale/funnel/gateway)"
 command = ["bash", "open-pane.sh", "configure"]
 
+# "Status / logs" — read-only relay state pane (no QR).
+[[actions]]
+id = "status"
+title = "Herdr Mobile: relay status / logs"
+command = ["bash", "open-pane.sh", "status"]
+
+# Service control (macOS launchd). uninstall-service keeps the pairing state
+# (token/identity), so re-installing reconnects without a new QR.
+[[actions]]
+id = "start"
+title = "Herdr Mobile: start relay service"
+command = ["bash", "service-ctl.sh", "start"]
+
+[[actions]]
+id = "stop"
+title = "Herdr Mobile: stop relay service"
+command = ["bash", "service-ctl.sh", "stop"]
+
+[[actions]]
+id = "restart"
+title = "Herdr Mobile: restart relay service"
+command = ["bash", "service-ctl.sh", "restart"]
+
+[[actions]]
+id = "uninstall-service"
+title = "Herdr Mobile: uninstall relay service (keeps pairing)"
+command = ["bash", "service-ctl.sh", "uninstall"]
+
 # Setup pane: relay status and the QR for the phone.
 [[panes]]
 id = "setup"
 title = "Herdr Mobile: Setup"
 placement = "zoomed"
 command = ["bash", "setup-menu.sh"]
+
+# Status pane: relay health + logs.
+[[panes]]
+id = "status"
+title = "Herdr Mobile: Status"
+placement = "zoomed"
+command = ["bash", "status-menu.sh"]
 
 # Configure pane: interactive mode selection menu.
 [[panes]]
