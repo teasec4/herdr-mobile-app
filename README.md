@@ -74,7 +74,7 @@ herdr plugin install teasec4/herdr-mobile-app/plugin
 
 ### What the installer does (and why it matters)
 
-- Builds the Go relay into `plugin/bin/herdrelay`.
+- Builds the Go relay into `~/.local/bin/herdrelay`.
 - Installs it as a **launchd service** named `com.herdrelay.relay` (on macOS).
   It autostarts at login and keeps running **even when herdr is not running** —
   that is why the relay is a separate process and not a herdr plugin hook.
@@ -116,8 +116,8 @@ half-blocks right in the pane). The pane closes by itself after a few seconds.
 **Directly from the terminal:**
 
 ```bash
-./plugin/bin/herdrelay pair --qr      # prints the QR code
-./plugin/bin/herdrelay pair           # prints just the pairing link as text
+~/.local/bin/herdrelay pair --qr      # prints the QR code
+~/.local/bin/herdrelay pair           # prints just the pairing link as text
 ```
 
 > **Note:** this shows the *current* token — it does **not** reset it. If you
@@ -229,7 +229,7 @@ address in the link changes with the mode.
 
 ```bash
 curl http://127.0.0.1:8375/healthz   # → {"ok":true}
-./plugin/bin/herdrelay status        # status summary
+~/.local/bin/herdrelay status        # status summary
 ```
 
 **Restart the relay (macOS):**
@@ -285,7 +285,7 @@ delete the token file and restart the relay:
 ```bash
 rm ~/.config/herdr/herdrelay.token
 launchctl kickstart -k gui/$(id -u)/com.herdrelay.relay
-./plugin/bin/herdrelay pair --qr     # now shows a fresh token
+~/.local/bin/herdrelay pair --qr     # now shows a fresh token
 ```
 
 > **Warning:** this revokes every existing pairing — rescans will be required

@@ -18,6 +18,16 @@ relay_plist_path() {
     echo "$HOME/Library/LaunchAgents/com.herdrelay.relay.plist"
 }
 
+# Stable location of the relay binary, independent of the plugin directory.
+#
+# herdr runs [[build]] (install.sh) from a temporary checkout that it moves to
+# its final managed location afterwards, and it replaces that checkout on
+# reinstall — so a launchd plist must never point inside the plugin root. The
+# binary therefore lives under ~/.local/bin (override with HERDRELAY_BIN).
+relay_bin_path() {
+    echo "${HERDRELAY_BIN:-${XDG_BIN_HOME:-$HOME/.local/bin}/herdrelay}"
+}
+
 relay_log_dir() {
     echo "${XDG_STATE_HOME:-$HOME/.local/state}/herdrelay"
 }
@@ -30,7 +40,7 @@ write_relay_plist() {
     local mode="$1"
     local herdr_bin="$2"
     local gateway_url="${3:-}"
-    local bin_dir="$RELAY_LIB_DIR/bin"
+    local relay_bin="$(relay_bin_path)"
     local plist log_dir gw_block
 
     plist="$(relay_plist_path)"
@@ -52,7 +62,7 @@ write_relay_plist() {
   <string>com.herdrelay.relay</string>
   <key>ProgramArguments</key>
   <array>
-    <string>$bin_dir/herdrelay</string>
+    <string>$relay_bin</string>
   </array>
   <key>RunAtLoad</key>
   <true/>

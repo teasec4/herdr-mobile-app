@@ -10,11 +10,17 @@
 #   bash plugin/install.sh
 #
 # Side effects:
-#   - bin/herdrelay                                    built relay binary
+#   - ~/.local/bin/herdrelay                            built relay binary (stable path)
 #   - ~/Library/LaunchAgents/com.herdrelay.relay.plist   launchd service
 #   - ${XDG_STATE_HOME:-$HOME/.local/state}/herdrelay/   service logs
 #
+# Why ~/.local/bin and not plugin/bin: herdr runs [[build]] from a temporary
+# checkout and moves it to its managed location afterwards (and replaces it on
+# reinstall), so a launchd plist must never point inside the plugin root.
+# Override the binary location with HERDRELAY_BIN.
+#
 # Environment:
+#   HERDRELAY_BIN         absolute relay binary path (default ~/.local/bin/herdrelay)
 #   HERDRELAY_MODE        lan | tailscale | funnel | gateway (default: lan)
 #   HERDRELAY_GATEWAY_URL required only for mode=gateway
 #   HERDRELAY_PORT        port used by the healthz check (default 8375)
@@ -26,8 +32,11 @@ set -euo pipefail
 # [[build]], same as in the persiyanov/herdr-reviewr reference).
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$ROOT/.." && pwd)"
-BIN_DIR="$ROOT/bin"
-LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/herdrelay"
+source "$ROOT/relay-lib.sh"
+
+BIN="$(relay_bin_path)"
+BIN_DIR="$(dirname "$BIN")"
+LOG_DIR="$(relay_log_dir)"
 PORT="${HERDRELAY_PORT:-8375}"
 MODE="${HERDRELAY_MODE:-lan}"
 GW="${HERDRELAY_GATEWAY_URL:-}"
@@ -40,10 +49,9 @@ if [ -z "$HERDR_BIN" ]; then
     echo "Herdr Mobile: install herdr, then re-run install.sh to enable it." >&2
 fi
 
-source "$ROOT/relay-lib.sh"
-
-echo "Herdr Mobile: building relay binary..."
-( cd "$REPO_ROOT" && go build -o "$BIN_DIR/herdrelay" ./cmd/relay )
+echo "Herdr Mobile: building relay binary ($BIN)..."
+mkdir -p "$BIN_DIR"
+( cd "$REPO_ROOT" && go build -o "$BIN" ./cmd/relay )
 
 echo "Herdr Mobile: installing launchd service (mode=$MODE)..."
 write_relay_plist "$MODE" "$HERDR_BIN" "$GW"

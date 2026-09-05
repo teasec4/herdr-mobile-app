@@ -28,7 +28,7 @@ Shows:
 ```
 
 One command does everything:
-1. Builds the relay binary (`plugin/bin/herdrelay`) from the Go code;
+1. Builds the relay binary (`~/.local/bin/herdrelay`) from the Go code;
 2. Restarts the launchd service `com.herdrelay.relay` so the new build gets picked up;
 3. Relinks the herdr plugin `herdrelay.events` — the manifest and hook scripts are re-read;
 4. Checks health: `/healthz` and `agents.snapshot`.
@@ -201,7 +201,8 @@ All checkmarks should be green ✓
 │   ├── herdr-plugin.toml   # Plugin manifest
 │   ├── install.sh          # Build and install
 │   ├── setup-menu.sh       # Setup menu
-│   └── bin/herdrelay       # Compiled binary
+│   ├── relay-lib.sh        # Shared helpers (paths, plist)
+│   └── ...  (binary installs to ~/.local/bin/herdrelay)
 ├── client/                 # Flutter client
 │   └── lib/
 ├── relay-status.sh         # This script

@@ -56,10 +56,13 @@ herdr menu: "Herdr Mobile: show phone link / QR"
 
 ### Relay installation
 
-`install.sh` builds the Go relay from the repo root into `bin/herdrelay` and
-installs the launchd service `com.herdrelay.relay` (RunAtLoad + KeepAlive,
-port 8375 by default). The relay is a **system service**, not a herdr process:
-it survives herdr restarts.
+`install.sh` builds the Go relay from the repo root into
+`~/.local/bin/herdrelay` and installs the launchd service
+`com.herdrelay.relay` (RunAtLoad + KeepAlive, port 8375 by default). The
+binary lives outside the plugin directory on purpose: herdr runs `[[build]]`
+from a temporary checkout it moves afterwards (and replaces on reinstall), so
+the launchd plist must never point inside the plugin root. The relay is a
+**system service**, not a herdr process: it survives herdr restarts.
 
 ## Install and link
 
@@ -91,7 +94,10 @@ pairing link). Override with env `HERDRELAY_TOKEN_FILE`.
 | `open-pane.sh` | `[[actions]]`: open a plugin pane by id |
 | `setup-menu.sh` | `[[panes]]`: pane with relay status and the pairing QR |
 | `redeploy.sh` | dev loop: rebuild relay + restart service + re-link plugin |
-| `bin/herdrelay` | built Go relay (artifact of `install.sh`) |
+| `relay-lib.sh` | shared helpers (`relay_bin_path`, plist/log paths) |
+
+The built relay is installed to `~/.local/bin/herdrelay` (override:
+`HERDRELAY_BIN`), not committed to the repo — see `.gitignore` (`/plugin/bin/`).
 
 ## Redeploy after code changes
 

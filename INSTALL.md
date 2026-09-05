@@ -136,7 +136,7 @@ After changing modes, scan the new QR code in the app.
 
 ```bash
 # Via relay command (from the repo root)
-./plugin/bin/herdrelay status
+~/.local/bin/herdrelay status
 
 # Via health check
 curl http://127.0.0.1:8375/healthz
@@ -179,7 +179,7 @@ cat ~/.local/state/herdrelay/relay.err.log
 
 ```bash
 # Regenerate token and show new QR (from the repo root)
-./plugin/bin/herdrelay pair --qr
+~/.local/bin/herdrelay pair --qr
 ```
 
 ## Building from Source
@@ -189,7 +189,7 @@ cat ~/.local/state/herdrelay/relay.err.log
 ```bash
 git clone https://github.com/teasec4/herdr-mobile-app.git
 cd herdr_relay
-go build -o plugin/bin/herdrelay ./cmd/relay
+go build -o ~/.local/bin/herdrelay ./cmd/relay
 bash plugin/install.sh
 ```
 

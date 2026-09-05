@@ -5,7 +5,8 @@
 # Usage: bash plugin/redeploy.sh
 #
 # What it does:
-#   1. builds the relay binary into plugin/bin/herdrelay
+#   1. builds the relay binary into ~/.local/bin/herdrelay (stable path — the
+#      launchd service must not point inside the plugin directory)
 #   2. restarts the launchd service (com.herdrelay.relay) so the new binary
 #      is picked up (KeepAlive=true would restart on crash, not on rebuild)
 #   3. re-links the herdr plugin (herdr re-reads herdr-plugin.toml and the
@@ -13,21 +14,25 @@
 #   4. health-checks the relay: /healthz then /api/rpc agents.snapshot
 #
 # Environment (same as install.sh):
+#   HERDRELAY_BIN       absolute relay binary path (default ~/.local/bin/herdrelay)
 #   HERDRELAY_PORT      port for the health checks (default 8375)
 #   HERDRELAY_PLUGIN_ID plugin id to re-link (default herdrelay.events)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$ROOT/.." && pwd)"
-BIN_DIR="$ROOT/bin"
-LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/herdrelay"
+source "$ROOT/relay-lib.sh"
+BIN="$(relay_bin_path)"
+BIN_DIR="$(dirname "$BIN")"
+LOG_DIR="$(relay_log_dir)"
 PORT="${HERDRELAY_PORT:-8375}"
 PLUGIN_ID="${HERDRELAY_PLUGIN_ID:-herdrelay.events}"
-PLIST="$HOME/Library/LaunchAgents/com.herdrelay.relay.plist"
+PLIST="$(relay_plist_path)"
 
 # 1. Build ---------------------------------------------------------------
 echo "→ building relay binary..."
-( cd "$REPO_ROOT" && go build -o "$BIN_DIR/herdrelay" ./cmd/relay )
+mkdir -p "$BIN_DIR"
+( cd "$REPO_ROOT" && go build -o "$BIN" ./cmd/relay )
 
 # 2. Restart the launchd service ------------------------------------------
 echo "→ restarting launchd service (com.herdrelay.relay)..."

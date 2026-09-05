@@ -14,7 +14,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-BIN="$ROOT/bin/herdrelay"
+source "$ROOT/relay-lib.sh"
+BIN="$(relay_bin_path)"
 PORT="${HERDRELAY_PORT:-8375}"
 
 echo "== Herdr Mobile: status =="
@@ -25,7 +26,7 @@ if curl -s -m 2 "http://127.0.0.1:${PORT}/healthz" >/dev/null; then
     if [ -x "$BIN" ]; then
         "$BIN" pair --qr
     else
-        echo "relay binary missing: run 'bash $ROOT/install.sh'" >&2
+        echo "relay binary missing at $BIN: run 'bash $ROOT/install.sh'" >&2
     fi
 else
     echo "relay: NOT running"

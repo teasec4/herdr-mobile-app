@@ -5,7 +5,8 @@
 #   herdr plugin install teasec4/herdr-mobile-app/plugin          # from GitHub (clones the repo)
 #
 # [[build]] runs install.sh on `plugin install`: builds the Go relay from the
-# repo root into bin/ and installs the launchd service. `herdr plugin link`
+# repo root into ~/.local/bin/herdrelay (stable path, never inside the plugin
+# root) and installs the launchd service. `herdr plugin link`
 # does not run build (see persiyanov/herdr-reviewr reference) — locally call:
 #   bash plugin/install.sh
 #
@@ -22,7 +23,9 @@ min_herdr_version = "0.8.0"
 # macOS-specific. Linux support may come later (systemd unit in install.sh).
 platforms = ["macos"]
 
-# Build the Go relay into bin/ and install the launchd service (macOS).
+# Build the Go relay into ~/.local/bin/herdrelay and install the launchd
+# service (macOS). HERDR_PLUGIN_ROOT is a managed/temporary checkout during
+# [[build]], so the binary and plist must live outside it.
 [[build]]
 command = ["bash", "install.sh"]
 

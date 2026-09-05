@@ -30,6 +30,22 @@ void main() {
     t.status.removeListener(listener);
   }
 
+  /// Polls until [cond] holds or [timeout] elapses. Use instead of fixed
+  /// `Future.delayed` sleeps so tests do not race under parallel-suite load.
+  Future<void> waitUntil(
+    bool Function() cond, {
+    Duration timeout = const Duration(seconds: 5),
+    String? reason,
+  }) async {
+    final deadline = DateTime.now().add(timeout);
+    while (!cond()) {
+      if (DateTime.now().isAfter(deadline)) {
+        fail('condition not met within $timeout${reason == null ? '' : ': $reason'}');
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+  }
+
   group('WebSocketTransport', () {
     test('connect delivers status transitions and inbound string frames',
         () async {
@@ -161,6 +177,65 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 1600));
       expect(calls, 2, reason: 'reconnect after resume');
 
+      await t.close();
+    });
+
+    test('short background keeps the live connection (no reconnect churn)',
+        () async {
+      var calls = 0;
+      final t = WebSocketTransport(
+        channelFactory: (u, headers) {
+          calls++;
+          return FakeWebSocketChannel();
+        },
+        staleAfterBackground: const Duration(milliseconds: 200),
+      );
+      await t.connect(uri);
+      expect(calls, 1);
+
+      t.pause();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      t.resume(); // well below the staleness threshold
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(calls, 1, reason: 'quick app switch must not reconnect');
+      expect(t.status.value, ConnectionStatus.connected);
+      await t.close();
+    });
+
+    test('long background forces a reconnect of a stale socket on resume',
+        () async {
+      var calls = 0;
+      late FakeWebSocketChannel first;
+      final t = WebSocketTransport(
+        channelFactory: (u, headers) {
+          calls++;
+          final c = FakeWebSocketChannel();
+          if (calls == 1) first = c;
+          return c;
+        },
+        staleAfterBackground: const Duration(milliseconds: 100),
+      );
+      await t.connect(uri);
+      expect(calls, 1);
+      expect(t.status.value, ConnectionStatus.connected);
+
+      // The OS suspends backgrounded apps and silently kills their sockets,
+      // but the transport still *thinks* it is connected. After a long enough
+      // background the resume must open a fresh handshake instead of waiting
+      // for keepalive (20 s) + pong window (10 s) to notice the dead socket.
+      t.pause();
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      t.resume();
+      // Resume fires the reconnect asynchronously; the status was already
+      // "connected" (zombie), so wait on the handshake itself, not the status.
+      await waitUntil(() => calls >= 2,
+          reason: 'stale socket reconnected on resume');
+      await waitStatus(t, ConnectionStatus.connected);
+
+      expect(calls, 2, reason: 'stale socket reconnected on resume');
+      expect(t.status.value, ConnectionStatus.connected);
+      expect(first.sent, isEmpty);
       await t.close();
     });
 

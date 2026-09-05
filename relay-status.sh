@@ -12,6 +12,17 @@ COLOR_RESET='\033[0m'
 TOKEN_FILE="${HERDRELAY_TOKEN_FILE:-$HOME/.config/herdr/herdrelay.token}"
 RELAY_PORT=8375
 
+# Relay binary: stable install path (~/.local/bin/herdrelay), with a fallback
+# to the legacy plugin/bin location for older checkouts.
+relay_bin() {
+  local stable="${HERDRELAY_BIN:-$HOME/.local/bin/herdrelay}"
+  if [[ -f "$stable" ]]; then
+    echo "$stable"
+  else
+    echo "$(dirname "$0")/plugin/bin/herdrelay"
+  fi
+}
+
 # Get the relay token
 get_token() {
   if [[ -f "$TOKEN_FILE" ]]; then
@@ -29,10 +40,10 @@ check_process() {
     ps aux | grep herdrelay | grep -v grep | awk '{print "  PID:", $2, "CPU:", $3"%", "MEM:", $4"%", "Uptime:", $10}'
 
     # Binary version (by modification date)
-    BINARY="$(dirname "$0")/plugin/bin/herdrelay"
+    BINARY="$(relay_bin)"
     if [[ -f "$BINARY" ]]; then
       MOD_TIME=$(stat -f "%Sm" -t "%Y-%m-%d %H:%M:%S" "$BINARY" 2>/dev/null || stat -c "%y" "$BINARY" 2>/dev/null | cut -d. -f1)
-      echo "  Binary: $MOD_TIME"
+      echo "  Binary: $MOD_TIME ($BINARY)"
     fi
   else
     echo -e "${COLOR_RED}✗ Not running${COLOR_RESET}"
@@ -157,7 +168,7 @@ update_relay() {
 
 # Check whether the binary is stale relative to the sources
 check_staleness() {
-  BINARY="$(dirname "$0")/plugin/bin/herdrelay"
+  BINARY="$(relay_bin)"
   [[ -f "$BINARY" ]] || return 0
   ROOT="$(cd "$(dirname "$0")" && pwd)"
 
