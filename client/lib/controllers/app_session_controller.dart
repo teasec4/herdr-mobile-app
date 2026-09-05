@@ -52,6 +52,15 @@ class AppSessionController extends ChangeNotifier {
   ConnectionFallbackManager? _fallbackManager;
   bool _disposed = false;
 
+  /// Mode currently stored for the active profile. Persistence follows
+  /// reality: a mode is written to [ConfigStore] only after a real connect, so
+  /// the profile never points at an endpoint that the fallback manager merely
+  /// *proposed* and that never answered (e.g. LAN while away from home).
+  String? _persistedMode;
+
+  /// The relay client whose status is watched to persist the mode on connect.
+  RelayClient? _watchedClient;
+
   /// The currently active pair, or null when the app is unpaired.
   PairConfig? get config => _config;
 
@@ -71,6 +80,9 @@ class AppSessionController extends ChangeNotifier {
   Future<void> bootstrap() async {
     final config = await _configStore.loadActive();
     if (config == null) return;
+    // The loaded profile is by definition what the store holds: seed the
+    // persisted-mode marker so a plain cold-start connect does not rewrite it.
+    _persistedMode = config.mode;
     await setConfig(config);
   }
 
@@ -109,6 +121,7 @@ class AppSessionController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _detachClientStatusListener();
     _disarmFallback();
     super.dispose();
   }
@@ -148,6 +161,7 @@ class AppSessionController extends ChangeNotifier {
     PairConfig config, {
     RelayClient Function(PairConfig)? clientFactory,
   }) async {
+    _detachClientStatusListener();
     await teardownRelayServices();
     await setupRelayServices(config, clientFactory: clientFactory ?? this.clientFactory);
     // Notification taps (and cold-start launches) open the agent pane; the
@@ -155,9 +169,13 @@ class AppSessionController extends ChangeNotifier {
     getIt<NotificationService>().onOpenAgent = onOpenAgent;
     _reattachFallback(config);
     _setActive(config);
+    // Persist the mode once it actually connects (a fallback candidate that
+    // never connects must not become the stored profile mode).
+    _attachClientStatusListener();
   }
 
   Future<void> _clearLocked() async {
+    _detachClientStatusListener();
     await teardownRelayServices();
     _disarmFallback();
     _setActive(null);
@@ -198,16 +216,47 @@ class AppSessionController extends ChangeNotifier {
   }
 
   /// Applies a candidate config from [ConnectionFallbackManager]: tell the
-  /// user, remember the new endpoint set, and reconnect (which re-arms the
-  /// manager for the next hop).
+  /// user and reconnect (which re-arms the manager for the next hop). The
+  /// profile is deliberately NOT rewritten here — a fallback candidate may be
+  /// unreachable (LAN while away), so the mode is only persisted once it
+  /// actually connects ([_onRelayClientStatus]).
   Future<void> _onAutoFallback(PairConfig config) async {
     onAutoFallback?.call(config);
     try {
-      await _configStore.saveProfile(config);
       await setConfig(config);
     } catch (_) {
-      // Save or reconnect failed; the current transport's own reconnect loop
-      // keeps retrying the original endpoint, so nothing is lost.
+      // Reconnect failed; the current transport's own reconnect loop keeps
+      // retrying the original endpoint, so nothing is lost.
     }
+  }
+
+  /// Watches the client that was just set up: the active mode is persisted
+  /// only once the relay is really reachable over it, so a cold start never
+  /// resumes on an endpoint the app could not reach when it last connected.
+  void _attachClientStatusListener() {
+    if (getIt.isRegistered<RelayClient>()) {
+      _watchedClient = getIt<RelayClient>();
+      _watchedClient!.status.addListener(_onRelayClientStatus);
+      // The client may already be connected (fast connect while services were
+      // being set up): persist now instead of waiting for an event.
+      _onRelayClientStatus();
+    }
+  }
+
+  void _detachClientStatusListener() {
+    _watchedClient?.status.removeListener(_onRelayClientStatus);
+    _watchedClient = null;
+  }
+
+  void _onRelayClientStatus() {
+    final client = _watchedClient;
+    final config = _config;
+    if (client == null || config == null) return;
+    if (client.status.value != RelayStatus.connected) return;
+    if (config.mode == _persistedMode) return;
+    _persistedMode = config.mode;
+    // Fire-and-forget: persistence is best-effort and must not stall anything.
+    // ignore: unawaited_futures
+    _configStore.saveProfile(config);
   }
 }

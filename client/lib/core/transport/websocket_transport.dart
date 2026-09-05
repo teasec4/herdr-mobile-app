@@ -41,6 +41,7 @@ class WebSocketTransport with ReconnectMixin implements Transport {
     this.keepalivePongTimeout = const Duration(seconds: 10),
     this.keepaliveRequest = PingFrame.wire,
     this.keepaliveResponse = PongFrame.wire,
+    this.staleAfterBackground = const Duration(seconds: 30),
   })  : _channelFactory = channelFactory ?? connectWithHeaders,
         retryPolicy = retryPolicy ?? ExponentialBackoff() {
     status = ValueNotifier<ConnectionStatus>(ConnectionStatus.disconnected);
@@ -75,6 +76,14 @@ class WebSocketTransport with ReconnectMixin implements Transport {
 
   /// Response string that satisfies keepalive.
   final String keepaliveResponse;
+
+  /// How long the app may stay backgrounded before [resume] treats the socket
+  /// as stale. Mobile OSes suspend backgrounded apps and silently drop their
+  /// sockets, so after a long background the transport would otherwise sit in a
+  /// zombie "connected" state until keepalive notices the dead socket
+  /// (up to keepaliveInterval + keepalivePongTimeout). Reconnects after this
+  /// threshold instead of waiting (docs: metro / backgrounded app).
+  final Duration staleAfterBackground;
 
   @override
   late final ValueNotifier<ConnectionStatus> status;
@@ -191,18 +200,50 @@ class WebSocketTransport with ReconnectMixin implements Transport {
     _channel?.sink.add(data);
   }
 
+  /// Set while paused so [resume] can measure how long the app was away.
+  Stopwatch? _backgroundWatch;
+
   @override
   void pause() {
     super.pause();
+    // pause() can be delivered twice in a row (hidden -> paused); the first
+    // call owns the timestamp.
+    _backgroundWatch ??= (Stopwatch()..start());
     _stopKeepalive();
   }
 
   @override
   void resume() {
     super.resume();
-    if (status.value == ConnectionStatus.connected) {
+    final watch = _backgroundWatch;
+    _backgroundWatch = null;
+    final backgroundedFor = watch?.elapsed;
+    watch?.stop();
+    if (status.value != ConnectionStatus.connected) return; // mixin reconnects
+    if (backgroundedFor != null && backgroundedFor >= staleAfterBackground) {
+      // The OS suspended the app and almost certainly killed the socket while
+      // we were away, yet our status still says connected. Force a fresh
+      // handshake now instead of waiting for keepalive to notice the dead
+      // connection (10-30 s of zombie "online" with failing requests).
+      // ignore: unawaited_futures
+      _reconnectStaleSocket();
+    } else {
+      // Quick background hop: keep the live connection, just restart keepalive.
       _startKeepalive();
     }
+  }
+
+  /// Closes the stale channel and opens a fresh one to the same URI.
+  Future<void> _reconnectStaleSocket() async {
+    _stopKeepalive();
+    // A channel whose handshake never completed will never answer the close
+    // frame, so sink.close() would hang teardown forever — bound the wait.
+    await _channel?.sink.close().timeout(
+      const Duration(seconds: 1),
+      onTimeout: () {},
+    );
+    _channel = null;
+    await reconnectNow();
   }
 
   @override
